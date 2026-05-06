@@ -11139,6 +11139,29 @@ app.post("/api/admin/test-emails", adminMiddleware, async (req, res) => {
   });
 });
 
+// ─── Healthcheck (Railway, uptime monitors) ──────────────────────────────────
+app.get("/api/health", async (_req, res) => {
+  const startedAt = Date.now();
+  const out = {
+    status: "ok",
+    uptimeSeconds: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    db: "unknown",
+    appleWallet: isAppleWalletConfigured() ? "configured" : "fallback",
+    googleWallet: isGoogleWalletConfigured() ? "configured" : "disabled",
+  };
+  try {
+    await pool.query("SELECT 1");
+    out.db = "ok";
+  } catch (err) {
+    out.db = "error";
+    out.dbError = String(err?.message ?? err).slice(0, 160);
+    res.status(503).json({ ...out, latencyMs: Date.now() - startedAt });
+    return;
+  }
+  res.status(200).json({ ...out, latencyMs: Date.now() - startedAt });
+});
+
 // ─── Serve React SPA (static) ────────────────────────────────────────────────
 const distDir = path.join(__dirname, "../dist");
 app.use(express.static(distDir));
