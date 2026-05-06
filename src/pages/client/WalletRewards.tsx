@@ -1,17 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  Tag,
+  EmptyState,
+  PrimaryButton,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink } from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Gift } from "lucide-react";
+import { Gift } from "lucide-react";
 
 const WalletRewards = () => {
-  const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
 
@@ -33,64 +37,107 @@ const WalletRewards = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wallet-pass"] });
       qc.invalidateQueries({ queryKey: ["loyalty-history"] });
-      toast({ title: "¡Recompensa canjeada!" });
+      toast({ title: "Recompensa canjeada." });
     },
     onError: (err: any) =>
-      toast({ title: "Error", description: err.response?.data?.message, variant: "destructive" }),
+      toast({
+        title: "No se pudo canjear",
+        description: err.response?.data?.message ?? "Inténtalo de nuevo.",
+        variant: "destructive",
+      }),
   });
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-2xl space-y-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/app/wallet")}>
-            <ArrowLeft size={16} className="mr-2" />Wallet
-          </Button>
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold">Canjear recompensas</h1>
-            <Badge variant="outline">{myPoints} puntos disponibles</Badge>
-          </div>
+      <AppShell hideGreeting>
+        <BackLink to="/app/wallet" label="Volver a Wallet" />
+        <PageHeader
+          eyebrow="Canjear puntos"
+          title={<>Tus recompensas</>}
+          titleAccent="del estudio."
+          actions={
+            <Tag tint="orange">{myPoints.toLocaleString("es-MX")} pts</Tag>
+          }
+        />
+
+        <Section>
           {isLoading ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[1, 2, 3, 4].map((i) => <SkeletonRow key={i} height={140} />)}
             </div>
           ) : rewards.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay recompensas disponibles</p>
+            <EmptyState
+              icon={<Gift size={20} />}
+              title="Sin recompensas disponibles."
+              description="Cuando Karla active recompensas nuevas, aparecen aquí."
+            />
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4 list-none m-0 p-0">
               {rewards.map((r) => {
-                const canRedeem = myPoints >= r.points_cost && (r.stock == null || r.stock > 0);
+                const cost = Number(r.points_cost ?? 0);
+                const stockLeft = r.stock != null ? Number(r.stock) : null;
+                const canRedeem = myPoints >= cost && (stockLeft == null || stockLeft > 0);
+                const progress = Math.min(100, Math.round((myPoints / Math.max(1, cost)) * 100));
                 return (
-                  <Card key={r.id}>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Gift size={16} className="text-primary" />
-                        {r.name}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Badge variant="secondary">{r.points_cost} puntos</Badge>
-                        {r.stock != null && (
-                          <span className="text-xs text-muted-foreground">{r.stock} disponibles</span>
+                  <li
+                    key={r.id}
+                    className="flex flex-col gap-4 rounded-3xl p-5"
+                    style={{ backgroundColor: KALA.blush }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className="grid h-11 w-11 place-items-center rounded-2xl shrink-0"
+                        style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+                      >
+                        <Gift size={18} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "1.2rem" }}>
+                          {r.name}
+                        </h3>
+                        {r.description && (
+                          <p className="mt-1 text-[0.84rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.65 }}>
+                            {r.description}
+                          </p>
                         )}
                       </div>
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        disabled={!canRedeem || redeemMutation.isPending}
-                        onClick={() => redeemMutation.mutate(r.id)}
-                      >
-                        {canRedeem ? "Canjear" : "Puntos insuficientes"}
-                      </Button>
-                    </CardContent>
-                  </Card>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between text-[0.72rem] uppercase tracking-[0.18em]">
+                        <span style={{ color: KALA.berry }}>{cost} pts</span>
+                        {stockLeft != null && (
+                          <span style={{ color: KALA.ink, opacity: 0.55 }}>{stockLeft} disponibles</span>
+                        )}
+                      </div>
+                      <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ backgroundColor: KALA.cream }}>
+                        <div
+                          className="h-full rounded-full transition-[width] duration-700"
+                          style={{ width: `${progress}%`, backgroundColor: canRedeem ? KALA.olive : KALA.coral }}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!canRedeem || redeemMutation.isPending}
+                      onClick={() => redeemMutation.mutate(r.id)}
+                      className="inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[0.76rem] font-medium uppercase tracking-[0.18em] transition-transform hover:-translate-y-0.5 disabled:opacity-50 disabled:translate-y-0 cursor-pointer disabled:cursor-not-allowed"
+                      style={{
+                        backgroundColor: canRedeem ? KALA.berry : "transparent",
+                        color: canRedeem ? KALA.cream : KALA.ink,
+                        border: canRedeem ? "0" : `1px solid ${KALA.border}`,
+                      }}
+                    >
+                      {canRedeem ? "Canjear" : `Te faltan ${Math.max(0, cost - myPoints)} pts`}
+                    </button>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
-        </div>
-      </ClientLayout>
+        </Section>
+      </AppShell>
     </ClientAuthGuard>
   );
 };

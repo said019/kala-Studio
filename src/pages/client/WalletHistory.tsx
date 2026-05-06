@@ -4,15 +4,21 @@ import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { safeParse } from "@/lib/utils";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  ListGroup,
+  ListRow,
+  EmptyState,
+  Tag,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink } from "@/components/app/widgets";
+import { ArrowDownRight, ArrowUpRight, History as HistoryIcon } from "lucide-react";
 
 const WalletHistory = () => {
-  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ["loyalty-history"],
     queryFn: async () => (await api.get("/loyalty/my-history")).data,
@@ -21,35 +27,53 @@ const WalletHistory = () => {
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-lg space-y-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/app/wallet")}>
-            <ArrowLeft size={16} className="mr-2" />Wallet
-          </Button>
-          <h1 className="text-xl font-bold">Historial de puntos</h1>
+      <AppShell hideGreeting>
+        <BackLink to="/app/wallet" label="Volver a Wallet" />
+        <PageHeader
+          eyebrow="Historial"
+          title={<>Tus puntos,</>}
+          titleAccent="movimiento a movimiento."
+        />
+
+        <Section>
           {isLoading ? (
-            <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{[1, 2, 3].map((i) => <SkeletonRow key={i} height={60} />)}</div>
           ) : history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Sin movimientos aún</p>
+            <EmptyState
+              icon={<HistoryIcon size={20} />}
+              title="Sin movimientos aún."
+              description="Cada vez que asistas o canjees, aparece aquí."
+            />
           ) : (
-            <div className="space-y-2">
-              {history.map((item, i) => (
-                <div key={i} className="flex items-center justify-between rounded-xl border p-3">
-                  <div>
-                    <p className="text-sm font-medium">{item.reason}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.created_at ? format(safeParse(item.created_at), "d MMM yyyy", { locale: es }) : "—"}
-                    </p>
-                  </div>
-                  <Badge variant={item.type === "earned" ? "default" : "secondary"}>
-                    {item.type === "earned" ? "+" : "-"}{item.points}
-                  </Badge>
-                </div>
-              ))}
-            </div>
+            <ListGroup>
+              {history.map((item, i) => {
+                const earned = item.type === "earned";
+                return (
+                  <ListRow
+                    key={i}
+                    icon={earned ? <ArrowUpRight size={17} strokeWidth={1.7} /> : <ArrowDownRight size={17} strokeWidth={1.7} />}
+                    iconTint={earned ? "olive" : "coral"}
+                    title={item.reason || (earned ? "Puntos ganados" : "Puntos usados")}
+                    description={
+                      item.created_at ? format(safeParse(item.created_at), "d MMM yyyy", { locale: es }) : "—"
+                    }
+                    trailing={
+                      <Tag tint={earned ? "olive" : "coral"}>
+                        {earned ? "+" : "−"}
+                        {item.points}
+                      </Tag>
+                    }
+                  />
+                );
+              })}
+            </ListGroup>
           )}
-        </div>
-      </ClientLayout>
+        </Section>
+
+        <p className="mt-10 text-[0.74rem]" style={{ color: KALA.ink, opacity: 0.45 }}>
+          Los puntos se acreditan al cierre de cada visita.
+        </p>
+      </AppShell>
     </ClientAuthGuard>
   );
 };

@@ -1,50 +1,35 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  Tag,
+  PrimaryButton,
+  GhostButton,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink, DataRow, formatMoneyMX } from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
-import { Lock, ShoppingBag, Copy, Upload, Loader2, CheckCircle } from "lucide-react";
-
-// ── Paywall components ──────────────────────────────────────────────
+import {
+  Lock,
+  ShoppingBag,
+  Upload,
+  Check,
+  CheckCircle2,
+} from "lucide-react";
 
 type PurchaseStep = "idle" | "instructions" | "upload" | "done";
 
-const VideoPaywall = ({ video, onPurchase }: { video: any; onPurchase: () => void }) => (
-  <div className="flex flex-col items-center justify-center rounded-xl border bg-muted/30 aspect-video gap-4 p-6 text-center">
-    <ShoppingBag size={40} className="text-primary" />
-    <div>
-      <p className="text-lg font-bold">Acceso individual</p>
-      <p className="text-sm text-muted-foreground">Compra este video por ${video.sales_price_mxn} MXN</p>
-    </div>
-    <Button onClick={onPurchase}>{video.sales_cta_text ?? "Comprar ahora"}</Button>
-  </div>
-);
-
-const MembershipPaywall = () => (
-  <div className="flex flex-col items-center justify-center rounded-xl border bg-muted/30 aspect-video gap-4 p-6 text-center">
-    <Lock size={40} className="text-muted-foreground" />
-    <div>
-      <p className="text-lg font-bold">Solo para miembros</p>
-      <p className="text-sm text-muted-foreground">Este video está disponible con membresía activa</p>
-    </div>
-    <Button asChild><Link to="/app/checkout">Adquirir membresía</Link></Button>
-  </div>
-);
-
 const VideoEmbed = ({ url }: { url: string }) => {
-  // Support YouTube embed or direct video
   if (url?.includes("youtube") || url?.includes("youtu.be")) {
     const id = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
     return (
-      <div className="aspect-video w-full rounded-xl overflow-hidden">
+      <div className="aspect-video w-full rounded-3xl overflow-hidden" style={{ backgroundColor: KALA.ink }}>
         <iframe
           src={`https://www.youtube.com/embed/${id}`}
           className="w-full h-full"
@@ -54,23 +39,20 @@ const VideoEmbed = ({ url }: { url: string }) => {
       </div>
     );
   }
-  // Normalize old Google Drive preview URLs to proxy
   let videoSrc = url;
   const m = url?.match(/drive\.google\.com\/file\/d\/([^/]+)\/preview/);
   if (m) videoSrc = `/api/drive/video/${m[1]}`;
   return (
-    <div className="w-full rounded-xl overflow-hidden bg-black flex items-center justify-center">
+    <div className="rounded-3xl overflow-hidden flex items-center justify-center" style={{ backgroundColor: KALA.ink }}>
       <video
         src={videoSrc}
         controls
         playsInline
-        className="max-h-[78vh] w-auto max-w-full object-contain"
+        className="max-h-[78vh] w-full object-contain"
       />
     </div>
   );
 };
-
-// ── Main component ───────────────────────────────────────────────────
 
 const VideoPlayer = () => {
   const { videoId } = useParams<{ videoId: string }>();
@@ -85,7 +67,7 @@ const VideoPlayer = () => {
   const [proofRef, setProofRef] = useState("");
   const [proofDate, setProofDate] = useState("");
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["video", videoId],
     queryFn: async () => (await api.get(`/videos/${videoId}`)).data,
   });
@@ -101,7 +83,11 @@ const VideoPlayer = () => {
       setPurchaseStep("instructions");
     },
     onError: (err: any) =>
-      toast({ title: "Error al iniciar compra", description: err.response?.data?.message, variant: "destructive" }),
+      toast({
+        title: "No se pudo iniciar la compra",
+        description: err.response?.data?.message,
+        variant: "destructive",
+      }),
   });
 
   const uploadProofMutation = useMutation({
@@ -119,130 +105,259 @@ const VideoPlayer = () => {
       setPurchaseStep("done");
     },
     onError: (err: any) =>
-      toast({ title: "Error", description: err.response?.data?.message, variant: "destructive" }),
+      toast({
+        title: "No pudimos enviar el comprobante",
+        description: err.response?.data?.message,
+        variant: "destructive",
+      }),
   });
 
   const canWatch =
     video?.has_access ||
     (!video?.sales_unlocks_video && video?.access_type === "gratuito");
 
-  // Track view
   const trackView = () => {
     if (video?.has_access) api.post(`/videos/${videoId}/view`).catch(() => {});
   };
 
+  const fieldStyle: React.CSSProperties = {
+    width: "100%",
+    borderRadius: 14,
+    padding: "0.75rem 0.95rem",
+    fontSize: "0.92rem",
+    color: KALA.ink,
+    backgroundColor: KALA.cream,
+    border: `1px solid ${KALA.border}`,
+    outline: "none",
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: "0.66rem",
+    fontWeight: 500,
+    textTransform: "uppercase",
+    letterSpacing: "0.22em",
+    color: KALA.ink,
+    opacity: 0.62,
+    marginBottom: 6,
+    display: "block",
+  };
+
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-3xl space-y-4">
-          {isLoading ? (
-            <Skeleton className="aspect-video w-full rounded-xl" />
-          ) : !video ? (
-            <p className="text-sm text-muted-foreground">Video no encontrado</p>
-          ) : (
-            <>
-              {/* Player or paywalls */}
+      <AppShell hideGreeting>
+        <BackLink to="/app/videos" label="Biblioteca" />
+
+        {isLoading ? (
+          <SkeletonRow height={360} />
+        ) : !video ? (
+          <p className="text-[0.95rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+            No encontramos este video.
+          </p>
+        ) : (
+          <>
+            <Section>
               {canWatch ? (
                 <div onPlay={trackView}>
                   <VideoEmbed url={video.video_url} />
                 </div>
               ) : video.sales_unlocks_video && purchaseStep === "idle" ? (
-                <VideoPaywall video={video} onPurchase={() => purchaseMutation.mutate()} />
+                <div
+                  className="aspect-video rounded-3xl flex flex-col items-center justify-center text-center gap-4 p-7"
+                  style={{ backgroundColor: KALA.blush }}
+                >
+                  <span
+                    className="grid h-14 w-14 place-items-center rounded-2xl"
+                    style={{ backgroundColor: KALA.orange, color: KALA.cream }}
+                  >
+                    <ShoppingBag size={20} />
+                  </span>
+                  <div>
+                    <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.5rem, 2.4vw, 2rem)" }}>
+                      Acceso individual
+                    </h3>
+                    <p className="mt-2 text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
+                      Compra este video por ${formatMoneyMX(video.sales_price_mxn)} MXN.
+                    </p>
+                  </div>
+                  <PrimaryButton
+                    onClick={() => purchaseMutation.mutate()}
+                    loading={purchaseMutation.isPending}
+                    loadingLabel="Procesando…"
+                  >
+                    {video.sales_cta_text ?? "Comprar ahora"}
+                  </PrimaryButton>
+                </div>
               ) : video.access_type === "miembros" && !video.sales_unlocks_video ? (
-                <MembershipPaywall />
+                <div
+                  className="aspect-video rounded-3xl flex flex-col items-center justify-center text-center gap-4 p-7"
+                  style={{ backgroundColor: KALA.blush }}
+                >
+                  <span
+                    className="grid h-14 w-14 place-items-center rounded-2xl"
+                    style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                  >
+                    <Lock size={20} />
+                  </span>
+                  <div>
+                    <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.5rem, 2.4vw, 2rem)" }}>
+                      Solo para alumnas Kala
+                    </h3>
+                    <p className="mt-2 text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
+                      Activa una membresía para acceder a este y todos los videos del estudio.
+                    </p>
+                  </div>
+                  <PrimaryButton to="/app/checkout">Ver paquetes</PrimaryButton>
+                </div>
               ) : null}
+            </Section>
 
-              {/* Purchase flow: bank instructions */}
-              {purchaseStep === "instructions" && bankDetails && (
-                <Card>
-                  <CardHeader><CardTitle>Datos de transferencia</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    {[
-                      { label: "CLABE", value: bankDetails.clabe },
-                      { label: "Cuenta", value: bankDetails.account_number ?? bankDetails.accountNumber },
-                      { label: "Banco", value: bankDetails.bank },
-                      { label: "Titular", value: bankDetails.account_holder ?? bankDetails.accountHolder },
-                      { label: "Monto", value: `$${bankDetails.amount} ${bankDetails.currency ?? "MXN"}` },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{label}</span>
-                        <div className="flex items-center gap-1">
-                          <span className="font-mono font-medium">{value}</span>
-                          <button onClick={() => navigator.clipboard.writeText(String(value))}>
-                            <Copy size={12} className="text-muted-foreground" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    <Button className="w-full mt-2" onClick={() => setPurchaseStep("upload")}>
-                      Ya realicé la transferencia
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
+            {purchaseStep === "instructions" && bankDetails && (
+              <Section title="Datos para transferir">
+                <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
+                  {[
+                    { label: "CLABE", value: bankDetails.clabe, mono: true },
+                    { label: "Cuenta", value: bankDetails.account_number ?? bankDetails.accountNumber, mono: true },
+                    { label: "Banco", value: bankDetails.bank },
+                    { label: "Titular", value: bankDetails.account_holder ?? bankDetails.accountHolder },
+                    {
+                      label: "Monto",
+                      value: `$${formatMoneyMX(bankDetails.amount)} ${bankDetails.currency ?? "MXN"}`,
+                      mono: true,
+                    },
+                  ].filter((r) => r.value).map((row) => (
+                    <DataRow
+                      key={row.label}
+                      label={row.label}
+                      value={row.value}
+                      mono={row.mono}
+                      copyable={typeof row.value === "string" ? row.value : undefined}
+                    />
+                  ))}
+                </div>
+                <div className="mt-5">
+                  <PrimaryButton onClick={() => setPurchaseStep("upload")}>
+                    Ya transferí
+                  </PrimaryButton>
+                </div>
+              </Section>
+            )}
 
-              {/* Upload proof */}
-              {purchaseStep === "upload" && (
-                <Card>
-                  <CardHeader><CardTitle>Subir comprobante</CardTitle></CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-1">
-                      <Label>Comprobante (imagen o PDF)</Label>
-                      <Input type="file" accept="image/*,.pdf" ref={fileRef} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {purchaseStep === "upload" && (
+              <Section title="Subir comprobante">
+                <div className="rounded-3xl p-5 sm:p-7 grid gap-5" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
+                  <div>
+                    <label style={labelStyle}>Comprobante (imagen o PDF)</label>
+                    <div
+                      onClick={() => fileRef.current?.click()}
+                      className="rounded-2xl p-6 text-center cursor-pointer transition-colors"
+                      style={{
+                        backgroundColor: file ? `${KALA.olive}10` : "transparent",
+                        border: `1px dashed ${file ? KALA.olive : KALA.border}`,
+                      }}
+                    >
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        ref={fileRef}
+                        className="hidden"
+                        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                      />
+                      <span
+                        className="grid h-11 w-11 mx-auto place-items-center rounded-full mb-2"
+                        style={{ backgroundColor: file ? KALA.olive : KALA.blush, color: file ? KALA.cream : KALA.berry }}
+                      >
+                        {file ? <Check size={18} strokeWidth={3} /> : <Upload size={16} />}
+                      </span>
+                      <p className="text-[0.9rem] font-medium" style={{ color: KALA.ink }}>
+                        {file ? file.name : "Toca o arrastra el archivo"}
+                      </p>
+                      <p className="mt-1 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                        JPG, PNG o PDF
+                      </p>
                     </div>
-                    <div className="space-y-1">
-                      <Label>Referencia de pago (opcional)</Label>
-                      <Input value={proofRef} onChange={(e) => setProofRef(e.target.value)} placeholder="Número de referencia" />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                      <label style={labelStyle}>Referencia (opcional)</label>
+                      <input
+                        style={fieldStyle}
+                        value={proofRef}
+                        onChange={(e) => setProofRef(e.target.value)}
+                        placeholder="Número de referencia"
+                      />
                     </div>
-                    <div className="space-y-1">
-                      <Label>Fecha de transferencia (opcional)</Label>
-                      <Input type="date" value={proofDate} onChange={(e) => setProofDate(e.target.value)} />
+                    <div>
+                      <label style={labelStyle}>Fecha de transferencia</label>
+                      <input
+                        style={fieldStyle}
+                        type="date"
+                        value={proofDate}
+                        onChange={(e) => setProofDate(e.target.value)}
+                      />
                     </div>
-                    <Button
-                      className="w-full"
+                  </div>
+                  <div className="flex gap-3">
+                    <PrimaryButton
                       disabled={!file || uploadProofMutation.isPending}
                       onClick={() => uploadProofMutation.mutate()}
+                      loading={uploadProofMutation.isPending}
+                      loadingLabel="Enviando…"
                     >
-                      {uploadProofMutation.isPending ? <Loader2 className="animate-spin mr-2" size={16} /> : <Upload size={16} className="mr-2" />}
                       Enviar comprobante
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
+                    </PrimaryButton>
+                    {file && <GhostButton onClick={() => setFile(null)}>Cambiar</GhostButton>}
+                  </div>
+                </div>
+              </Section>
+            )}
 
-              {/* Done */}
-              {purchaseStep === "done" && (
-                <Card>
-                  <CardContent className="py-8 text-center space-y-3">
-                    <CheckCircle size={40} className="mx-auto text-green-500" />
-                    <p className="font-bold text-lg">¡Comprobante recibido!</p>
-                    <p className="text-sm text-muted-foreground">
-                      Verificaremos tu pago en breve. Recibirás acceso cuando sea aprobado.
-                    </p>
-                  </CardContent>
-                </Card>
-              )}
+            {purchaseStep === "done" && (
+              <Section>
+                <div
+                  className="rounded-3xl p-7 sm:p-10 text-center"
+                  style={{ backgroundColor: KALA.blush }}
+                >
+                  <span
+                    className="grid h-14 w-14 mx-auto place-items-center rounded-2xl mb-4"
+                    style={{ backgroundColor: KALA.olive, color: KALA.cream }}
+                  >
+                    <CheckCircle2 size={22} />
+                  </span>
+                  <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.5rem, 2.4vw, 2rem)" }}>
+                    Comprobante recibido.
+                  </h3>
+                  <p className="mt-2 text-[0.92rem] max-w-[40ch] mx-auto" style={{ color: KALA.ink, opacity: 0.7 }}>
+                    Verificamos tu pago y te liberamos el video en cuanto quede aprobado.
+                  </p>
+                </div>
+              </Section>
+            )}
 
-              {/* Video info */}
-              <div className="space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <h1 className="text-xl font-bold">{video.title}</h1>
-                  <div className="flex gap-1 flex-shrink-0">
-                    {video.level && <Badge variant="outline">{video.level}</Badge>}
-                    {video.access_type && <Badge>{video.access_type}</Badge>}
+            <Section>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <h1 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.7rem, 3vw, 2.5rem)" }}>
+                    {video.title}
+                  </h1>
+                  <div className="flex flex-wrap gap-2">
+                    {video.level && <Tag tint="olive">{video.level}</Tag>}
+                    {video.access_type && <Tag tint={video.access_type === "miembros" ? "berry" : "coral"}>{video.access_type}</Tag>}
                   </div>
                 </div>
                 {video.instructor_name && (
-                  <p className="text-sm text-muted-foreground">Por {video.instructor_name}</p>
+                  <p className="text-[0.84rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.6 }}>
+                    Por {video.instructor_name}
+                  </p>
                 )}
                 {video.description && (
-                  <p className="text-sm text-muted-foreground">{video.description}</p>
+                  <p className="text-[0.95rem] leading-[1.7] max-w-[70ch]" style={{ color: KALA.ink, opacity: 0.78 }}>
+                    {video.description}
+                  </p>
                 )}
               </div>
-            </>
-          )}
-        </div>
-      </ClientLayout>
+            </Section>
+          </>
+        )}
+      </AppShell>
     </ClientAuthGuard>
   );
 };

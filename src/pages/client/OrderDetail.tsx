@@ -1,33 +1,41 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { safeParse } from "@/lib/utils";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  PrimaryButton,
+  GhostButton,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import {
+  BackLink,
+  DataRow,
+  StatusPill,
+  InfoBanner,
+  formatMoneyMX,
+} from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Copy, Loader2, Upload } from "lucide-react";
+import { Upload, FileText, Loader2, Check } from "lucide-react";
 import type { Order } from "@/types/order";
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Pago pendiente",
-  pending_verification: "En verificación",
-  approved: "Aprobado — membresía activa",
-  rejected: "Rechazado",
-  cancelled: "Cancelado",
+const STATUS: Record<string, { label: string; tone: keyof typeof KALA }> = {
+  pending_payment: { label: "Pago pendiente", tone: "coral" },
+  pending_verification: { label: "En verificación", tone: "orange" },
+  approved: { label: "Aprobado · membresía activa", tone: "olive" },
+  rejected: { label: "Rechazado", tone: "destructive" },
+  cancelled: { label: "Cancelado", tone: "destructive" },
 };
 
 const OrderDetail = () => {
   const { orderId } = useParams<{ orderId: string }>();
-  const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -50,112 +58,148 @@ const OrderDetail = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["order-detail", orderId] });
       qc.invalidateQueries({ queryKey: ["my-orders"] });
-      toast({ title: "Comprobante enviado" });
+      toast({ title: "Comprobante enviado." });
       setFile(null);
     },
     onError: (err: any) =>
-      toast({ title: "Error", description: err.response?.data?.message, variant: "destructive" }),
+      toast({
+        title: "No se pudo enviar",
+        description: err.response?.data?.message ?? "Inténtalo de nuevo.",
+        variant: "destructive",
+      }),
   });
+
+  const status = order ? STATUS[order.status] ?? { label: order.status, tone: "berry" as const } : null;
+  const amountStr = order ? `$${formatMoneyMX(order.total_amount ?? order.amount)} ${order.currency ?? "MXN"}` : "";
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-lg space-y-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/app/orders")}>
-            <ArrowLeft size={16} className="mr-2" />Volver a mis órdenes
-          </Button>
-          <h1 className="text-xl font-bold">Detalle de orden</h1>
-          {isLoading ? (
-            <Skeleton className="h-48 w-full rounded-xl" />
-          ) : order ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center justify-between">
-                  {order.plan_name}
-                  <Badge>{STATUS_LABELS[order.status] ?? order.status}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Monto</span>
-                    <span className="font-semibold">${order.total_amount ?? order.amount} {order.currency}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Fecha</span>
-                    <span>{order.created_at ? format(safeParse(order.created_at), "d MMM yyyy", { locale: es }) : "—"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Método</span>
-                    <span>{order.payment_method}</span>
-                  </div>
+      <AppShell hideGreeting>
+        <BackLink to="/app/orders" label="Mis órdenes" />
+
+        {isLoading ? (
+          <SkeletonRow height={300} />
+        ) : !order ? (
+          <p className="text-[0.95rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+            No encontramos esta orden.
+          </p>
+        ) : (
+          <>
+            <PageHeader
+              eyebrow="Detalle"
+              title={order.plan_name ?? "Compra"}
+              actions={status ? <StatusPill label={status.label} tone={status.tone} /> : null}
+            />
+
+            <Section>
+              <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.blush }}>
+                <div className="flex flex-wrap items-baseline justify-between gap-3 pb-3" style={{ borderBottom: `1px solid ${KALA.border}` }}>
+                  <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
+                    Total
+                  </span>
+                  <span className="font-bebas leading-none" style={{ color: KALA.ink, fontSize: "clamp(1.85rem, 3vw, 2.6rem)" }}>
+                    {amountStr}
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+                  <DataRow
+                    label="Fecha"
+                    value={order.created_at ? format(safeParse(order.created_at), "d MMM yyyy", { locale: es }) : "—"}
+                  />
+                  <DataRow label="Método" value={order.payment_method === "cash" ? "Efectivo" : "Transferencia"} />
+                  {(order as any).orderNumber && (
+                    <DataRow label="Folio" value={(order as any).orderNumber} mono />
+                  )}
+                </div>
+              </div>
+            </Section>
+
+            {order.status === "pending_payment" && order.bank_clabe && (
+              <Section title="Datos para transferencia">
+                <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
+                  <DataRow label="CLABE" value={order.bank_clabe} mono copyable={String(order.bank_clabe)} />
+                  {order.bank_name && <DataRow label="Banco" value={order.bank_name} />}
+                  {order.bank_account_holder && (
+                    <DataRow label="Titular" value={order.bank_account_holder} />
+                  )}
+                  <DataRow label="Monto" value={amountStr} mono copyable={amountStr.replace(/[^0-9.]/g, "")} />
+                </div>
+              </Section>
+            )}
+
+            {order.status === "pending_payment" && (
+              <Section title="Subir comprobante">
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  className="rounded-3xl p-7 text-center cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: file ? `${KALA.olive}10` : "transparent",
+                    border: `1px dashed ${file ? KALA.olive : KALA.border}`,
+                    color: KALA.ink,
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    ref={fileRef}
+                    className="hidden"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                  <span
+                    className="grid h-12 w-12 mx-auto place-items-center rounded-full mb-3"
+                    style={{ backgroundColor: file ? KALA.olive : KALA.blush, color: file ? KALA.cream : KALA.berry }}
+                  >
+                    {file ? <Check size={20} strokeWidth={3} /> : <Upload size={18} />}
+                  </span>
+                  <p className="text-[0.92rem] font-medium" style={{ color: KALA.ink }}>
+                    {file ? file.name : "Toca aquí o arrastra el archivo"}
+                  </p>
+                  <p className="mt-1 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                    JPG, PNG o PDF
+                  </p>
                 </div>
 
-                {/* Bank data for pending_payment */}
-                {order.status === "pending_payment" && order.bank_clabe && (
-                  <div className="rounded-lg bg-muted p-4 space-y-2">
-                    <p className="text-sm font-semibold">Datos para transferencia</p>
-                    {[
-                      { label: "CLABE", value: order.bank_clabe },
-                      { label: "Banco", value: order.bank_name },
-                      { label: "Titular", value: order.bank_account_holder },
-                    ].map(({ label, value }) => value ? (
-                      <div key={label} className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">{label}</span>
-                        <div className="flex items-center gap-1">
-                          <span className="font-mono">{value}</span>
-                          <button onClick={() => navigator.clipboard.writeText(value)}>
-                            <Copy size={12} className="text-muted-foreground" />
-                          </button>
-                        </div>
-                      </div>
-                    ) : null)}
-                  </div>
-                )}
+                <div className="mt-5 flex gap-3">
+                  <PrimaryButton
+                    onClick={() => uploadMutation.mutate()}
+                    disabled={!file || uploadMutation.isPending}
+                    loading={uploadMutation.isPending}
+                    loadingLabel="Enviando…"
+                  >
+                    Enviar comprobante
+                  </PrimaryButton>
+                  {file && <GhostButton onClick={() => setFile(null)}>Cambiar</GhostButton>}
+                </div>
+              </Section>
+            )}
 
-                {/* Upload proof */}
-                {order.status === "pending_payment" && (
-                  <div className="space-y-2">
-                    <Label>Subir comprobante de transferencia</Label>
-                    <Input
-                      type="file"
-                      accept="image/*,.pdf"
-                      ref={fileRef}
-                      onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                    />
-                    <Button
-                      className="w-full"
-                      disabled={!file || uploadMutation.isPending}
-                      onClick={() => uploadMutation.mutate()}
-                    >
-                      {uploadMutation.isPending ? <Loader2 className="animate-spin mr-2" size={16} /> : <Upload size={16} className="mr-2" />}
-                      Enviar comprobante
-                    </Button>
-                  </div>
-                )}
+            {order.proof_url && (
+              <Section title="Comprobante enviado">
+                <a
+                  href={order.proof_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 no-underline transition-colors"
+                  style={{ backgroundColor: KALA.blush, color: KALA.berry }}
+                >
+                  <FileText size={15} />
+                  Ver archivo
+                </a>
+              </Section>
+            )}
 
-                {/* Proof already uploaded */}
-                {order.proof_url && (
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">Comprobante enviado:</p>
-                    <a href={order.proof_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">Ver comprobante</a>
-                  </div>
-                )}
-
-                {/* Admin notes */}
-                {order.admin_notes && (
-                  <div className="rounded-lg border p-3 text-sm">
-                    <p className="font-medium mb-1">Nota del administrador:</p>
-                    <p className="text-muted-foreground">{order.admin_notes}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="text-sm text-muted-foreground">Orden no encontrada</p>
-          )}
-        </div>
-      </ClientLayout>
+            {order.admin_notes && (
+              <Section>
+                <InfoBanner
+                  tone="orange"
+                  title="Nota del estudio"
+                  description={order.admin_notes}
+                />
+              </Section>
+            )}
+          </>
+        )}
+      </AppShell>
     </ClientAuthGuard>
   );
 };

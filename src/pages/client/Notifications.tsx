@@ -1,7 +1,15 @@
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Badge } from "@/components/ui/badge";
-import { Bell } from "lucide-react";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  ListGroup,
+  ListRow,
+  EmptyState,
+  Tag,
+  KALA,
+} from "@/components/app/AppShell";
+import { Bell, BellOff, CalendarCheck2, CreditCard, Megaphone } from "lucide-react";
 
 interface Notification {
   id: string;
@@ -9,44 +17,79 @@ interface Notification {
   body: string;
   time: string;
   unread: boolean;
+  category: "booking" | "membership" | "marketing" | "system";
 }
 
-// Static data — replace with GET /notifications when backend is ready
 const MOCK_NOTIFICATIONS: Notification[] = [
-  { id: "1", title: "Clase confirmada", body: "Tu reserva para Pilates mañana a las 9:00 está confirmada.", time: "Hace 2h", unread: true },
-  { id: "2", title: "¡Membresía activa!", body: "Tu membresía ha sido activada correctamente.", time: "Ayer", unread: true },
-  { id: "3", title: "Recordatorio de clase", body: "Tu clase de Yoga es en 1 hora.", time: "Hace 3 días", unread: false },
+  { id: "1", title: "Clase confirmada", body: "Tu reserva de barre mañana 9:00 está confirmada.", time: "Hace 2 horas", unread: true, category: "booking" },
+  { id: "2", title: "Membresía activa", body: "Tu paquete quedó activo. Ya puedes reservar.", time: "Ayer", unread: true, category: "membership" },
+  { id: "3", title: "Recordatorio", body: "Tu clase de yoga es en una hora.", time: "Hace 3 días", unread: false, category: "booking" },
 ];
 
-const Notifications = () => (
-  <ClientAuthGuard requiredRoles={["client"]}>
-    <ClientLayout>
-      <div className="max-w-lg space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">Notificaciones</h1>
-          <Badge variant="secondary">{MOCK_NOTIFICATIONS.filter((n) => n.unread).length} nuevas</Badge>
-        </div>
-        <div className="space-y-2">
-          {MOCK_NOTIFICATIONS.map((n) => (
-            <div
-              key={n.id}
-              className={`flex gap-3 rounded-xl border p-4 transition-colors ${n.unread ? "bg-primary/5 border-primary/20" : ""}`}
-            >
-              <div className="mt-0.5 flex-shrink-0">
-                <Bell size={16} className={n.unread ? "text-primary" : "text-muted-foreground"} />
-              </div>
-              <div className="flex-1 min-w-0 space-y-0.5">
-                <p className={`text-sm font-medium ${n.unread ? "text-foreground" : "text-muted-foreground"}`}>{n.title}</p>
-                <p className="text-xs text-muted-foreground">{n.body}</p>
-                <p className="text-xs text-muted-foreground">{n.time}</p>
-              </div>
-              {n.unread && <div className="mt-1.5 h-2 w-2 rounded-full bg-primary flex-shrink-0" />}
-            </div>
-          ))}
-        </div>
-      </div>
-    </ClientLayout>
-  </ClientAuthGuard>
-);
+const CATEGORY_ICON: Record<Notification["category"], React.ReactNode> = {
+  booking: <CalendarCheck2 size={17} strokeWidth={1.7} />,
+  membership: <CreditCard size={17} strokeWidth={1.7} />,
+  marketing: <Megaphone size={17} strokeWidth={1.7} />,
+  system: <Bell size={17} strokeWidth={1.7} />,
+};
+
+const CATEGORY_TINT: Record<Notification["category"], keyof typeof KALA> = {
+  booking: "berry",
+  membership: "olive",
+  marketing: "coral",
+  system: "orange",
+};
+
+const Notifications = () => {
+  const unreadCount = MOCK_NOTIFICATIONS.filter((n) => n.unread).length;
+  return (
+    <ClientAuthGuard requiredRoles={["client"]}>
+      <AppShell hideGreeting>
+        <PageHeader
+          eyebrow="Tu bandeja"
+          title={<>Lo que pasó</>}
+          titleAccent="hoy."
+          actions={unreadCount > 0 ? <Tag tint="berry">{unreadCount} sin leer</Tag> : undefined}
+        />
+
+        <Section>
+          {MOCK_NOTIFICATIONS.length === 0 ? (
+            <EmptyState
+              icon={<BellOff size={20} />}
+              title="Sin novedades."
+              description="Aquí van a aparecer recordatorios, confirmaciones y avisos del estudio."
+            />
+          ) : (
+            <ListGroup>
+              {MOCK_NOTIFICATIONS.map((n) => (
+                <ListRow
+                  key={n.id}
+                  icon={CATEGORY_ICON[n.category]}
+                  iconTint={CATEGORY_TINT[n.category]}
+                  title={
+                    <span style={{ opacity: n.unread ? 1 : 0.65 }}>
+                      {n.title}
+                    </span>
+                  }
+                  description={
+                    <>
+                      {n.body}
+                      <span style={{ color: KALA.ink, opacity: 0.4 }}> · {n.time}</span>
+                    </>
+                  }
+                  trailing={n.unread && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: KALA.berry }} />}
+                />
+              ))}
+            </ListGroup>
+          )}
+        </Section>
+
+        <p className="mt-10 text-[0.74rem]" style={{ color: KALA.ink, opacity: 0.45 }}>
+          Configura cuáles avisos recibes desde Perfil, Preferencias.
+        </p>
+      </AppShell>
+    </ClientAuthGuard>
+  );
+};
 
 export default Notifications;

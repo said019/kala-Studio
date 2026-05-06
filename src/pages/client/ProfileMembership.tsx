@@ -1,189 +1,223 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate } from "react-router-dom";
 import { format, differenceInCalendarDays } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { safeParse } from "@/lib/utils";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, CalendarDays, Layers, XCircle, Zap } from "lucide-react";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  Stat,
+  Tag,
+  PrimaryButton,
+  GhostButton,
+  EmptyState,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink, DataRow, InfoBanner } from "@/components/app/widgets";
+import { CreditCard, CalendarDays } from "lucide-react";
 import type { ClientMembership } from "@/types/membership";
-import { MembershipCard } from "@/components/MembershipCard";
 
-const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  active:              { label: "Activa",          color: "#4ade80", bg: "rgba(74,222,128,0.12)" },
-  expired:             { label: "Vencida",          color: "#f87171", bg: "rgba(248,113,113,0.12)" },
-  pending_payment:     { label: "Pago pendiente",   color: "#c9a227", bg: "rgba(201,162,39,0.12)" },
-  pending_activation:  { label: "Por activar",      color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
-  cancelled:           { label: "Cancelada",        color: "#94a3b8", bg: "rgba(148,163,184,0.10)" },
+const STATUS: Record<string, { label: string; tone: keyof typeof KALA }> = {
+  active: { label: "Activa", tone: "olive" },
+  expired: { label: "Vencida", tone: "destructive" },
+  pending_payment: { label: "Pago pendiente", tone: "coral" },
+  pending_activation: { label: "Por activar", tone: "orange" },
+  cancelled: { label: "Cancelada", tone: "destructive" },
 };
 
-const StatBox = ({
-  icon: Icon, label, value, sub, accent = "#76214D",
-}: {
-  icon: any; label: string; value: string | number; sub?: string; accent?: string;
-}) => (
-  <div
-    className="flex flex-col gap-2 rounded-2xl p-4 border"
-    style={{ background: `${accent}0a`, borderColor: `${accent}20` }}
-  >
-    <div className="flex items-center gap-2">
-      <span
-        className="flex h-7 w-7 items-center justify-center rounded-lg"
-        style={{ background: `${accent}18`, color: accent }}
-      >
-        <Icon size={14} />
-      </span>
-      <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/40">{label}</span>
-    </div>
-    <p className="text-2xl font-bold text-white leading-none">{value}</p>
-    {sub && <p className="text-[11px] text-white/35">{sub}</p>}
-  </div>
-);
+const CATEGORY_LABEL: Record<string, string> = {
+  jumping: "Jumping",
+  pilates: "Pilates",
+  mixto: "Mixto",
+  all: "Todas",
+};
 
 const ProfileMembership = () => {
-  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ["my-membership"],
     queryFn: async () => (await api.get("/memberships/my")).data,
   });
+
   const membership: (ClientMembership & { cancellationsUsed?: number; classCategory?: string }) | null =
     data?.data ?? data ?? null;
 
   const daysRemaining = membership?.end_date
     ? Math.max(differenceInCalendarDays(safeParse(membership.end_date), new Date()), 0)
     : null;
-
-  const statusCfg = membership ? (STATUS_LABELS[membership.status] ?? STATUS_LABELS.active) : null;
+  const status = membership ? STATUS[membership.status] ?? { label: membership.status, tone: "berry" as const } : null;
   const cancellationsUsed = membership?.cancellationsUsed ?? 0;
   const cancellationsLeft = Math.max(2 - cancellationsUsed, 0);
-
-  const spotsPercent =
-    membership?.class_limit && membership.classes_remaining !== null
-      ? Math.round((membership.classes_remaining / membership.class_limit) * 100)
+  const isUnlimited =
+    membership && (membership.class_limit === null || Number(membership.class_limit) >= 9999);
+  const classesUsed = membership?.class_limit
+    ? Math.max(0, Number(membership.class_limit) - Number(membership.classes_remaining ?? 0))
+    : 0;
+  const classesPercent =
+    membership && membership.class_limit && !isUnlimited
+      ? Math.min(100, Math.round((classesUsed / Number(membership.class_limit)) * 100))
       : null;
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-lg mx-auto space-y-5 pb-8">
+      <AppShell hideGreeting>
+        <BackLink to="/app/profile" label="Perfil" />
 
-          {/* Back */}
-          <Button
-            variant="ghost" size="sm"
-            onClick={() => navigate("/app/profile")}
-            className="text-white/40 hover:text-white -ml-2"
-          >
-            <ArrowLeft size={16} className="mr-1.5" />Perfil
-          </Button>
+        {isLoading ? (
+          <SkeletonRow height={300} />
+        ) : !membership ? (
+          <>
+            <PageHeader
+              eyebrow="Membresía"
+              title={<>Aún no tienes</>}
+              titleAccent="paquete activo."
+            />
+            <Section>
+              <EmptyState
+                icon={<CreditCard size={20} />}
+                title="Compra tu primer paquete."
+                description="Cuando lo actives, las clases empiezan a contar y tus anillos cobran vida."
+                ctaLabel="Ver paquetes"
+                ctaTo="/app/checkout"
+              />
+            </Section>
+          </>
+        ) : (
+          <>
+            <PageHeader
+              eyebrow="Tu membresía"
+              title={membership.planName ?? membership.plan_name ?? "Plan Kala"}
+              actions={status ? <Tag tint={status.tone}>{status.label}</Tag> : null}
+            />
 
-          <h1 className="text-2xl font-bold text-white">Mi membresía</h1>
-
-          {isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-32 w-full rounded-2xl" />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Skeleton className="h-24 rounded-2xl" />
-                <Skeleton className="h-24 rounded-2xl" />
+            <Section>
+              <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.blush }}>
+                <div className="flex items-baseline justify-between gap-4 pb-3" style={{ borderBottom: `1px solid ${KALA.border}` }}>
+                  <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
+                    {CATEGORY_LABEL[String(membership.classCategory ?? "all")] ?? "Todas las disciplinas"}
+                  </span>
+                  <span className="font-bebas tabular-nums" style={{ color: KALA.berry, fontSize: "clamp(1.6rem, 2.6vw, 2.1rem)" }}>
+                    {isUnlimited ? "∞" : Number(membership.classes_remaining ?? 0)}{" "}
+                    <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                      por usar
+                    </span>
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+                  <DataRow
+                    label="Inicio"
+                    value={
+                      membership.start_date
+                        ? format(safeParse(membership.start_date), "d MMM yyyy", { locale: es })
+                        : "—"
+                    }
+                  />
+                  <DataRow
+                    label="Vence"
+                    value={
+                      membership.end_date
+                        ? format(safeParse(membership.end_date), "d MMM yyyy", { locale: es })
+                        : "—"
+                    }
+                  />
+                  <DataRow
+                    label="Días restantes"
+                    value={daysRemaining ?? "∞"}
+                  />
+                  <DataRow
+                    label="Total del paquete"
+                    value={isUnlimited ? "Ilimitado" : Number(membership.class_limit ?? 0)}
+                  />
+                </div>
               </div>
-            </div>
-          ) : membership ? (
-            <div className="space-y-4">
+            </Section>
 
-              {/* ── Tarjeta visual de membresía ── */}
-              <MembershipCard membership={membership} expanded />
-
-              {/* ── Stats grid ── */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <StatBox
-                  icon={CalendarDays}
-                  label="Días restantes"
-                  value={daysRemaining ?? "∞"}
-                  sub={membership.start_date ? `Desde ${format(safeParse(membership.start_date), "d MMM", { locale: es })}` : undefined}
-                  accent="#E9745F"
-                />
-                <StatBox
-                  icon={Zap}
-                  label="Clases"
-                  value={membership.classes_remaining !== null ? membership.classes_remaining : "∞"}
-                  sub={membership.class_limit ? `de ${membership.class_limit} totales` : "Ilimitadas"}
-                  accent="#76214D"
-                />
-                <StatBox
-                  icon={XCircle}
-                  label="Cancelaciones"
-                  value={`${cancellationsUsed} / 2`}
-                  sub={cancellationsLeft === 0 ? "Límite alcanzado" : `${cancellationsLeft} disponible${cancellationsLeft !== 1 ? "s" : ""}`}
-                  accent={cancellationsLeft === 0 ? "#f87171" : "#c9a227"}
-                />
-                <StatBox
-                  icon={Layers}
-                  label="Categoría"
-                  value={
-                    membership.classCategory === "jumping" ? "Jumping" :
-                    membership.classCategory === "pilates" ? "Pilates" :
-                    membership.classCategory === "mixto"   ? "Mixto"   : "Todas"
-                  }
-                  sub="tipo de clases"
-                  accent="#F58A24"
-                />
-              </div>
-
-              {/* ── Classes progress bar ── */}
-              {spotsPercent !== null && membership.classes_remaining !== null && membership.class_limit && (
-                <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-white/50 text-[12px] uppercase tracking-wide font-semibold">Clases restantes</span>
-                    <span className="text-white font-bold text-sm">
-                      {membership.classes_remaining} <span className="text-white/30 font-normal">/ {membership.class_limit}</span>
+            {classesPercent !== null && (
+              <Section title="Avance del paquete">
+                <div className="rounded-2xl p-5" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
+                  <div className="flex items-baseline justify-between gap-3 mb-3">
+                    <span className="text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.6 }}>
+                      {classesUsed} de {Number(membership.class_limit)} usadas
+                    </span>
+                    <span className="font-bebas tabular-nums text-[1.2rem]" style={{ color: KALA.berry }}>
+                      {classesPercent}%
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-white/[0.08] overflow-hidden">
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: KALA.blush }}>
                     <div
-                      className="h-full rounded-full transition-all duration-700"
+                      className="h-full rounded-full transition-[width] duration-700"
                       style={{
-                        width: `${spotsPercent}%`,
-                        background: spotsPercent > 50
-                          ? "linear-gradient(90deg,#E9745F,#76214D)"
-                          : spotsPercent > 20
-                          ? "linear-gradient(90deg,#c9a227,#76214D)"
-                          : "linear-gradient(90deg,#f87171,#c9a227)",
+                        width: `${classesPercent}%`,
+                        backgroundColor:
+                          classesPercent < 60 ? KALA.olive : classesPercent < 90 ? KALA.orange : KALA.coral,
                       }}
                     />
                   </div>
                 </div>
-              )}
+              </Section>
+            )}
 
-              {/* ── Policy reminder ── */}
-              <div className="rounded-2xl border border-[#c9a227]/20 bg-[#c9a227]/[0.05] p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#c9a227] mb-2">
-                  Política de cancelaciones
-                </p>
-                <ul className="space-y-1 text-[12px] text-white/50">
-                  <li>· Máximo <span className="text-white/75 font-semibold">2 cancelaciones</span> por membresía</li>
-                  <li>· Cancela con al menos <span className="text-white/75 font-semibold">2 horas de anticipación</span></li>
-                  <li>· Cancelaciones tardías no devuelven el crédito</li>
-                </ul>
+            <Section title="Cancelaciones">
+              <div className="grid grid-cols-2 gap-5">
+                <Stat value={`${cancellationsUsed}/2`} label="Usadas" tint={cancellationsLeft === 0 ? "destructive" : "berry"} />
+                <Stat value={cancellationsLeft} label="Disponibles" tint="olive" />
               </div>
+              <ul className="mt-5 list-none m-0 p-0">
+                {[
+                  "Hasta 2 cancelaciones por paquete que devuelven la clase.",
+                  "Cancela mínimo 2 horas antes para que cuente.",
+                  "Cancelaciones tardías no devuelven el crédito.",
+                ].map((line, i, arr) => (
+                  <li
+                    key={line}
+                    className="grid grid-cols-[auto_1fr] items-center gap-3 py-3"
+                    style={{
+                      borderTop: `1px solid ${KALA.border}`,
+                      borderBottom: i === arr.length - 1 ? `1px solid ${KALA.border}` : undefined,
+                    }}
+                  >
+                    <span
+                      className="grid h-7 w-7 place-items-center rounded-full"
+                      style={{ backgroundColor: KALA.blush, color: KALA.berry }}
+                    >
+                      <CalendarDays size={13} />
+                    </span>
+                    <span className="text-[0.9rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.78 }}>
+                      {line}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
 
-              {membership.status !== "active" && (
-                <Button asChild className="w-full rounded-2xl h-12 font-semibold text-sm">
-                  <Link to="/app/checkout">Renovar membresía</Link>
-                </Button>
-              )}
+            {(membership.status !== "active" || (daysRemaining !== null && daysRemaining <= 7)) && (
+              <Section>
+                <InfoBanner
+                  tone={membership.status === "active" ? "orange" : "coral"}
+                  title={
+                    membership.status === "active"
+                      ? "Tu paquete vence pronto."
+                      : "Tu paquete ya no está activo."
+                  }
+                  description={
+                    membership.status === "active"
+                      ? `Te quedan ${daysRemaining} ${daysRemaining === 1 ? "día" : "días"}. Renueva para no perder ritmo.`
+                      : "Compra uno nuevo para seguir reservando."
+                  }
+                  action={<PrimaryButton size="sm" to="/app/checkout">Renovar</PrimaryButton>}
+                />
+              </Section>
+            )}
+
+            <div className="mt-8 flex flex-wrap gap-3">
+              <GhostButton to="/app/wallet">Ver mi wallet</GhostButton>
+              <GhostButton to="/app/orders">Historial de compras</GhostButton>
             </div>
-          ) : (
-            <div className="rounded-3xl border border-white/[0.07] bg-white/[0.03] p-8 text-center space-y-4">
-              <p className="text-white/50 text-sm">No tienes membresía activa</p>
-              <Button asChild className="rounded-2xl px-8">
-                <Link to="/app/checkout">Adquirir membresía</Link>
-              </Button>
-            </div>
-          )}
-        </div>
-      </ClientLayout>
+          </>
+        )}
+      </AppShell>
     </ClientAuthGuard>
   );
 };

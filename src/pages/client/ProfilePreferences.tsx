@@ -1,24 +1,27 @@
-import { useEffect } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  PrimaryButton,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink } from "@/components/app/widgets";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft } from "lucide-react";
-import { useState } from "react";
+
+type PrefKey = "receiveReminders" | "receivePromotions" | "receiveWeeklySummary";
 
 const ProfilePreferences = () => {
-  const navigate = useNavigate();
   const { user, updateUser } = useAuthStore();
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const [prefs, setPrefs] = useState({
+  const [prefs, setPrefs] = useState<Record<PrefKey, boolean>>({
     receiveReminders: user?.receiveReminders ?? user?.receive_reminders ?? true,
     receivePromotions: user?.receivePromotions ?? user?.receive_promotions ?? false,
     receiveWeeklySummary: user?.receiveWeeklySummary ?? user?.receive_weekly_summary ?? false,
@@ -30,48 +33,79 @@ const ProfilePreferences = () => {
       const updated = res.data?.data ?? res.data;
       if (updated?.user) updateUser(updated.user);
       qc.invalidateQueries({ queryKey: ["me"] });
-      toast({ title: "Preferencias guardadas" });
+      toast({ title: "Preferencias guardadas." });
     },
-    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError: () => toast({ title: "No se guardaron", variant: "destructive" }),
   });
 
-  const items = [
-    { key: "receiveReminders" as const, label: "Recordatorios de clase", desc: "Recibe un recordatorio antes de cada clase" },
-    { key: "receivePromotions" as const, label: "Promociones y ofertas", desc: "Entérate de descuentos y eventos especiales" },
-    { key: "receiveWeeklySummary" as const, label: "Resumen semanal", desc: "Un resumen de tu actividad cada semana" },
+  const items: { key: PrefKey; label: string; desc: string }[] = [
+    {
+      key: "receiveReminders",
+      label: "Recordatorios de clase",
+      desc: "Te avisamos antes de cada clase reservada.",
+    },
+    {
+      key: "receivePromotions",
+      label: "Promociones y eventos",
+      desc: "Descuentos, masterclasses y eventos especiales.",
+    },
+    {
+      key: "receiveWeeklySummary",
+      label: "Resumen semanal",
+      desc: "Cómo te fue, anillos cerrados y lo que viene.",
+    },
   ];
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-md space-y-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/app/profile")} className="text-muted-foreground hover:text-[#E9745F]">
-            <ArrowLeft size={16} className="mr-2" />Perfil
-          </Button>
-          <h1 className="text-xl font-bold">Preferencias de notificación</h1>
-          <div className="space-y-4">
-            {items.map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between rounded-xl border border-white/[0.08] p-4 hover:border-[#E9745F]/30 transition-colors">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">{label}</Label>
-                  <p className="text-xs text-muted-foreground">{desc}</p>
+      <AppShell hideGreeting>
+        <BackLink to="/app/profile" label="Perfil" />
+        <PageHeader
+          eyebrow="Preferencias"
+          title={<>Qué te</>}
+          titleAccent="avisamos."
+          subtitle="Tú decides qué mensajes te llegan por WhatsApp y email."
+        />
+
+        <Section>
+          <ul className="list-none m-0 p-0">
+            {items.map((it, i, arr) => (
+              <li
+                key={it.key}
+                className="grid grid-cols-[1fr_auto] items-center gap-5 py-5"
+                style={{
+                  borderTop: `1px solid ${KALA.border}`,
+                  borderBottom: i === arr.length - 1 ? `1px solid ${KALA.border}` : undefined,
+                }}
+              >
+                <div>
+                  <p className="text-[0.94rem] font-medium leading-tight" style={{ color: KALA.ink }}>
+                    {it.label}
+                  </p>
+                  <p className="mt-1 text-[0.84rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.6 }}>
+                    {it.desc}
+                  </p>
                 </div>
                 <Switch
-                  checked={prefs[key]}
-                  onCheckedChange={(v) => setPrefs((p) => ({ ...p, [key]: v }))}
+                  checked={prefs[it.key]}
+                  onCheckedChange={(v) => setPrefs((p) => ({ ...p, [it.key]: v }))}
                 />
-              </div>
+              </li>
             ))}
-          </div>
-          <Button
-            className="w-full bg-gradient-to-r from-[#76214D] to-[#E9745F] hover:from-[#76214D]/90 hover:to-[#E9745F]/90 text-white font-medium"
+          </ul>
+        </Section>
+
+        <div className="mt-8">
+          <PrimaryButton
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
+            loading={mutation.isPending}
+            loadingLabel="Guardando…"
           >
-            {mutation.isPending ? "Guardando..." : "Guardar preferencias"}
-          </Button>
+            Guardar preferencias
+          </PrimaryButton>
         </div>
-      </ClientLayout>
+      </AppShell>
     </ClientAuthGuard>
   );
 };

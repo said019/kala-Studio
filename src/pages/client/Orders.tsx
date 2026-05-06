@@ -1,29 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { safeParse } from "@/lib/utils";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronRight } from "lucide-react";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  ListGroup,
+  ListRow,
+  EmptyState,
+  PrimaryButton,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import { StatusPill, formatMoneyMX } from "@/components/app/widgets";
+import { Receipt } from "lucide-react";
 import type { Order } from "@/types/order";
 
-const STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Pago pendiente",
-  pending_verification: "En verificación",
-  approved: "Aprobado",
-  rejected: "Rechazado",
-  cancelled: "Cancelado",
-};
-const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  pending_payment: "secondary",
-  pending_verification: "outline",
-  approved: "default",
-  rejected: "destructive",
-  cancelled: "destructive",
+const STATUS: Record<string, { label: string; tone: keyof typeof KALA }> = {
+  pending_payment: { label: "Pago pendiente", tone: "coral" },
+  pending_verification: { label: "En verificación", tone: "orange" },
+  approved: { label: "Aprobado", tone: "olive" },
+  rejected: { label: "Rechazado", tone: "destructive" },
+  cancelled: { label: "Cancelado", tone: "destructive" },
 };
 
 const Orders = () => {
@@ -35,40 +36,50 @@ const Orders = () => {
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="space-y-4">
-          <h1 className="text-xl font-bold">Mis órdenes</h1>
+      <AppShell hideGreeting>
+        <PageHeader
+          eyebrow="Mis órdenes"
+          title={<>Historial de</>}
+          titleAccent="compras."
+        />
+
+        <Section>
           {isLoading ? (
-            <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
+            <div className="space-y-2">{[1, 2, 3].map((i) => <SkeletonRow key={i} height={72} />)}</div>
           ) : orders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No tienes órdenes aún</p>
+            <EmptyState
+              icon={<Receipt size={20} />}
+              title="Aún no compras un paquete."
+              description="Cuando compres tu primer paquete o renovación, queda aquí el comprobante."
+              ctaLabel="Ver paquetes"
+              ctaTo="/app/checkout"
+            />
           ) : (
-            <div className="space-y-3">
-              {orders.map((order) => (
-                <Link key={order.id} to={`/app/orders/${order.id}`}>
-                  <div className="flex items-center justify-between rounded-xl border p-4 hover:bg-accent/30 transition-colors">
-                    <div className="space-y-1">
-                      <p className="font-medium">{order.plan_name}</p>
-                      <p className="text-xs text-muted-foreground">
+            <ListGroup>
+              {orders.map((order) => {
+                const status = STATUS[order.status] ?? { label: order.status, tone: "berry" as const };
+                return (
+                  <ListRow
+                    key={order.id}
+                    to={`/app/orders/${order.id}`}
+                    icon={<Receipt size={17} strokeWidth={1.7} />}
+                    iconTint={status.tone}
+                    title={order.plan_name ?? "Compra"}
+                    description={
+                      <>
                         {order.created_at ? format(safeParse(order.created_at), "d MMM yyyy", { locale: es }) : "—"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="font-semibold">${order.total_amount ?? order.amount} {order.currency}</p>
-                        <Badge variant={STATUS_VARIANTS[order.status] ?? "secondary"}>
-                          {STATUS_LABELS[order.status] ?? order.status}
-                        </Badge>
-                      </div>
-                      <ChevronRight size={16} className="text-muted-foreground" />
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
+                        {" · "}
+                        ${formatMoneyMX(order.total_amount ?? order.amount)} {order.currency ?? "MXN"}
+                      </>
+                    }
+                    trailing={<StatusPill label={status.label} tone={status.tone} />}
+                  />
+                );
+              })}
+            </ListGroup>
           )}
-        </div>
-      </ClientLayout>
+        </Section>
+      </AppShell>
     </ClientAuthGuard>
   );
 };

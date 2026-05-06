@@ -1,53 +1,107 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { QRCodeSVG } from "qrcode.react";
 import {
-  Calendar, Clock, MapPin, UserCircle, Users, ArrowLeft, CheckCircle,
-  AlertCircle, Hourglass, Copy, Upload, X, ChevronRight, ExternalLink,
+  CalendarDays,
+  Clock,
+  MapPin,
+  UserCircle,
+  Users,
+  CheckCircle2,
+  Hourglass,
+  Upload,
+  X,
+  ExternalLink,
+  Sparkles,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import api from "@/lib/api";
-import ClientLayout from "@/components/layout/ClientLayout";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  Tag,
+  Stat,
+  PrimaryButton,
+  GhostButton,
+  EmptyState,
+  SkeletonRow,
+  KALA,
+} from "@/components/app/AppShell";
+import {
+  BackLink,
+  DataRow,
+  InfoBanner,
+  StatusPill,
+  StickyCta,
+  formatMoneyMX,
+} from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
 import { useAuthStore } from "@/stores/authStore";
 import { ClientEvent } from "@/pages/admin/events/types";
 import { EVENT_TYPES } from "@/pages/admin/events/types";
 import EventTypeIcon from "@/pages/admin/events/EventTypeIcon";
-import { QRCodeSVG } from "qrcode.react";
 import {
-  formatEventDate, formatEventDateShort, formatCurrency,
-  occupancyPercent, occupancyColor, calcCurrentPrice,
+  formatEventDate,
+  formatEventDateShort,
+  formatCurrency,
+  occupancyPercent,
+  occupancyColor,
+  calcCurrentPrice,
 } from "@/pages/admin/events/utils";
 
-const GoogleIcon = ({ color = "full" }: { color?: "full" | "gray" | "palette" }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12.5 6.9c1.32 0 2.21.57 2.72 1.05l1.99-1.94C15.85 4.79 14.35 4 12.5 4c-3.07 0-5.64 2.05-6.52 4.82l2.32 1.8C9.03 8.57 10.6 6.9 12.5 6.9z" fill={color === "full" ? "#EA4335" : color === "palette" ? "#F58A24" : "#888"} />
-    <path d="M18.77 12.16c0-.53-.08-1.04-.2-1.52H12.5v2.87h3.52c-.15.8-.61 1.48-1.3 1.94l2.01 1.56c1.2-1.1 1.88-2.73 1.88-4.85h.16z" fill={color === "full" ? "#4285F4" : color === "palette" ? "#F58A24" : "#888"} />
-    <path d="M8.3 13.38A4.6 4.6 0 018.06 12c0-.48.09-.94.24-1.38l-2.32-1.8A7.52 7.52 0 005 12c0 1.2.29 2.34.8 3.34l2.5-1.96z" fill={color === "full" ? "#FBBC05" : color === "palette" ? "#F58A24" : "#888"} />
-    <path d="M12.5 20c1.84 0 3.38-.61 4.51-1.65l-2.01-1.56c-.63.4-1.43.64-2.5.64-1.9 0-3.47-1.27-4.06-3h-2.5l-.03.1A7.99 7.99 0 0012.5 20z" fill={color === "full" ? "#34A853" : color === "palette" ? "#F58A24" : "#888"} />
+const GoogleIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M12.5 6.9c1.32 0 2.21.57 2.72 1.05l1.99-1.94C15.85 4.79 14.35 4 12.5 4c-3.07 0-5.64 2.05-6.52 4.82l2.32 1.8C9.03 8.57 10.6 6.9 12.5 6.9z" fill="#E9745F" />
+    <path d="M18.77 12.16c0-.53-.08-1.04-.2-1.52H12.5v2.87h3.52c-.15.8-.61 1.48-1.3 1.94l2.01 1.56c1.2-1.1 1.88-2.73 1.88-4.85h.16z" fill="#76214D" />
+    <path d="M8.3 13.38A4.6 4.6 0 018.06 12c0-.48.09-.94.24-1.38l-2.32-1.8A7.52 7.52 0 005 12c0 1.2.29 2.34.8 3.34l2.5-1.96z" fill="#F58A24" />
+    <path d="M12.5 20c1.84 0 3.38-.61 4.51-1.65l-2.01-1.56c-.63.4-1.43.64-2.5.64-1.9 0-3.47-1.27-4.06-3h-2.5l-.03.1A7.99 7.99 0 0012.5 20z" fill="#778455" />
+  </svg>
+);
+const AppleIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" fill="#76214D" />
   </svg>
 );
 
-const AppleIcon = ({ color = "white" }: { color?: string }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" fill={color} />
-  </svg>
-);
+const fieldStyle: React.CSSProperties = {
+  width: "100%",
+  borderRadius: 14,
+  padding: "0.75rem 0.95rem",
+  fontSize: "0.92rem",
+  color: KALA.ink,
+  backgroundColor: KALA.cream,
+  border: `1px solid ${KALA.border}`,
+  outline: "none",
+};
+const labelStyle: React.CSSProperties = {
+  fontSize: "0.66rem",
+  fontWeight: 500,
+  textTransform: "uppercase",
+  letterSpacing: "0.22em",
+  color: KALA.ink,
+  opacity: 0.62,
+  marginBottom: 6,
+  display: "block",
+};
 
-// ── Registration dialog ────────────────────────────────────────────────────────
-interface RegisterDialogProps {
+/* ─────────────────────────────────────────────────────────────────
+   RegisterDialog — soft inline sheet, not dark modal
+   ───────────────────────────────────────────────────────────────── */
+function RegisterSheet({
+  event,
+  onClose,
+  onDone,
+}: {
   event: ClientEvent;
   onClose: () => void;
   onDone: () => void;
-}
-
-function RegisterDialog({ event, onClose, onDone }: RegisterDialogProps) {
+}) {
   const { user } = useAuthStore();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [method, setMethod] = useState<"transfer" | "cash">("transfer");
-  const [name, setName] = useState(user?.display_name ?? user?.name ?? "");
+  const [name, setName] = useState((user as any)?.display_name ?? user?.displayName ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [phone, setPhone] = useState(user?.phone ?? "");
 
@@ -56,94 +110,127 @@ function RegisterDialog({ event, onClose, onDone }: RegisterDialogProps) {
   const registerMutation = useMutation({
     mutationFn: () =>
       api.post(`/events/${event.id}/register`, {
-        name, email, phone,
+        name,
+        email,
+        phone,
         payment_method: isFree ? "free" : method,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-events"] });
       qc.invalidateQueries({ queryKey: ["client-event", event.id] });
-      toast({ title: isFree ? "🎉 ¡Registro confirmado!" : "✅ Registro enviado. Completa tu pago." });
+      toast({ title: isFree ? "Registro confirmado." : "Registro enviado, completa tu pago." });
       onDone();
     },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Error al registrarse";
+    onError: (err: any) => {
+      const msg = err?.response?.data?.message ?? "No pudimos registrarte.";
       toast({ title: msg, variant: "destructive" });
     },
   });
 
-  const inputCls = "w-full rounded-xl bg-white/[0.05] border border-white/[0.08] px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-[#76214D]/40 transition-all";
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.08] bg-[#0f0518] p-5 space-y-5 shadow-2xl">
-        {/* Header */}
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
+      style={{ backgroundColor: "rgba(46,32,28,0.55)", backdropFilter: "blur(6px)" }}
+    >
+      <div
+        className="w-full max-w-md rounded-3xl p-6 space-y-5"
+        style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}`, boxShadow: "0 24px 60px rgba(46,32,28,0.18)" }}
+      >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-base font-bold text-foreground">Inscribirme al evento</h3>
-            <p className="text-sm text-muted-foreground mt-0.5 line-clamp-1">{event.title}</p>
+          <div className="min-w-0">
+            <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
+              Inscripción
+            </span>
+            <h3
+              className="font-bebas leading-tight mt-1 truncate"
+              style={{ color: KALA.ink, fontSize: "clamp(1.4rem, 2.4vw, 1.8rem)" }}
+            >
+              {event.title}
+            </h3>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X size={18} />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="grid h-9 w-9 place-items-center rounded-full bg-transparent border-0 cursor-pointer"
+            style={{ border: `1px solid ${KALA.border}`, color: KALA.ink, opacity: 0.6 }}
+          >
+            <X size={15} />
           </button>
         </div>
 
-        {/* Price chip */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Total:</span>
-          <span className="text-lg font-bold text-[#76214D]">
+        <div className="flex items-center gap-3">
+          <Tag tint="berry">
             {isFree ? "Gratis" : formatCurrency(calcCurrentPrice(event))}
-          </span>
+          </Tag>
           {event.earlyBirdPrice && event.earlyBirdDeadline && calcCurrentPrice(event) === event.earlyBirdPrice && (
-            <span className="text-[0.65rem] bg-[#F58A24]/10 border border-[#F58A24]/30 text-[#F58A24] rounded-full px-2 py-0.5 font-medium">
-              Early Bird
-            </span>
+            <Tag tint="orange">Early bird</Tag>
           )}
         </div>
 
-        {/* Contact fields */}
         <div className="space-y-3">
-          <input className={inputCls} placeholder="Nombre completo" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className={inputCls} type="email" placeholder="Correo electrónico" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input className={inputCls} placeholder="Teléfono (opcional)" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <div>
+            <label style={labelStyle}>Nombre completo</label>
+            <input style={fieldStyle} value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Email</label>
+            <input style={fieldStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div>
+            <label style={labelStyle}>Teléfono (opcional)</label>
+            <input style={fieldStyle} value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
         </div>
 
-        {/* Payment method (only if not free) */}
         {!isFree && (
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Método de pago</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(["transfer", "cash"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMethod(m)}
-                  className={cn(
-                    "rounded-xl p-3 border text-left transition-all",
-                    method === m
-                      ? m === "transfer" ? "border-[#E9745F]/50 bg-[#E9745F]/10 text-[#E9745F]" : "border-[#F58A24]/50 bg-[#F58A24]/10 text-[#F58A24]"
-                      : "border-white/[0.08] bg-white/[0.02] text-muted-foreground hover:bg-white/[0.04]"
-                  )}
-                >
-                  <p className="text-sm font-semibold">{m === "transfer" ? "Transferencia" : "En studio"}</p>
-                  <p className="text-[0.68rem] mt-0.5">{m === "transfer" ? "SPEI / Banco" : "Efectivo en recepción"}</p>
-                </button>
-              ))}
+          <div>
+            <label style={labelStyle}>Método de pago</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["transfer", "cash"] as const).map((m) => {
+                const sel = method === m;
+                const tint = m === "transfer" ? KALA.berry : KALA.orange;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMethod(m)}
+                    className="rounded-2xl p-3 cursor-pointer transition-colors text-left bg-transparent"
+                    style={{
+                      backgroundColor: sel ? KALA.blush : "transparent",
+                      border: `1px solid ${sel ? tint : KALA.border}`,
+                    }}
+                  >
+                    <p className="font-bebas text-[1rem] leading-tight" style={{ color: KALA.ink }}>
+                      {m === "transfer" ? "Transferencia" : "Efectivo"}
+                    </p>
+                    <p className="text-[0.72rem] mt-0.5" style={{ color: KALA.ink, opacity: 0.6 }}>
+                      {m === "transfer" ? "SPEI" : "En estudio"}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        <button
+        <PrimaryButton
           onClick={() => registerMutation.mutate()}
           disabled={!name || !email || registerMutation.isPending}
-          className="w-full rounded-xl py-3 text-sm font-bold bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white shadow-lg shadow-[#76214D]/20 hover:opacity-90 disabled:opacity-40 transition-opacity"
+          loading={registerMutation.isPending}
+          loadingLabel="Registrando…"
+          className="w-full"
         >
-          {registerMutation.isPending ? "Registrando..." : isFree ? "Confirmar registro gratuito" : "Inscribirme"}
-        </button>
+          {isFree ? "Confirmar registro" : "Inscribirme"}
+        </PrimaryButton>
       </div>
     </div>
   );
 }
 
-// ── Payment section ────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────
+   PaymentSection — pay flow inside event detail
+   ───────────────────────────────────────────────────────────────── */
 function PaymentSection({ event, onDone }: { event: ClientEvent; onDone: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -151,12 +238,6 @@ function PaymentSection({ event, onDone }: { event: ClientEvent; onDone: () => v
   const [reference, setReference] = useState("");
   const [date, setDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: "✅ Copiado al portapapeles" });
-  };
 
   const paymentMutation = useMutation({
     mutationFn: async () => {
@@ -179,86 +260,95 @@ function PaymentSection({ event, onDone }: { event: ClientEvent; onDone: () => v
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-event", event.id] });
-      toast({ title: method === "cash" ? "✅ Seleccionado pago en studio" : "📤 Comprobante enviado" });
+      toast({ title: method === "cash" ? "Pago en estudio registrado." : "Comprobante enviado." });
       onDone();
     },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? "Error al enviar";
-      toast({ title: msg, variant: "destructive" });
+    onError: (err: any) => {
+      toast({
+        title: "No se pudo enviar",
+        description: err?.response?.data?.message ?? "Inténtalo de nuevo.",
+        variant: "destructive",
+      });
     },
   });
 
-  const inputCls = "w-full rounded-xl bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-[#76214D]/40 transition-all";
+  const amount = event.myRegistration?.amount ?? event.price;
 
   return (
-    <div className="rounded-2xl border border-[#E9745F]/20 bg-[#E9745F]/[0.04] p-5 space-y-5">
-      <p className="text-sm font-semibold text-foreground">Completa tu pago</p>
-
-      {/* Method selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {(["transfer", "cash"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMethod(m)}
-            className={cn(
-              "rounded-xl p-3 border text-left transition-all",
-              method === m
-                ? m === "transfer" ? "border-[#E9745F]/50 bg-[#E9745F]/10 text-[#E9745F]" : "border-[#F58A24]/50 bg-[#F58A24]/10 text-[#F58A24]"
-                : "border-white/[0.08] bg-white/[0.02] text-muted-foreground hover:bg-white/[0.04]"
-            )}
-          >
-            <p className="text-sm font-semibold">{m === "transfer" ? "Transferencia" : "Pagar en studio"}</p>
-            <p className="text-[0.68rem] mt-0.5">{m === "transfer" ? "SPEI / Banco" : "Efectivo en recepción"}</p>
-          </button>
-        ))}
+    <div className="rounded-3xl p-5 sm:p-7 space-y-5" style={{ backgroundColor: KALA.blush }}>
+      <div>
+        <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
+          Completa tu pago
+        </span>
+        <h3 className="font-bebas mt-1 leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.3rem, 2vw, 1.7rem)" }}>
+          {formatCurrency(amount)}
+        </h3>
       </div>
 
-      {/* Transfer section */}
-      {method === "transfer" && (
+      <div className="grid grid-cols-2 gap-2">
+        {(["transfer", "cash"] as const).map((m) => {
+          const sel = method === m;
+          const tint = m === "transfer" ? KALA.berry : KALA.orange;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMethod(m)}
+              className="rounded-2xl p-3 text-left bg-transparent cursor-pointer transition-colors"
+              style={{
+                backgroundColor: sel ? KALA.cream : "transparent",
+                border: `1px solid ${sel ? tint : KALA.border}`,
+              }}
+            >
+              <p className="font-bebas text-[1rem] leading-tight" style={{ color: KALA.ink }}>
+                {m === "transfer" ? "Transferencia" : "Efectivo"}
+              </p>
+              <p className="text-[0.72rem] mt-0.5" style={{ color: KALA.ink, opacity: 0.6 }}>
+                {m === "transfer" ? "SPEI" : "En estudio"}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      {method === "transfer" ? (
         <div className="space-y-4">
-          {/* Bank info */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Datos bancarios</p>
+          <div className="rounded-2xl p-4" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
             {[
-              { label: "Banco",    value: "BBVA" },
-              { label: "Titular",  value: "Montserrath Cornejo Ramírez" },
-              { label: "Cuenta",   value: "157 824 4526" },
-              { label: "CLABE",    value: "012 180 01578244526 8" },
-              { label: "Monto",    value: formatCurrency(event.myRegistration?.amount ?? event.price) },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-[0.65rem] text-muted-foreground">{item.label}</p>
-                  <p className="text-sm font-medium text-foreground">{item.value}</p>
-                </div>
-                {["Cuenta", "CLABE"].includes(item.label) && (
-                  <button onClick={() => copyToClipboard(item.value)} className="text-[#E9745F] hover:opacity-70 transition-opacity">
-                    <Copy size={14} />
-                  </button>
-                )}
-              </div>
+              { label: "Banco", value: "BBVA" },
+              { label: "Titular", value: "Montserrath Cornejo Ramírez" },
+              { label: "Cuenta", value: "157 824 4526", copy: true, mono: true },
+              { label: "CLABE", value: "012 180 01578244526 8", copy: true, mono: true },
+              { label: "Monto", value: formatCurrency(amount), mono: true },
+            ].map((row) => (
+              <DataRow
+                key={row.label}
+                label={row.label}
+                value={row.value}
+                mono={row.mono}
+                copyable={row.copy ? row.value : undefined}
+              />
             ))}
           </div>
-
-          {/* Comprobante form */}
-          <div className="space-y-3">
-            <input
-              className={inputCls}
-              placeholder="Referencia de transferencia"
-              value={reference}
-              onChange={(e) => setReference(e.target.value)}
-            />
-            <input
-              className={inputCls}
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-            {/* File upload */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label style={labelStyle}>Referencia (opcional)</label>
+              <input style={fieldStyle} value={reference} onChange={(e) => setReference(e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Fecha de transferencia</label>
+              <input style={fieldStyle} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Comprobante</label>
             {!file ? (
-              <label className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-white/[0.10] p-5 cursor-pointer hover:border-[#76214D]/30 transition-all">
-                <Upload size={20} className="text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">Subir comprobante (imagen o PDF)</p>
+              <label
+                className="rounded-2xl p-5 text-center cursor-pointer block"
+                style={{ border: `1px dashed ${KALA.border}`, color: KALA.ink, opacity: 0.7 }}
+              >
+                <Upload size={18} style={{ margin: "0 auto 6px", color: KALA.berry, opacity: 0.65 }} />
+                <p className="text-[0.86rem]">Subir imagen o PDF (máx 5MB)</p>
                 <input
                   type="file"
                   accept="image/*,.pdf"
@@ -266,70 +356,69 @@ function PaymentSection({ event, onDone }: { event: ClientEvent; onDone: () => v
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (!f) return;
-                    if (f.size > 5 * 1024 * 1024) { toast({ title: "Máximo 5 MB", variant: "destructive" }); return; }
-                    setFile(f);
-                    if (f.type.startsWith("image/")) {
-                      const reader = new FileReader();
-                      reader.onload = () => setFilePreview(reader.result as string);
-                      reader.readAsDataURL(f);
-                    } else {
-                      setFilePreview(null);
+                    if (f.size > 5 * 1024 * 1024) {
+                      toast({ title: "Máximo 5 MB", variant: "destructive" });
+                      return;
                     }
+                    setFile(f);
                   }}
                 />
               </label>
             ) : (
-              <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
-                {filePreview ? (
-                  <img src={filePreview} className="h-12 w-12 rounded-lg object-cover flex-shrink-0" />
-                ) : (
-                  <div className="h-12 w-12 rounded-lg bg-white/[0.05] flex items-center justify-center flex-shrink-0">
-                    <Upload size={18} className="text-muted-foreground" />
-                  </div>
-                )}
-                <p className="flex-1 text-sm text-foreground truncate">{file.name}</p>
-                <button onClick={() => { setFile(null); setFilePreview(null); }} className="text-muted-foreground hover:text-[#f87171] transition-colors">
-                  <X size={16} />
+              <div className="flex items-center gap-3 rounded-2xl p-3" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.olive}55` }}>
+                <span className="grid h-9 w-9 place-items-center rounded-xl shrink-0" style={{ backgroundColor: KALA.olive, color: KALA.cream }}>
+                  <CheckCircle2 size={15} />
+                </span>
+                <p className="flex-1 truncate text-[0.88rem]" style={{ color: KALA.ink }}>
+                  {file.name}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFile(null)}
+                  className="bg-transparent border-0 cursor-pointer"
+                  style={{ color: KALA.ink, opacity: 0.55 }}
+                >
+                  <X size={15} />
                 </button>
               </div>
             )}
           </div>
 
-          <button
+          <PrimaryButton
             onClick={() => paymentMutation.mutate()}
             disabled={(!reference && !file) || paymentMutation.isPending}
-            className="w-full rounded-xl py-3 text-sm font-bold bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white shadow-lg shadow-[#E9745F]/20 hover:opacity-90 disabled:opacity-40 transition-opacity"
+            loading={paymentMutation.isPending}
+            loadingLabel="Enviando…"
+            className="w-full"
           >
-            {paymentMutation.isPending ? "Enviando..." : "Enviar comprobante"}
-          </button>
+            Enviar comprobante
+          </PrimaryButton>
         </div>
-      )}
-
-      {/* Cash section */}
-      {method === "cash" && (
+      ) : (
         <div className="space-y-4">
-          <div className="rounded-xl border border-[#F58A24]/20 bg-[#F58A24]/[0.04] p-4">
-            <p className="text-sm text-[#F58A24] font-medium">Paga en recepción del studio</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Presenta tu confirmación en recepción y realiza el pago de{" "}
-              <strong className="text-[#F58A24]">{formatCurrency(event.myRegistration?.amount ?? event.price)}</strong>.
-              Tu lugar será confirmado inmediatamente.
-            </p>
-          </div>
-          <button
+          <InfoBanner
+            tone="orange"
+            title="Págalo en recepción"
+            description={`Presenta tu confirmación y paga ${formatCurrency(amount)}. Al confirmar, queda tu lugar.`}
+          />
+          <PrimaryButton
             onClick={() => paymentMutation.mutate()}
             disabled={paymentMutation.isPending}
-            className="w-full rounded-xl py-3 text-sm font-bold bg-gradient-to-r from-[#F58A24] to-[#F58A24]/70 text-[#080808] shadow-lg shadow-[#F58A24]/10 hover:opacity-90 disabled:opacity-40 transition-opacity"
+            loading={paymentMutation.isPending}
+            loadingLabel="Marcando…"
+            className="w-full"
           >
-            {paymentMutation.isPending ? "..." : "Marcar como pago en studio"}
-          </button>
+            Marcar como pago en estudio
+          </PrimaryButton>
         </div>
       )}
     </div>
   );
 }
 
-// ── Event detail view (inline) ────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────
+   EventDetail
+   ───────────────────────────────────────────────────────────────── */
 function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -348,23 +437,27 @@ function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-event", eventId] });
       qc.invalidateQueries({ queryKey: ["client-events"] });
-      toast({ title: "Inscripción cancelada" });
+      toast({ title: "Inscripción cancelada." });
     },
-    onError: () => toast({ title: "Error al cancelar", variant: "destructive" }),
+    onError: () => toast({ title: "No se pudo cancelar", variant: "destructive" }),
   });
 
   if (isLoading || !event) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-32 rounded-xl" />
-        <Skeleton className="h-48 rounded-2xl" />
-        <Skeleton className="h-32 rounded-2xl" />
-      </div>
+      <>
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 text-[0.74rem] uppercase tracking-[0.2em] mb-5 bg-transparent border-0 cursor-pointer"
+          style={{ color: KALA.ink, opacity: 0.55 }}
+        >
+          ← Eventos
+        </button>
+        <SkeletonRow height={300} />
+      </>
     );
   }
 
   const typeInfo = EVENT_TYPES.find((t) => t.value === event.type);
-  const color = typeInfo?.color ?? "#76214D";
   const pct = occupancyPercent(event.registered, event.capacity);
   const barColor = occupancyColor(pct);
   const currentPrice = calcCurrentPrice(event);
@@ -379,10 +472,9 @@ function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void 
       const saveUrl = resp.data?.data?.saveUrl || resp.data?.saveUrl;
       if (!saveUrl) throw new Error("No save URL");
       window.open(saveUrl, "_blank", "noopener,noreferrer");
-      toast({ title: "Abriendo Google Wallet..." });
-    } catch (err: unknown) {
-      console.error("Google Wallet event add error:", err);
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "No se pudo abrir Google Wallet";
+      toast({ title: "Abriendo Google Wallet…" });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || "No se pudo abrir Google Wallet.";
       toast({ title: msg, variant: "destructive" });
     } finally {
       setGoogleLoading(false);
@@ -402,7 +494,7 @@ function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void 
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "ophelia-event-pass.pkpass";
+        a.download = "kala-event-pass.pkpass";
         a.style.display = "none";
         document.body.appendChild(a);
         a.click();
@@ -410,255 +502,291 @@ function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void 
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         }, 500);
-        toast({ title: "Pase descargado", description: "Ábrelo para agregarlo a Apple Wallet." });
-      } else if (contentType.includes("text/html")) {
-        const htmlText = await resp.data.text();
-        const newWindow = window.open("", "_blank");
-        if (!newWindow) {
-          toast({ title: "Permite ventanas emergentes para abrir el pase", variant: "destructive" });
-          return;
-        }
-        newWindow.document.open();
-        newWindow.document.write(htmlText);
-        newWindow.document.close();
-        toast({ title: "Pase web abierto" });
+        toast({ title: "Pase descargado", description: "Ábrelo para Apple Wallet." });
       } else {
-        toast({ title: "No se pudo generar el pase", variant: "destructive" });
+        toast({ title: "No se pudo generar el pase.", variant: "destructive" });
       }
-    } catch (err: unknown) {
-      console.error("Apple Wallet event add error:", err);
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "No se pudo abrir Apple Wallet";
-      toast({ title: msg, variant: "destructive" });
+    } catch {
+      toast({ title: "No se pudo abrir Apple Wallet.", variant: "destructive" });
     } finally {
       setAppleLoading(false);
     }
   };
 
   return (
-    <div className="space-y-5">
-      {/* Back */}
+    <>
       <button
         onClick={onBack}
-        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        className="inline-flex items-center gap-2 text-[0.74rem] uppercase tracking-[0.2em] mb-4 bg-transparent border-0 cursor-pointer"
+        style={{ color: KALA.ink, opacity: 0.55 }}
       >
-        <ArrowLeft size={16} />
-        Todos los eventos
+        ← Todos los eventos
       </button>
 
-      {/* Main card */}
-      <div className="rounded-2xl border bg-white/[0.02] p-5 space-y-4" style={{ borderColor: `${color}22` }}>
-        <div className="flex items-start gap-4">
-          <EventTypeIcon type={event.type} size={22} withBg className="flex-shrink-0 mt-1" />
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-foreground">{event.title}</h2>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-sm font-semibold" style={{ color }}>
-                {event.price === 0 ? "Gratis" : formatCurrency(currentPrice)}
-              </span>
-              {event.earlyBirdPrice && calcCurrentPrice(event) === event.earlyBirdPrice && (
-                <span className="text-[0.65rem] bg-[#F58A24]/10 border border-[#F58A24]/30 text-[#F58A24] rounded-full px-2 py-0.5">
-                  Early Bird
-                </span>
-              )}
-              {event.price > 0 && event.memberDiscount > 0 && (
-                <span className="text-[0.65rem] bg-[#E9745F]/10 border border-[#E9745F]/30 text-[#E9745F] rounded-full px-2 py-0.5">
-                  {event.memberDiscount}% socias
-                </span>
+      <PageHeader
+        eyebrow={typeInfo?.label ?? "Evento"}
+        title={event.title}
+        actions={
+          event.price === 0 ? (
+            <Tag tint="olive">Gratis</Tag>
+          ) : (
+            <Tag tint="berry">{formatCurrency(currentPrice)}</Tag>
+          )
+        }
+      />
+
+      <Section>
+        <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.blush }}>
+          <div className="flex items-start gap-4">
+            <span
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl"
+              style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+            >
+              <EventTypeIcon type={event.type} size={20} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
+                {event.instructor}
+              </p>
+              {event.description && (
+                <p className="mt-2 text-[0.95rem] leading-[1.7]" style={{ color: KALA.ink, opacity: 0.8 }}>
+                  {event.description}
+                </p>
               )}
             </div>
           </div>
+          {event.earlyBirdPrice && calcCurrentPrice(event) === event.earlyBirdPrice && (
+            <div className="mt-4">
+              <Tag tint="orange">Early bird vigente</Tag>
+            </div>
+          )}
+          {event.memberDiscount > 0 && (
+            <p className="mt-3 text-[0.86rem]" style={{ color: KALA.olive }}>
+              {event.memberDiscount}% de descuento aplica si tienes membresía activa.
+            </p>
+          )}
         </div>
+      </Section>
 
-        <p className="text-sm text-muted-foreground leading-relaxed">{event.description}</p>
+      <Section title="Detalle">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
+          <DataRow label="Día" value={formatEventDate(event.date)} />
+          <DataRow label="Hora" value={`${event.startTime} a ${event.endTime}`} />
+          <DataRow label="Lugar" value={event.location} />
+          <DataRow label="Coach" value={event.instructor} />
+        </div>
+      </Section>
 
-        {/* Info chips */}
-        <div className="flex flex-wrap gap-2">
-          {[
-            { icon: Calendar, text: formatEventDate(event.date) },
-            { icon: Clock, text: `${event.startTime} – ${event.endTime}` },
-            { icon: MapPin, text: event.location },
-            { icon: UserCircle, text: event.instructor },
-          ].map((chip) => (
-            <span key={chip.text} className="flex items-center gap-1.5 text-xs text-muted-foreground bg-white/[0.04] border border-white/[0.06] rounded-full px-3 py-1">
-              <chip.icon size={11} />
-              {chip.text}
+      <Section title="Cupo">
+        <div className="rounded-2xl p-5" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
+          <div className="flex items-baseline justify-between gap-3 mb-3">
+            <span className="text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.6 }}>
+              {event.registered} de {event.capacity} inscritas
             </span>
-          ))}
-        </div>
-
-        {/* Capacity bar */}
-        <div>
-          <div className="flex justify-between text-xs text-muted-foreground mb-1">
-            <span className="flex items-center gap-1"><Users size={11} /> {event.registered}/{event.capacity} inscritos</span>
-            <span style={{ color: barColor }}>{pct}%</span>
+            <span className="font-bebas tabular-nums text-[1.1rem]" style={{ color: barColor }}>
+              {pct}%
+            </span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-white/[0.06] overflow-hidden">
-            <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }} />
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: KALA.blush }}>
+            <div
+              className="h-full rounded-full transition-[width] duration-700"
+              style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
+            />
           </div>
           {isFull && !myReg && (
-            <p className="text-xs text-[#fbbf24] mt-1">Evento lleno — puedes inscribirte en lista de espera.</p>
+            <p className="mt-3 text-[0.84rem]" style={{ color: KALA.coral }}>
+              Lugar lleno, puedes inscribirte en lista de espera.
+            </p>
           )}
         </div>
-      </div>
+      </Section>
 
-      {/* Requirements */}
       {event.requirements && (
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-          <p className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">Requisitos</p>
-          <p className="text-sm text-foreground">{event.requirements}</p>
-        </div>
+        <Section title="Requisitos">
+          <p className="text-[0.95rem] leading-[1.7]" style={{ color: KALA.ink, opacity: 0.78 }}>
+            {event.requirements}
+          </p>
+        </Section>
       )}
 
-      {/* Includes */}
       {event.includes.length > 0 && (
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-          <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Incluye</p>
-          <div className="space-y-2">
-            {event.includes.map((item, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <CheckCircle size={13} className="text-[#4ade80] flex-shrink-0" />
-                <p className="text-sm text-foreground">{item}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Member discount card */}
-      {event.memberDiscount > 0 && (
-        <div className="rounded-2xl border border-[#E9745F]/20 bg-[#E9745F]/[0.04] p-4">
-          <p className="text-sm font-semibold text-[#E9745F]">🎉 {event.memberDiscount}% de descuento para socias</p>
-          <p className="text-xs text-muted-foreground mt-1">Tu membresía activa aplica automáticamente al inscribirte.</p>
-        </div>
-      )}
-
-      {/* ── Status banner / CTA ── */}
-      {!myReg ? (
-        <button
-          onClick={() => setShowRegister(true)}
-          className="w-full rounded-2xl py-3.5 text-sm font-bold bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white shadow-lg shadow-[#76214D]/20 hover:opacity-90 transition-opacity"
-        >
-          {isFull ? "Inscribirme en lista de espera" : event.price === 0 ? "Registrarme gratis" : `Inscribirme — ${formatCurrency(currentPrice)}`}
-        </button>
-      ) : myReg.status === "confirmed" ? (
-        <div className="rounded-2xl border border-[#4ade80]/20 bg-[#4ade80]/[0.04] p-4 space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <CheckCircle size={16} className="text-[#4ade80]" />
-            <p className="text-sm font-semibold text-[#4ade80]">
-              {myReg.checkedIn ? "Check-in registrado. ¡Disfruta el evento!" : "¡Estás inscrita! Te esperamos en el evento."}
-            </p>
-          </div>
-          {eventPassCode ? (
-            <div className="rounded-xl border border-[#4ade80]/25 bg-black/20 p-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <p className="text-xs font-semibold text-[#4ade80] uppercase tracking-wider">Tu pase del evento</p>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(eventPassCode);
-                    toast({ title: "✅ Código del pase copiado" });
-                  }}
-                  className="text-[0.65rem] font-medium text-[#4ade80] hover:opacity-80 transition-opacity"
+        <Section title="Incluye">
+          <ul className="list-none m-0 p-0">
+            {event.includes.map((item, i, arr) => (
+              <li
+                key={i}
+                className="grid grid-cols-[auto_1fr] items-center gap-3 py-3"
+                style={{
+                  borderTop: `1px solid ${KALA.border}`,
+                  borderBottom: i === arr.length - 1 ? `1px solid ${KALA.border}` : undefined,
+                }}
+              >
+                <span
+                  className="grid h-7 w-7 place-items-center rounded-full"
+                  style={{ backgroundColor: `${KALA.olive}1a`, color: KALA.olive }}
                 >
-                  Copiar código
-                </button>
-              </div>
-              <div className="flex flex-col sm:flex-row items-center gap-3">
-                <div className="rounded-xl bg-white p-2 shadow-sm">
-                  <QRCodeSVG value={eventPassCode} size={110} />
+                  <CheckCircle2 size={13} />
+                </span>
+                <span className="text-[0.92rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.78 }}>
+                  {item}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {/* Estado / CTA */}
+      {!myReg ? (
+        <StickyCta>
+          <PrimaryButton onClick={() => setShowRegister(true)} className="w-full">
+            {isFull
+              ? "Unirme a lista de espera"
+              : event.price === 0
+                ? "Registrarme gratis"
+                : `Inscribirme · ${formatCurrency(currentPrice)}`}
+          </PrimaryButton>
+        </StickyCta>
+      ) : myReg.status === "confirmed" ? (
+        <Section title="Tu pase">
+          <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.blush }}>
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle2 size={16} style={{ color: KALA.olive }} />
+              <p className="text-[0.92rem] font-medium" style={{ color: KALA.ink }}>
+                {myReg.checkedIn
+                  ? "Check-in registrado, disfruta el evento."
+                  : "Estás inscrita, te esperamos."}
+              </p>
+            </div>
+            {eventPassCode ? (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                <div
+                  className="rounded-2xl p-3 grid place-items-center"
+                  style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
+                >
+                  <QRCodeSVG value={eventPassCode} size={120} bgColor={KALA.cream} fgColor={KALA.ink} />
                 </div>
-                <div className="min-w-0 text-center sm:text-left">
-                  <p className="text-[0.65rem] text-muted-foreground">Presenta este QR en recepción para check-in.</p>
-                  <p className="mt-1 text-xs font-semibold text-[#F58A24] break-all">{eventPassCode}</p>
+                <div className="min-w-0">
+                  <p className="text-[0.62rem] uppercase tracking-[0.22em]" style={{ color: KALA.berry }}>
+                    Código del pase
+                  </p>
+                  <p className="mt-1 font-mono text-[0.86rem] break-all" style={{ color: KALA.ink, opacity: 0.78 }}>
+                    {eventPassCode}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(eventPassCode);
+                      toast({ title: "Código copiado." });
+                    }}
+                    className="mt-2 text-[0.78rem] no-underline bg-transparent border-0 cursor-pointer"
+                    style={{ color: KALA.berry }}
+                  >
+                    Copiar código
+                  </button>
+                  <p className="mt-3 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                    Presenta el QR en recepción para tu check-in.
+                  </p>
                 </div>
               </div>
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            ) : (
+              <p className="text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.6 }}>
+                Tu pase se está generando. Si no aparece en unos segundos, recarga la pantalla.
+              </p>
+            )}
+
+            {eventPassCode && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-5">
                 <button
+                  type="button"
                   onClick={handleAppleWalletAdd}
                   disabled={appleLoading}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-semibold text-foreground transition-all disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl py-2.5 text-[0.78rem] font-medium cursor-pointer transition-colors"
+                  style={{ backgroundColor: KALA.cream, color: KALA.ink, border: `1px solid ${KALA.border}` }}
                 >
                   <AppleIcon />
-                  {appleLoading ? "Generando..." : "Agregar a Apple Wallet"}
-                  <ExternalLink size={13} className="opacity-70" />
+                  {appleLoading ? "Generando…" : "Apple Wallet"}
+                  <ExternalLink size={12} style={{ opacity: 0.55 }} />
                 </button>
                 <button
+                  type="button"
                   onClick={handleGoogleWalletAdd}
                   disabled={googleLoading}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 px-3 py-2 text-xs font-semibold text-foreground transition-all disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl py-2.5 text-[0.78rem] font-medium cursor-pointer transition-colors"
+                  style={{ backgroundColor: KALA.cream, color: KALA.ink, border: `1px solid ${KALA.border}` }}
                 >
                   <GoogleIcon />
-                  {googleLoading ? "Abriendo..." : "Agregar a Google Wallet"}
-                  <ExternalLink size={13} className="opacity-70" />
+                  {googleLoading ? "Abriendo…" : "Google Wallet"}
+                  <ExternalLink size={12} style={{ opacity: 0.55 }} />
                 </button>
               </div>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Tu pase se está generando. Si no aparece en unos segundos, recarga la pantalla.
-            </p>
-          )}
-          <button
-            onClick={() => cancelMutation.mutate()}
-            className="text-xs text-muted-foreground hover:text-[#f87171] transition-colors"
-          >
-            Cancelar inscripción
-          </button>
-        </div>
-      ) : myReg.status === "waitlist" ? (
-        <div className="rounded-2xl border border-[#E9745F]/20 bg-[#E9745F]/[0.04] p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Hourglass size={16} className="text-[#E9745F]" />
-            <p className="text-sm font-semibold text-[#E9745F]">Estás en la lista de espera. Te avisaremos si se libera un lugar.</p>
+            )}
+
+            <button
+              type="button"
+              onClick={() => cancelMutation.mutate()}
+              className="mt-5 text-[0.78rem] bg-transparent border-0 cursor-pointer"
+              style={{ color: KALA.destructive, opacity: 0.85 }}
+            >
+              Cancelar inscripción
+            </button>
           </div>
-          <button onClick={() => cancelMutation.mutate()} className="text-xs text-muted-foreground hover:text-[#f87171] transition-colors">
-            Salir de la lista de espera
-          </button>
-        </div>
+        </Section>
+      ) : myReg.status === "waitlist" ? (
+        <Section>
+          <InfoBanner
+            tone="coral"
+            title="Estás en lista de espera."
+            description="Te avisamos en cuanto se libere un lugar."
+            action={
+              <GhostButton onClick={() => cancelMutation.mutate()}>
+                Salir de lista
+              </GhostButton>
+            }
+          />
+        </Section>
       ) : myReg.status === "pending" ? (
-        <div className="space-y-4">
-          {myReg.hasPaymentProof || myReg.paymentMethod === "cash" ? (
-            <div className="rounded-2xl border border-[#fbbf24]/20 bg-[#fbbf24]/[0.04] p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <AlertCircle size={16} className="text-[#fbbf24]" />
-                <p className="text-sm font-semibold text-[#fbbf24]">
-                  {myReg.paymentMethod === "cash" ? "Pendiente de pago en studio" : "Comprobante enviado — en revisión"}
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">El equipo confirmará tu lugar pronto.</p>
-              <button onClick={() => cancelMutation.mutate()} className="text-xs text-muted-foreground hover:text-[#f87171] transition-colors mt-2 block">
-                Cancelar inscripción
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="rounded-2xl border border-[#fbbf24]/20 bg-[#fbbf24]/[0.04] p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <AlertCircle size={16} className="text-[#fbbf24]" />
-                  <p className="text-sm font-semibold text-[#fbbf24]">Pendiente de pago</p>
-                </div>
-                <p className="text-xs text-muted-foreground">Completa tu pago para confirmar tu lugar.</p>
-                <button onClick={() => cancelMutation.mutate()} className="text-xs text-muted-foreground hover:text-[#f87171] transition-colors mt-2 block">
-                  Cancelar inscripción
-                </button>
-              </div>
-              {!showPayment ? (
-                <button
-                  onClick={() => setShowPayment(true)}
-                  className="w-full rounded-2xl py-3 text-sm font-bold border border-[#E9745F]/30 bg-[#E9745F]/10 text-[#E9745F] hover:bg-[#E9745F]/15 transition-all"
-                >
+        myReg.hasPaymentProof || myReg.paymentMethod === "cash" ? (
+          <Section>
+            <InfoBanner
+              tone="orange"
+              title={
+                myReg.paymentMethod === "cash"
+                  ? "Pendiente de pago en estudio."
+                  : "Comprobante en revisión."
+              }
+              description="Te confirmamos en cuanto el equipo lo revise."
+              action={
+                <GhostButton onClick={() => cancelMutation.mutate()}>
+                  Cancelar
+                </GhostButton>
+              }
+            />
+          </Section>
+        ) : (
+          <Section title="Tu pago">
+            <InfoBanner
+              tone="orange"
+              title="Pendiente de pago."
+              description="Completa tu pago para asegurar tu lugar."
+            />
+            {!showPayment ? (
+              <div className="mt-4">
+                <PrimaryButton onClick={() => setShowPayment(true)}>
                   Realizar pago
-                </button>
-              ) : (
+                </PrimaryButton>
+              </div>
+            ) : (
+              <div className="mt-4">
                 <PaymentSection event={event} onDone={() => setShowPayment(false)} />
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            )}
+          </Section>
+        )
       ) : null}
 
-      {/* Register dialog */}
       {showRegister && (
-        <RegisterDialog
+        <RegisterSheet
           event={event}
           onClose={() => setShowRegister(false)}
           onDone={() => {
@@ -667,154 +795,191 @@ function EventDetail({ eventId, onBack }: { eventId: string; onBack: () => void 
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
-// ── Event card ─────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────
+   EventCard
+   ───────────────────────────────────────────────────────────────── */
 function EventCard({ event, onSelect }: { event: ClientEvent; onSelect: () => void }) {
   const typeInfo = EVENT_TYPES.find((t) => t.value === event.type);
-  const color = typeInfo?.color ?? "#76214D";
   const pct = occupancyPercent(event.registered, event.capacity);
   const barColor = occupancyColor(pct);
   const currentPrice = calcCurrentPrice(event);
   const myReg = event.myRegistration;
+  const myStatus =
+    myReg?.status === "confirmed"
+      ? { label: "Inscrita", tone: "olive" as const }
+      : myReg?.status === "waitlist"
+        ? { label: "En espera", tone: "coral" as const }
+        : myReg?.status === "pending"
+          ? { label: "Pendiente", tone: "orange" as const }
+          : null;
 
   return (
     <button
+      type="button"
       onClick={onSelect}
-      className="text-left w-full rounded-2xl border bg-white/[0.02] hover:bg-white/[0.04] transition-all p-4 space-y-3"
-      style={{ borderColor: `${color}22` }}
+      className="w-full text-left bg-transparent border-0 p-0 cursor-pointer"
     >
-      {/* Header */}
-      <div className="flex items-start gap-3">
-        <EventTypeIcon type={event.type} size={18} withBg className="flex-shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-foreground leading-tight truncate">{event.title}</p>
-          <p className="text-xs text-muted-foreground mt-0.5 truncate">{event.instructor} · {typeInfo?.label}</p>
-        </div>
-        <div className="flex-shrink-0 text-right">
-          <p className="text-sm font-bold" style={{ color }}>
-            {event.price === 0 ? "Gratis" : formatCurrency(currentPrice)}
-          </p>
-          {event.earlyBirdPrice && calcCurrentPrice(event) === event.earlyBirdPrice && (
-            <p className="text-[0.6rem] text-[#F58A24] mt-0.5">Early Bird</p>
-          )}
-        </div>
-      </div>
-
-      {/* Info */}
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-        <span className="flex items-center gap-1"><Calendar size={10} />{formatEventDateShort(event.date)}</span>
-        <span className="flex items-center gap-1"><Clock size={10} />{event.startTime}</span>
-        <span className="flex items-center gap-1"><MapPin size={10} className="flex-shrink-0" />{event.location}</span>
-      </div>
-
-      {/* Occupancy + status */}
-      <div className="space-y-1.5">
-        <div className="h-1 w-full rounded-full bg-white/[0.06] overflow-hidden">
-          <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }} />
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-[0.65rem] text-muted-foreground">{event.registered}/{event.capacity} inscritos</span>
-          {myReg && myReg.status !== "cancelled" && (
-            <span
-              className="text-[0.62rem] font-semibold border rounded-full px-2 py-0.5"
-              style={
-                myReg.status === "confirmed" ? { color: "#4ade80", borderColor: "#4ade8040", background: "#4ade8010" }
-                : myReg.status === "waitlist" ? { color: "#E9745F", borderColor: "#E9745F40", background: "#E9745F10" }
-                : { color: "#fbbf24", borderColor: "#fbbf2440", background: "#fbbf2410" }
-              }
+      <div
+        className="rounded-3xl p-5 transition-colors"
+        style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
+      >
+        <div className="grid grid-cols-[auto_1fr_auto] items-start gap-4">
+          <span
+            className="grid h-11 w-11 place-items-center rounded-2xl shrink-0"
+            style={{ backgroundColor: KALA.blush, color: KALA.berry }}
+          >
+            <EventTypeIcon type={event.type} size={18} />
+          </span>
+          <div className="min-w-0">
+            <h3
+              className="font-bebas leading-tight truncate"
+              style={{ color: KALA.ink, fontSize: "clamp(1.15rem, 1.6vw, 1.4rem)" }}
             >
-              {myReg.status === "confirmed" ? "✓ Inscrita" : myReg.status === "waitlist" ? "En espera" : "Pendiente"}
+              {event.title}
+            </h3>
+            <p className="mt-1 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.6 }}>
+              {event.instructor} · {typeInfo?.label}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="font-bebas leading-none tabular-nums" style={{ color: KALA.berry, fontSize: "1.15rem" }}>
+              {event.price === 0 ? "Gratis" : formatCurrency(currentPrice)}
+            </p>
+            {event.earlyBirdPrice && calcCurrentPrice(event) === event.earlyBirdPrice && (
+              <p className="mt-0.5 text-[0.62rem] uppercase tracking-[0.18em]" style={{ color: KALA.orange }}>
+                Early bird
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.6 }}>
+          <span className="flex items-center gap-1.5"><CalendarDays size={11} />{formatEventDateShort(event.date)}</span>
+          <span className="flex items-center gap-1.5"><Clock size={11} />{event.startTime}</span>
+          <span className="flex items-center gap-1.5 truncate"><MapPin size={11} />{event.location}</span>
+        </div>
+
+        <div className="mt-4">
+          <div className="h-1 rounded-full overflow-hidden" style={{ backgroundColor: KALA.blush }}>
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${Math.min(pct, 100)}%`, backgroundColor: barColor }}
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[0.7rem] flex items-center gap-1.5" style={{ color: KALA.ink, opacity: 0.55 }}>
+              <Users size={11} /> {event.registered}/{event.capacity}
             </span>
-          )}
-          <ChevronRight size={13} className="text-muted-foreground/50" />
+            {myStatus && <StatusPill label={myStatus.label} tone={myStatus.tone} />}
+          </div>
         </div>
       </div>
     </button>
   );
 }
 
-// ── Main page ──────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────
+   Page
+   ───────────────────────────────────────────────────────────────── */
 export default function Events() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<string>("all");
 
-  const { data: events = [], isLoading } = useQuery<ClientEvent[]>({
+  const { data: rawEvents, isLoading } = useQuery({
     queryKey: ["client-events"],
     queryFn: async () => (await api.get("/events?upcoming=true")).data,
   });
 
+  const events: ClientEvent[] = Array.isArray(rawEvents)
+    ? (rawEvents as ClientEvent[])
+    : Array.isArray((rawEvents as any)?.data)
+      ? ((rawEvents as any).data as ClientEvent[])
+      : [];
   const filtered = filter === "all" ? events : events.filter((e) => e.type === filter);
   const usedTypes = [...new Set(events.map((e) => e.type))];
 
   return (
     <ClientAuthGuard>
-      <ClientLayout>
-        <div className="max-w-2xl mx-auto p-4 pb-6 space-y-5">
-          {selectedId ? (
-            <EventDetail eventId={selectedId} onBack={() => setSelectedId(null)} />
-          ) : (
-            <>
-              {/* Header */}
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">Eventos</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">Masterclasses, workshops y más</p>
-              </div>
+      <AppShell hideGreeting>
+        {selectedId ? (
+          <EventDetail eventId={selectedId} onBack={() => setSelectedId(null)} />
+        ) : (
+          <>
+            <PageHeader
+              eyebrow="Eventos"
+              title={<>Talleres, masterclasses</>}
+              titleAccent="y comunidad."
+              subtitle="Lo que pasa este mes en el estudio. Reserva tu lugar."
+            />
 
-              {/* Filters */}
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setFilter("all")}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-medium border transition-all",
-                    filter === "all"
-                      ? "bg-[#76214D]/15 border-[#76214D]/40 text-[#76214D]"
-                      : "border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-                  )}
-                >
-                  Todos
-                </button>
-                {EVENT_TYPES.filter((t) => usedTypes.includes(t.value)).map((t) => (
+            {events.length > 0 && (
+              <Section>
+                <div className="flex flex-wrap gap-2">
                   <button
-                    key={t.value}
-                    onClick={() => setFilter(t.value)}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border transition-all",
-                      filter === t.value ? "text-foreground" : "border-white/10 text-muted-foreground hover:border-white/20 hover:text-foreground"
-                    )}
-                    style={filter === t.value ? {
-                      background: `${t.color}18`, borderColor: `${t.color}50`, color: t.color,
-                    } : {}}
+                    type="button"
+                    onClick={() => setFilter("all")}
+                    className="rounded-full px-3.5 py-1.5 text-[0.74rem] font-medium uppercase tracking-[0.16em] cursor-pointer transition-colors"
+                    style={{
+                      backgroundColor: filter === "all" ? KALA.berry : "transparent",
+                      color: filter === "all" ? KALA.cream : KALA.ink,
+                      border: `1px solid ${filter === "all" ? KALA.berry : KALA.border}`,
+                    }}
                   >
-                    <EventTypeIcon type={t.value} size={11} />
-                    {t.label}
+                    Todos
                   </button>
-                ))}
-              </div>
+                  {EVENT_TYPES.filter((t) => usedTypes.includes(t.value)).map((t) => {
+                    const sel = filter === t.value;
+                    return (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => setFilter(t.value)}
+                        className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[0.74rem] font-medium uppercase tracking-[0.16em] cursor-pointer transition-colors"
+                        style={{
+                          backgroundColor: sel ? KALA.berry : "transparent",
+                          color: sel ? KALA.cream : KALA.ink,
+                          border: `1px solid ${sel ? KALA.berry : KALA.border}`,
+                        }}
+                      >
+                        <EventTypeIcon type={t.value} size={11} />
+                        {t.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </Section>
+            )}
 
-              {/* List */}
+            <Section>
               {isLoading ? (
                 <div className="space-y-3">
-                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-36 rounded-2xl" />)}
+                  {[1, 2, 3].map((i) => <SkeletonRow key={i} height={140} />)}
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="py-20 text-center">
-                  <Calendar size={40} className="text-white/20 mx-auto mb-3" />
-                  <p className="text-muted-foreground">No hay eventos disponibles.</p>
-                </div>
+                <EmptyState
+                  icon={<Sparkles size={20} />}
+                  title={filter === "all" ? "Aún no hay eventos." : "Sin eventos en esta categoría."}
+                  description="Cuando publiquemos un evento nuevo, aparece aquí."
+                  ctaLabel={filter !== "all" ? "Ver todos" : undefined}
+                  onCta={filter !== "all" ? () => setFilter("all") : undefined}
+                />
               ) : (
-                <div className="space-y-3">
+                <ul className="list-none m-0 p-0 grid grid-cols-1 gap-3">
                   {filtered.map((ev) => (
-                    <EventCard key={ev.id} event={ev} onSelect={() => setSelectedId(ev.id)} />
+                    <li key={ev.id}>
+                      <EventCard event={ev} onSelect={() => setSelectedId(ev.id)} />
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
-            </>
-          )}
-        </div>
-      </ClientLayout>
+            </Section>
+          </>
+        )}
+      </AppShell>
     </ClientAuthGuard>
   );
 }

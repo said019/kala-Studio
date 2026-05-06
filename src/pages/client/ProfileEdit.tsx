@@ -7,18 +7,25 @@ import { useMutation } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
-import ClientLayout from "@/components/layout/ClientLayout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  AppShell,
+  PageHeader,
+  Section,
+  PrimaryButton,
+  GhostButton,
+  KALA,
+} from "@/components/app/AppShell";
+import { BackLink } from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import type { UpdateProfileData } from "@/types/auth";
 
 const schema = z.object({
   displayName: z.string().min(2, "Mínimo 2 caracteres"),
-  phone: z.string().regex(/^\+52[0-9]{10}$/, "Formato: +521234567890").or(z.literal("")),
+  phone: z
+    .string()
+    .regex(/^\+52[0-9]{10}$/, "Formato: +521234567890")
+    .or(z.literal("")),
   gender: z.enum(["female", "male", "other", ""]).optional(),
   dateOfBirth: z.string().optional(),
   emergencyContactName: z.string().optional(),
@@ -27,12 +34,34 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
+const fieldStyle: React.CSSProperties = {
+  width: "100%",
+  borderRadius: 16,
+  padding: "0.85rem 1rem",
+  fontSize: "0.95rem",
+  color: KALA.ink,
+  backgroundColor: KALA.cream,
+  border: `1px solid ${KALA.border}`,
+  outline: "none",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: "0.66rem",
+  fontWeight: 500,
+  textTransform: "uppercase",
+  letterSpacing: "0.22em",
+  color: KALA.ink,
+  opacity: 0.62,
+  marginBottom: 6,
+  display: "block",
+};
+
 const ProfileEdit = () => {
   const { user, updateUser } = useAuthStore();
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
+  const { register, handleSubmit, reset, formState: { errors, isDirty } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
 
@@ -48,17 +77,17 @@ const ProfileEdit = () => {
         healthNotes: user.healthNotes ?? user.health_notes ?? "",
       });
     }
-  }, [user]);
+  }, [user, reset]);
 
   const mutation = useMutation({
     mutationFn: (data: UpdateProfileData) => api.put(`/users/${user?.id}`, data),
     onSuccess: (res) => {
       const updated = res.data?.data ?? res.data;
       if (updated?.user) updateUser(updated.user);
-      toast({ title: "Perfil actualizado" });
+      toast({ title: "Perfil actualizado." });
       navigate("/app/profile");
     },
-    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+    onError: () => toast({ title: "No se guardaron los cambios", variant: "destructive" }),
   });
 
   const onSubmit = (data: FormValues) => {
@@ -73,67 +102,94 @@ const ProfileEdit = () => {
     } as any);
   };
 
+  const FieldError = ({ msg }: { msg?: string }) =>
+    msg ? (
+      <p className="flex items-center gap-1.5 mt-1 text-[0.78rem]" style={{ color: KALA.destructive }}>
+        <AlertCircle size={13} />
+        {msg}
+      </p>
+    ) : null;
+
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
-      <ClientLayout>
-        <div className="max-w-md space-y-5">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/app/profile")} className="text-muted-foreground hover:text-[#E9745F]">
-            <ArrowLeft size={16} className="mr-2" />Perfil
-          </Button>
-          <h1 className="text-xl font-bold">Editar perfil</h1>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {[
-              { name: "displayName" as const, label: "Nombre completo" },
-              { name: "phone" as const, label: "Teléfono", placeholder: "+521234567890" },
-              { name: "dateOfBirth" as const, label: "Fecha de nacimiento", type: "date" },
-              { name: "emergencyContactName" as const, label: "Contacto de emergencia" },
-              { name: "emergencyContactPhone" as const, label: "Teléfono de emergencia" },
-            ].map(({ name, label, type, placeholder }) => (
-              <div key={name} className="space-y-1.5">
-                <Label className="text-xs uppercase tracking-widest text-muted-foreground font-medium">{label}</Label>
-                <Input
-                  type={type ?? "text"}
-                  placeholder={placeholder}
-                  {...register(name)}
-                  className="bg-secondary border-border focus:border-[#E9745F] transition-colors"
-                />
-                {errors[name] && <p className="text-xs text-destructive">{errors[name]?.message}</p>}
+      <AppShell hideGreeting>
+        <BackLink to="/app/profile" label="Perfil" />
+        <PageHeader
+          eyebrow="Editar perfil"
+          title={<>Tus datos</>}
+          titleAccent="al día."
+          subtitle="Esto nos ayuda a recibirte mejor y a comunicarnos contigo cuando lo necesitemos."
+        />
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6">
+          <Section title="Personal">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label style={labelStyle}>Nombre completo</label>
+                <input style={fieldStyle} placeholder="Tu nombre" {...register("displayName")} />
+                <FieldError msg={errors.displayName?.message} />
               </div>
-            ))}
-
-            {/* Gender select */}
-            <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground font-medium">Sexo</Label>
-              <select
-                {...register("gender")}
-                className="w-full rounded-md bg-secondary border border-border px-3 py-2.5 text-sm text-foreground focus:border-[#E9745F] focus:outline-none transition-colors"
-              >
-                <option value="">Selecciona…</option>
-                <option value="female">Femenino</option>
-                <option value="male">Masculino</option>
-                <option value="other">Otro</option>
-              </select>
+              <div>
+                <label style={labelStyle}>Teléfono</label>
+                <input style={fieldStyle} placeholder="+521234567890" {...register("phone")} />
+                <FieldError msg={errors.phone?.message} />
+              </div>
+              <div>
+                <label style={labelStyle}>Sexo</label>
+                <select style={fieldStyle} {...register("gender")}>
+                  <option value="">Selecciona</option>
+                  <option value="female">Femenino</option>
+                  <option value="male">Masculino</option>
+                  <option value="other">Prefiero no decir</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Fecha de nacimiento</label>
+                <input type="date" style={fieldStyle} {...register("dateOfBirth")} />
+              </div>
             </div>
+          </Section>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs uppercase tracking-widest text-muted-foreground font-medium">Notas de salud</Label>
-              <Textarea
-                placeholder="Alergias, condiciones médicas relevantes..."
-                {...register("healthNotes")}
-                className="bg-secondary border-border focus:border-[#E9745F] transition-colors"
-              />
+          <Section title="En caso de emergencia">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label style={labelStyle}>Nombre del contacto</label>
+                <input style={fieldStyle} placeholder="Nombre completo" {...register("emergencyContactName")} />
+              </div>
+              <div>
+                <label style={labelStyle}>Teléfono del contacto</label>
+                <input style={fieldStyle} placeholder="10 dígitos" {...register("emergencyContactPhone")} />
+              </div>
             </div>
-            <Button
+          </Section>
+
+          <Section title="Salud">
+            <label style={labelStyle}>Notas (opcional)</label>
+            <textarea
+              style={{ ...fieldStyle, minHeight: 110, resize: "vertical" as const }}
+              placeholder="Lesiones, alergias, condiciones que debamos saber al ajustar tu clase."
+              {...register("healthNotes")}
+            />
+            <p className="mt-2 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+              Solo Karla y el equipo del estudio ven esta información.
+            </p>
+          </Section>
+
+          <div className="flex flex-wrap gap-3 pt-2">
+            <PrimaryButton
               type="submit"
-              className="w-full bg-gradient-to-r from-[#76214D] to-[#E9745F] hover:from-[#76214D]/90 hover:to-[#E9745F]/90 text-white font-medium"
               disabled={mutation.isPending}
+              loading={mutation.isPending}
+              loadingLabel="Guardando…"
             >
-              {mutation.isPending ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
               Guardar cambios
-            </Button>
-          </form>
-        </div>
-      </ClientLayout>
+            </PrimaryButton>
+            <GhostButton onClick={() => navigate("/app/profile")} disabled={mutation.isPending || !isDirty}>
+              Descartar
+            </GhostButton>
+          </div>
+        </form>
+      </AppShell>
     </ClientAuthGuard>
   );
 };
