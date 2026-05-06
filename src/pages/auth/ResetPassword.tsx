@@ -4,12 +4,17 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, CheckCircle } from "lucide-react";
-import opheliaLogo from "@/assets/ophelia-logo-full.webp";
+import { CheckCircle2, AlertTriangle } from "lucide-react";
+import {
+  AuthShell,
+  AuthPasswordField,
+  AuthSubmit,
+  AuthErrorBanner,
+  AuthPasswordRules,
+  KALA,
+} from "@/components/auth/AuthShell";
+import kalaReset from "@/assets/kala/kala-barre-line.jpg";
 
 const schema = z.object({
   password: z
@@ -28,73 +33,132 @@ type FormValues = { password: string; confirmPassword: string };
 const ResetPassword = () => {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { toast } = useToast();
   const token = params.get("token");
 
-  const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
 
+  const password = watch("password") ?? "";
+  const confirmPassword = watch("confirmPassword") ?? "";
+  const matches = password.length > 0 && password === confirmPassword;
+
   const onSubmit = async (data: FormValues) => {
-    if (!token) { toast({ title: "Token inválido", variant: "destructive" }); return; }
+    if (!token) {
+      setGlobalError("El enlace no es válido o expiró. Solicita uno nuevo desde 'Olvidé mi contraseña'.");
+      return;
+    }
     setLoading(true);
+    setGlobalError(null);
     try {
       await api.post("/auth/reset-password", { token, password: data.password });
       setDone(true);
-      setTimeout(() => navigate("/auth/login"), 2000);
+      setTimeout(() => navigate("/auth/login"), 1800);
     } catch (err: any) {
-      toast({ title: "Error", description: err.response?.data?.message ?? "Link inválido o expirado", variant: "destructive" });
+      const msg = err?.response?.data?.message ?? "El enlace ya no es válido. Pide uno nuevo.";
+      setGlobalError(msg);
+      toast({ title: "No pudimos cambiar la contraseña", description: msg, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm space-y-6">
-        {/* Logo */}
-        <div className="flex justify-center mb-2">
-          <Link to="/">
-            <img src={opheliaLogo} alt="Kala Barre Studio" className="h-16 w-auto" />
-          </Link>
-        </div>
-        {done ? (
-          <div className="text-center space-y-3">
-            <CheckCircle className="mx-auto text-green-500" size={48} />
-            <h2 className="text-xl font-bold">¡Contraseña actualizada!</h2>
-            <p className="text-sm text-muted-foreground">Redirigiendo al inicio de sesión...</p>
-          </div>
-        ) : (
-          <>
-            <div className="text-center">
-              <h1 className="text-2xl font-bold">Nueva contraseña</h1>
-              <p className="text-sm text-muted-foreground mt-1">Ingresa tu nueva contraseña</p>
-            </div>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-              <div className="space-y-1">
-                <Label>Nueva contraseña</Label>
-                <Input type="password" placeholder="••••••••" {...register("password")} />
-                {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label>Confirmar contraseña</Label>
-                <Input type="password" placeholder="••••••••" {...register("confirmPassword")} />
-                {errors.confirmPassword && <p className="text-xs text-destructive">{errors.confirmPassword.message}</p>}
-              </div>
-              <Button type="submit" className="w-full" disabled={loading || !token}>
-                {loading ? <Loader2 className="animate-spin mr-2" size={16} /> : null}
-                Cambiar contraseña
-              </Button>
-            </form>
-            <p className="text-center text-sm">
-              <Link to="/auth/login" className="text-primary hover:underline">Volver al inicio</Link>
+    <AuthShell
+      brandPhoto={kalaReset}
+      brandPhotoAlt="Detalle de la barra del estudio"
+      brandTint="coral"
+      brandEyebrow="Nueva contraseña"
+      brandHeadline={<>Casi listo,</>}
+      brandHeadlineItalic="elige una clave nueva."
+      brandSubline="Algo que recuerdes pero que no sea fácil de adivinar. Mínimo 8 caracteres, una mayúscula y un número."
+      formEyebrow="Restablecer contraseña"
+      formHeadline={done ? "Listo." : "Crea tu"}
+      formHeadlineItalic={done ? "Te llevamos a iniciar sesión." : "nueva contraseña."}
+    >
+      {done ? (
+        <div
+          className="flex items-start gap-4 rounded-2xl px-5 py-5"
+          style={{ backgroundColor: KALA.blush, border: `1px solid ${KALA.olive}40` }}
+        >
+          <span className="grid h-10 w-10 place-items-center rounded-full shrink-0" style={{ backgroundColor: KALA.olive, color: KALA.cream }}>
+            <CheckCircle2 size={18} />
+          </span>
+          <div>
+            <p className="text-[0.96rem] leading-[1.5]" style={{ color: KALA.ink }}>
+              Contraseña actualizada. Te llevamos a iniciar sesión en un momento.
             </p>
-          </>
-        )}
-      </div>
-    </div>
+            <Link
+              to="/auth/login"
+              className="mt-3 inline-flex items-center gap-2 text-[0.86rem] font-medium no-underline"
+              style={{ color: KALA.berry }}
+            >
+              Entrar ahora
+            </Link>
+          </div>
+        </div>
+      ) : !token ? (
+        <div
+          role="alert"
+          className="flex items-start gap-4 rounded-2xl px-5 py-5"
+          style={{ backgroundColor: `${KALA.destructive}10`, border: `1px solid ${KALA.destructive}40`, color: KALA.destructive }}
+        >
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[0.96rem] leading-[1.55]">
+              El enlace no es válido o ya expiró. Pide uno nuevo y revisa tu correo.
+            </p>
+            <Link
+              to="/auth/forgot-password"
+              className="mt-3 inline-flex items-center gap-2 text-[0.86rem] font-medium no-underline"
+              style={{ color: KALA.berry }}
+            >
+              Pedir un enlace nuevo
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <>
+          {globalError && <AuthErrorBanner message={globalError} />}
+
+          <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-5">
+            <div className="flex flex-col gap-3">
+              <AuthPasswordField
+                label="Nueva contraseña"
+                placeholder="Mínimo 8 caracteres"
+                autoComplete="new-password"
+                error={errors.password?.message}
+                {...register("password")}
+              />
+              <AuthPasswordRules password={password} />
+            </div>
+
+            <AuthPasswordField
+              label="Confirmar"
+              placeholder="Repite tu contraseña"
+              autoComplete="new-password"
+              error={errors.confirmPassword?.message}
+              hint={matches ? "Coincide" : undefined}
+              {...register("confirmPassword")}
+            />
+
+            <AuthSubmit loading={loading} loadingLabel="Guardando…">
+              Cambiar contraseña
+            </AuthSubmit>
+          </form>
+
+          <p className="mt-7 text-center text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
+            <Link to="/auth/login" className="no-underline font-medium" style={{ color: KALA.berry }}>
+              Volver a iniciar sesión
+            </Link>
+          </p>
+        </>
+      )}
+    </AuthShell>
   );
 };
 

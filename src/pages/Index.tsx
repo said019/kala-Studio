@@ -1,11 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import Schedule from "@/components/Schedule";
 import { KALA_RING_COLORS, RingsTriple, type KalaRing } from "@/components/kala/RingsTriple";
-import { Dumbbell, Music, Waves, Flame, Zap, Heart, Activity, Sparkles, Flower2, type LucideIcon, ChevronLeft, ChevronRight, ArrowUpRight, Play, ArrowRight } from "lucide-react";
+import {
+  ArrowUpRight,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Plus,
+  Minus,
+  MapPin,
+  Phone,
+  Mail,
+  Clock,
+  MessageCircle,
+} from "lucide-react";
+
+const IconInstagram = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="5" />
+    <circle cx="12" cy="12" r="4" />
+    <circle cx="17.5" cy="6.5" r="0.6" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const IconFacebook = ({ size = 16 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
+  </svg>
+);
 import kalaHeroClass from "@/assets/kala/kala-hero-class.jpg";
 import kalaClassEnergy from "@/assets/kala/kala-class-energy.jpg";
 import kalaBarreLine from "@/assets/kala/kala-barre-line.jpg";
@@ -21,10 +48,24 @@ import kalaGallery08 from "@/assets/kala/kala-gallery-08.jpg";
 import kalaInstagram01 from "@/assets/kala/instagram/kala-instagram-01.jpg";
 import kalaInstagram02 from "@/assets/kala/instagram/kala-instagram-02.jpg";
 import kalaInstagram03 from "@/assets/kala/instagram/kala-instagram-03.jpg";
-import kalaInstagramGradient from "@/assets/kala/instagram/kala-instagram-04.jpg";
-import opheliaLogo from "@/assets/ophelia-logo-full.webp";
-import imgPilates from "@/assets/pilates_2320695.png";
-import imgYoga from "@/assets/pose-de-yoga.png";
+import kalaIconUrl from "@/assets/kala/kala-icon.png";
+
+/* ═════════════════════════════════════════════════════════════
+   Kala Barre Studio · Landing
+   Full palette editorial. Berry / Coral / Olive / Orange roles.
+   ═════════════════════════════════════════════════════════════ */
+
+/* ── Brand color roles ── */
+const KALA = {
+  cream: "#FFF7F2",
+  blush: "#FCE6E1",
+  ink: "#2E201C",
+  berry: "#76214D",
+  coral: "#E9745F",
+  olive: "#778455",
+  orange: "#F58A24",
+  border: "#E8CAC1",
+} as const;
 
 /* ───── Types ───── */
 type ClassTypeRow = {
@@ -67,7 +108,7 @@ type TrialPlanRow = {
 
 /* ───── Fallbacks ───── */
 const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
-  { id: "c1", name: "Barre", subtitle: "Energia, fuerza y postura", description: "Clase cercana, personalizada y apta para todos los niveles. Cada sesion cambia para trabajar fuerza, control, movilidad y compromiso con tu bienestar.", category: "barre", intensity: "media", color: "#76214D", emoji: "sparkles", level: "Todos los niveles", duration_min: 50, capacity: 5, is_active: true, sort_order: 1 },
+  { id: "c1", name: "Barre", subtitle: "Energía, fuerza y postura", description: "Una clase cercana, personalizada y apta para todos los niveles. Cada sesión cambia para trabajar fuerza, control, movilidad y compromiso con tu bienestar.", category: "barre", intensity: "media", color: KALA.berry, emoji: "sparkles", level: "Todos los niveles", duration_min: 50, capacity: 5, is_active: true, sort_order: 1 },
 ];
 
 const FALLBACK_PACKAGES: PackageRow[] = [
@@ -86,6 +127,9 @@ const FALLBACK_TRIAL_PLANS: TrialPlanRow[] = [
   { id: "trial-barre", name: "Clase muestra Barre", classCategory: "barre", price: 50, durationDays: 7, classLimit: 1, isNonTransferable: true, isNonRepeatable: true },
 ];
 
+/* ── Real photos pool ── */
+const HERO_PHOTOS = [kalaHeroClass, kalaClassEnergy, kalaBarreLine] as const;
+
 const GALLERY_IMAGES = [
   kalaClassEnergy,
   kalaBarreLine,
@@ -103,46 +147,18 @@ const GALLERY_IMAGES = [
   kalaInstagram01,
 ];
 
-/* ── Mapa de imagen promocional por nombre de clase ── */
-const CLASS_IMAGE_MAP: Record<string, string> = {
-  "jumping fitness": kalaClassEnergy,
-  "strong jump": kalaBarreLine,
-  "jump & tone": kalaDetailAnkleWeights,
-  "jump dance": kalaClassEnergy,
-  "pilates mat": kalaBarreLine,
-  "flow pilates · sculpt": kalaHeroClass,
-  "flow pilates": kalaHeroClass,
-  "hot pilates · barralates": kalaClassEnergy,
-  "hot pilates": kalaClassEnergy,
-  "barre": kalaHeroClass,
-  "yoga": kalaBarreLine,
-};
-function getClassImage(name: string): string | undefined {
-  return CLASS_IMAGE_MAP[name.toLowerCase()];
-}
+const CLASS_IMAGE_POOL = [
+  kalaHeroClass,
+  kalaClassEnergy,
+  kalaBarreLine,
+  kalaDetailAnkleWeights,
+  kalaInstagram01,
+  kalaInstagram02,
+  kalaInstagram03,
+  kalaGallery01,
+];
 
 /* ───── Helpers ───── */
-const ICON_MAP: Record<string, LucideIcon> = {
-  dumbbell: Dumbbell, music: Music, waves: Waves, flame: Flame,
-  zap: Zap, heart: Heart, activity: Activity, sparkles: Sparkles,
-  flower2: Flower2,
-  /* actual emoji chars from DB */
-  "🏋️": Dumbbell, "🏋": Dumbbell, "💃": Music, "🧘": Waves,
-  "🔥": Flame, "⚡": Zap, "❤️": Heart, "💪": Activity, "✨": Sparkles,
-  "🎬": Activity, "🌸": Flower2, "🧘‍♀️": Waves,
-};
-function getCardIcon(emoji?: string, title?: string): LucideIcon {
-  if (emoji && ICON_MAP[emoji]) return ICON_MAP[emoji];
-  const t = (title || "").toLowerCase();
-  if (t.includes("yoga") || t.includes("mindful") || t.includes("meditation")) return Flower2;
-  if (t.includes("fitness") || t.includes("tone") || t.includes("strong")) return Dumbbell;
-  if (t.includes("dance") || t.includes("music")) return Music;
-  if (t.includes("pilates") || t.includes("flow")) return Waves;
-  if (t.includes("hot") || t.includes("burn")) return Flame;
-  if (t.includes("jump") || t.includes("cardio")) return Zap;
-  return Activity;
-}
-
 function normalizeVideoUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.startsWith("/api/drive/video/")) return url;
@@ -157,219 +173,42 @@ function clampFocus(value: unknown): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-const LandingProgressSphere = ({ onStart }: { onStart: () => void }) => {
-  const ringMetrics: KalaRing[] = [
-    {
-      key: "constancia",
-      label: "Constancia",
-      value: "2/3",
-      goalLabel: "clases asistidas",
-      progress: 67,
-      ...KALA_RING_COLORS.constancia,
-    },
-    {
-      key: "esfuerzo",
-      label: "Esfuerzo",
-      value: "1/2",
-      goalLabel: "retos o clases intensas",
-      progress: 50,
-      ...KALA_RING_COLORS.esfuerzo,
-    },
-    {
-      key: "conexion",
-      label: "Conexión",
-      value: "6/10",
-      goalLabel: "puntos de comunidad",
-      progress: 60,
-      ...KALA_RING_COLORS.conexion,
-    },
-  ];
+function pickClassImage(name: string, idx: number): string {
+  const lc = (name || "").toLowerCase();
+  const map: Record<string, string> = {
+    barre: kalaHeroClass,
+    yoga: kalaBarreLine,
+    pilates: kalaClassEnergy,
+    "flow pilates": kalaClassEnergy,
+    "hot pilates": kalaClassEnergy,
+    "jumping fitness": kalaInstagram01,
+    "jump dance": kalaInstagram02,
+    "strong jump": kalaInstagram03,
+    "jump & tone": kalaDetailAnkleWeights,
+  };
+  if (map[lc]) return map[lc];
+  return CLASS_IMAGE_POOL[idx % CLASS_IMAGE_POOL.length];
+}
 
-  const ringExplanations = [
-    {
-      label: "Constancia",
-      value: "Asistir",
-      note: "Cada check-in suma una clase tomada.",
-      color: KALA_RING_COLORS.constancia.color,
-      bg: "rgba(118,33,77,0.09)",
-    },
-    {
-      label: "Esfuerzo",
-      value: "Retarte",
-      note: "Las clases intensas y retos empujan este anillo.",
-      color: KALA_RING_COLORS.esfuerzo.color,
-      bg: "rgba(119,132,85,0.12)",
-    },
-    {
-      label: "Conexión",
-      value: "Conectar",
-      note: "Eventos, invitadas y comunidad suman puntos.",
-      color: KALA_RING_COLORS.conexion.color,
-      bg: "rgba(245,138,36,0.13)",
-    },
-  ];
-
-  const planGoals = [
-    { plan: "Clase suelta", constancia: "1", esfuerzo: "1", conexion: "3" },
-    { plan: "8 clases al mes", constancia: "2", esfuerzo: "2", conexion: "10" },
-    { plan: "12 clases al mes", constancia: "3", esfuerzo: "2", conexion: "10" },
-    { plan: "20 clases al mes", constancia: "5", esfuerzo: "3", conexion: "10" },
-  ];
-
-  const flowSteps = [
-    "Compras un plan",
-    "Reservas y tomas clase",
-    "Recepción marca check-in",
-    "Tus anillos suben solos",
-  ];
-
-  return (
-    <section id="progreso" className="relative overflow-hidden px-5 py-20 sm:px-6 lg:px-[60px] lg:py-28">
-      <div className="pointer-events-none absolute inset-x-0 top-10 h-[1px] bg-gradient-to-r from-transparent via-[#76214D]/18 to-transparent" />
-      <div className="reveal mx-auto max-w-[1220px] opacity-0 translate-y-10 transition-all duration-700">
-        <div className="grid gap-8 lg:grid-cols-[0.88fr_1.18fr] lg:items-stretch">
-          <div className="flex flex-col justify-between rounded-[2rem] border border-[#E8CAC1] bg-[#FFF7F2] p-6 shadow-[0_22px_70px_rgba(118,33,77,0.08)] sm:p-8 lg:min-h-[640px]">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-primary">
-                Anillos de progreso
-              </div>
-              <h2 className="mt-5 font-bebas text-[clamp(2.65rem,5vw,5.55rem)] leading-[0.9] text-foreground">
-                TU META<br />
-                NO SE CONFIGURA,<br />
-                <span className="text-primary">SE GANA</span>
-              </h2>
-              <p className="mt-6 max-w-[520px] text-[1rem] leading-[1.85] text-muted-foreground">
-                Kala define las metas desde tu plan. Tu solo reservas, asistes y participas; el sistema convierte ese ritmo en tres anillos semanales.
-              </p>
-            </div>
-
-            <div className="mt-8 space-y-3">
-              {flowSteps.map((step, index) => (
-                <div key={step} className="grid grid-cols-[42px_1fr] items-center gap-4 border-t border-[#E8CAC1]/80 py-4 first:border-t-0">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2E201C] text-[0.78rem] font-semibold tabular-nums text-[#FFF7F2]">
-                    {index + 1}
-                  </span>
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[0.94rem] font-semibold text-[#2E201C]">{step}</p>
-                    {index < flowSteps.length - 1 && <ArrowRight size={16} className="shrink-0 text-primary/55" />}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="relative overflow-hidden rounded-[2.35rem] border border-[#E8CAC1] bg-[#FFF0E4] p-2 shadow-[0_30px_90px_rgba(118,33,77,0.10)]">
-            <div
-              className="relative min-h-[640px] overflow-hidden rounded-[1.9rem] border border-[#FCE6E1] bg-[#FCE6E1] p-5 sm:p-7 lg:p-8"
-              style={{
-                backgroundImage: `linear-gradient(135deg, rgba(255,247,242,0.98) 0%, rgba(252,230,225,0.94) 48%, rgba(118,33,77,0.58) 100%), url(${kalaInstagramGradient})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }}
-            >
-              <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,247,242,0.92)_0%,rgba(255,247,242,0.62)_46%,rgba(118,33,77,0.14)_100%)]" />
-              <div className="absolute bottom-8 right-8 hidden h-40 w-40 rounded-full border border-[#FFF7F2]/45 bg-[#76214D]/8 sm:block" />
-
-              <div className="relative grid min-h-[580px] gap-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-                <div className="flex flex-col items-center justify-center">
-                  <div className="rounded-full bg-[#2E201C] p-3 shadow-[0_26px_70px_rgba(46,32,28,0.26)]">
-                    <RingsTriple
-                      rings={ringMetrics}
-                      centerLabel="semana actual"
-                      centerValue="1/3"
-                      centerSub="anillo cerrado, recompensa en progreso"
-                      shellClassName="border-[#FCE6E1]/20 shadow-none"
-                    />
-                  </div>
-                  <div className="mt-5 flex items-center gap-2 rounded-full border border-[#E8CAC1] bg-[#FFF7F2] px-4 py-2 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-[#76214D] shadow-[0_12px_30px_rgba(118,33,77,0.08)]">
-                    <span className="h-2 w-2 rounded-full bg-[#F58A24]" />
-                    Se actualiza con cada visita
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {ringExplanations.map((item) => (
-                    <div key={item.label} className="rounded-[1.35rem] border border-[#E8CAC1] bg-[#FFF7F2] p-4 shadow-[0_16px_40px_rgba(118,33,77,0.07)]">
-                      <div className="flex items-start gap-4">
-                        <span className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: item.bg }}>
-                          <span className="h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
-                        </span>
-                        <div>
-                          <p className="text-[0.62rem] font-semibold uppercase tracking-[0.17em] text-[#76214D]">{item.label}</p>
-                          <p className="mt-1 text-[1.18rem] font-bold leading-tight text-[#2E201C]">{item.value}</p>
-                          <p className="mt-1 text-[0.86rem] leading-[1.55] text-[#5F463F]">{item.note}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="overflow-hidden rounded-[1.5rem] border border-[#E8CAC1] bg-[#FFF7F2]">
-            <div className="grid grid-cols-[1.2fr_repeat(3,0.72fr)] border-b border-[#E8CAC1] bg-[#FCE6E1]/65 px-4 py-3 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-[#7B5B52] sm:px-5">
-              <span>Plan</span>
-              <span className="text-center">Constancia</span>
-              <span className="text-center">Esfuerzo</span>
-              <span className="text-center">Conexión</span>
-            </div>
-            {planGoals.map((row) => (
-              <div key={row.plan} className="grid grid-cols-[1.2fr_repeat(3,0.72fr)] items-center border-b border-[#E8CAC1]/70 px-4 py-4 text-[0.82rem] last:border-b-0 sm:px-5">
-                <span className="font-semibold text-[#2E201C]">{row.plan}</span>
-                <span className="text-center font-semibold tabular-nums text-[#76214D]">{row.constancia}</span>
-                <span className="text-center font-semibold tabular-nums text-[#778455]">{row.esfuerzo}</span>
-                <span className="text-center font-semibold tabular-nums text-[#F58A24]">{row.conexion}</span>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex flex-col justify-between rounded-[1.5rem] border border-primary/20 bg-primary p-5 text-[#FFF7F2]">
-            <div>
-              <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-[#FCE6E1]/80">Recompensa</p>
-              <h3 className="mt-3 font-bebas text-[clamp(1.9rem,3vw,3.1rem)] leading-[0.92]">
-                CIERRA LOS 3<br />Y DESBLOQUEA ALGO
-              </h3>
-              <p className="mt-4 text-[0.9rem] leading-[1.7] text-[#FCE6E1]/82">
-                Clase extra, descuento, merch o premio interno. Kala decide la recompensa por plan.
-              </p>
-            </div>
-            <button
-              onClick={onStart}
-              className="group mt-6 inline-flex w-fit items-center gap-3 rounded-full bg-[#FFF7F2] px-6 py-3 text-[0.76rem] font-semibold uppercase tracking-[0.13em] text-primary transition-transform duration-300 active:scale-[0.98]"
-            >
-              Ver paquetes
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 transition-transform duration-300 group-hover:translate-x-1">
-                <ArrowUpRight size={14} />
-              </span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-};
-
-/* ═══════════════════════════════════════════════════════════
-   INDEX — Redesign based on owner feedback
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════════════════════════════════════════════════════════
+   INDEX
+   ═════════════════════════════════════════════════════════════ */
 const Index = () => {
-  const [navScrolled, setNavScrolled] = useState(false);
-  const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
-  const [packages, setPackages] = useState<PackageRow[]>(FALLBACK_PACKAGES);
-  const [activePkgTab, setActivePkgTab] = useState<"barre" | "jumping" | "pilates" | "mixtos">("barre");
-  const [playingVideoId, setPlayingVideoId] = useState<number | null>(null);
-  const [flippedCard, setFlippedCard] = useState<string | null>(null);
-  const [galleryIdx, setGalleryIdx] = useState(0);
-  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuthStore();
   const isAdminRole = ["admin", "super_admin", "instructor", "reception"].includes(user?.role ?? "");
   const membershipCtaPath = isAuthenticated
     ? (isAdminRole ? "/admin/dashboard" : "/app/checkout")
     : "/auth/register";
+
+  const [navScrolled, setNavScrolled] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
+  const [packages, setPackages] = useState<PackageRow[]>(FALLBACK_PACKAGES);
+  const [openClassId, setOpenClassId] = useState<string | null>(null);
+  const [playingVideoId, setPlayingVideoId] = useState<number | null>(null);
+  const [galleryIdx, setGalleryIdx] = useState(0);
+  const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
 
   const [instructors, setInstructors] = useState<{
     id: string;
@@ -391,8 +230,8 @@ const Index = () => {
     ? videoCardsData.data
     : [
         { id: 1, title: "Barre Flow", description: "Movimiento, fuerza y postura en una clase cercana para todos los niveles.", emoji: "sparkles", video_url: null, thumbnail_url: null },
-        { id: 2, title: "Barre Energy", description: "Una experiencia distinta cada clase para salir con energia y foco.", emoji: "activity", video_url: null, thumbnail_url: null },
-        { id: 3, title: "Comunidad KALA", description: "Atencion personalizada, grupos pequenos y seguimiento real a tu avance.", emoji: "heart", video_url: null, thumbnail_url: null },
+        { id: 2, title: "Barre Energy", description: "Una experiencia distinta cada clase para salir con energía y foco.", emoji: "activity", video_url: null, thumbnail_url: null },
+        { id: 3, title: "Comunidad KALA", description: "Atención personalizada, grupos pequeños y seguimiento real a tu avance.", emoji: "heart", video_url: null, thumbnail_url: null },
       ];
 
   const { data: plansData } = useQuery<{ data: any[] }>({
@@ -400,7 +239,8 @@ const Index = () => {
     queryFn: async () => (await api.get("/plans")).data,
     staleTime: 1000 * 60 * 5,
   });
-  const trialPlans: TrialPlanRow[] = (() => {
+
+  const trialPlans: TrialPlanRow[] = useMemo(() => {
     const rows = Array.isArray(plansData?.data) ? plansData.data : [];
     const byCategory = new Map<"barre" | "jumping" | "pilates", TrialPlanRow>();
     for (const row of rows) {
@@ -427,12 +267,12 @@ const Index = () => {
     }
     const ordered = ["barre"].map((cat) => byCategory.get(cat as "barre")).filter(Boolean) as TrialPlanRow[];
     return ordered.length > 0 ? ordered : FALLBACK_TRIAL_PLANS;
-  })();
+  }, [plansData]);
 
   /* ── Effects ── */
   useEffect(() => {
-    const handleScroll = () => setNavScrolled(window.scrollY > 50);
-    window.addEventListener("scroll", handleScroll);
+    const handleScroll = () => setNavScrolled(window.scrollY > 60);
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -457,890 +297,1290 @@ const Index = () => {
     }).catch(() => {});
   }, []);
 
-  // Gallery auto-rotate
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setGalleryIdx((prev) => (prev + 1) % GALLERY_IMAGES.length);
-    }, 4000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Scroll reveal
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             entry.target.classList.add("opacity-100", "translate-y-0");
-            entry.target.classList.remove("opacity-0", "translate-y-10");
+            entry.target.classList.remove("opacity-0", "translate-y-8");
           }
         });
       },
-      { threshold: 0.1 }
+      { threshold: 0.12 }
     );
     document.querySelectorAll(".reveal").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
   }, []);
 
   const scrollTo = (id: string) => {
+    setNavOpen(false);
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const barrePackages = packages.filter((p) => p.category === "barre" && p.is_active).sort((a, b) => a.sort_order - b.sort_order);
+  const monthlyPackages = barrePackages.filter((p) => Number(p.num_classes) > 1);
+  const singleClass = barrePackages.find((p) => Number(p.num_classes) === 1);
+
+  /* ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      {/* ── NAV — Logo más grande ── */}
+    <div className="min-h-screen text-[color:var(--ink)] [--ink:#2E201C] [--cream:#FFF7F2] [--blush:#FCE6E1] [--berry:#76214D] [--coral:#E9745F] [--olive:#778455] [--orange:#F58A24] [--border:#E8CAC1]" style={{ backgroundColor: KALA.cream }}>
+
+      {/* ═════════ NAV ═════════ */}
       <nav
-        className={`fixed top-0 left-0 right-0 z-[100] flex items-center justify-between px-4 sm:px-6 lg:px-[60px] py-4 sm:py-5 transition-all duration-400 ${
-          navScrolled
-            ? "bg-background/92 backdrop-blur-[20px]"
-            : "bg-gradient-to-b from-background/95 to-transparent"
-        }`}
+        className={
+          "fixed inset-x-0 top-0 z-[100] transition-[background-color,backdrop-filter,border-color,padding] duration-500 " +
+          (navScrolled
+            ? "bg-[#FFF7F2]/92 backdrop-blur-xl border-b border-[#E8CAC1]/70 py-3"
+            : "bg-transparent py-5")
+        }
       >
-        <a href="#" className="flex items-center">
-          <img
-            src={opheliaLogo}
-            alt="Kala Barre Studio"
-            className="w-[180px] sm:w-[220px] lg:w-[280px] max-w-full object-contain drop-shadow-[0_0_24px_rgba(118,33,77,0.18)]"
-          />
-        </a>
-        <ul className="hidden lg:flex gap-8 list-none">
-          {[
-            { label: "Clases", id: "clases" },
-            { label: "Horario", id: "horario" },
-            { label: "Progreso", id: "progreso" },
-            { label: "Paquetes", id: "membresias" },
-            { label: "Coaches", id: "instructoras" },
-            { label: "Galería", id: "galeria" },
-            { label: "Contacto", id: "contacto" },
-          ].map((item) => (
-            <li key={item.id}>
-              <button
-                onClick={() => scrollTo(item.id)}
-                className="text-muted-foreground text-[0.82rem] font-normal tracking-widest uppercase hover:text-foreground transition-colors bg-transparent border-none cursor-pointer"
-              >
-                {item.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {isAuthenticated && user ? (
-          <button
-            onClick={() => navigate(["admin","super_admin","instructor","reception"].includes(user.role) ? "/admin/dashboard" : "/app")}
-            className="flex items-center gap-2 bg-primary/15 border border-primary/40 text-primary px-3 sm:px-5 py-2 sm:py-2.5 rounded-full text-[0.75rem] sm:text-[0.82rem] font-medium tracking-wide hover:bg-primary/25 transition-all max-w-[190px]"
-          >
-            <span className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-[0.75rem] font-bold uppercase">
-              {user.displayName?.[0] ?? user.email?.[0] ?? "U"}
-            </span>
-            <span className="truncate">
-              {["admin","super_admin"].includes(user.role) ? "Admin" : user.displayName?.split(" ")[0] ?? "Mi cuenta"}
-            </span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            <button
-              onClick={() => navigate("/auth/login")}
-              className="hidden sm:block text-muted-foreground text-[0.82rem] font-alilato tracking-widest uppercase hover:text-foreground transition-colors bg-transparent border-none cursor-pointer px-2"
-            >
-              Iniciar sesión
-            </button>
-            <button
-              onClick={() => navigate("/auth/register")}
-              className="bg-primary text-primary-foreground font-alilato px-4 sm:px-7 py-2.5 sm:py-3 rounded-full text-[0.75rem] sm:text-[0.82rem] font-medium tracking-wider uppercase hover:scale-[1.04] hover:shadow-[0_0_30px_hsl(var(--pink-glow)/0.35)] transition-all"
-            >
-              Unirse
-            </button>
-          </div>
-        )}
-      </nav>
-
-      {/* ── HERO — Full-width photo, "Where Focus Goes, Energy Flows" ── */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0">
-          <img src={kalaHeroClass} alt="Alumnas en clase de barre en Kala Barre Studio" className="w-full h-full object-cover object-center" />
-          <div className="absolute inset-0 bg-gradient-to-b from-[#2E201C]/45 via-[#2E201C]/25 to-background" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#2E201C]/65 via-[#2E201C]/25 to-transparent" />
-        </div>
-        <div className="relative z-10 text-center px-6 lg:px-[60px] pt-[140px] pb-20 max-w-[900px] mx-auto">
-          <p className="font-alilato italic text-[clamp(1.1rem,2.2vw,1.6rem)] text-[#FFF7F2]/80 mb-6 animate-fade-up delay-200 tracking-wide">
-            &ldquo;Where Focus Goes, Energy Flows&rdquo;
-          </p>
-          <h1 className="font-bebas text-[clamp(2.85rem,6.8vw,6.2rem)] leading-[0.9] tracking-tight text-[#FFF7F2] animate-fade-up delay-400 mb-12">
-            LIBERA TU ENERGÍA<br />
-            <span className="text-primary">Y DESCUBRE</span><br />
-            <span style={{ WebkitTextStroke: "2px rgba(255,246,230,0.5)", color: "transparent" }}>LO FUERTE QUE ERES</span>
-          </h1>
-          <div className="flex gap-4 justify-center items-center flex-wrap animate-fade-up delay-800">
-            <button
-              onClick={() => navigate("/auth/register")}
-              className="bg-primary text-primary-foreground px-10 py-[18px] rounded-full text-[0.9rem] font-medium tracking-wider uppercase inline-flex items-center gap-[10px] hover:-translate-y-[3px] hover:scale-[1.02] hover:shadow-[0_20px_50px_hsl(var(--primary)/0.4)] transition-all"
-            >
-              Comenzar hoy
-              <span className="w-[22px] h-[22px] bg-primary-foreground/20 rounded-full flex items-center justify-center"><ArrowUpRight size={12} /></span>
-            </button>
-            <button
-              onClick={() => scrollTo("clases")}
-              className="text-[#FFF7F2] text-[0.85rem] font-normal tracking-wider uppercase flex items-center gap-2 opacity-70 hover:opacity-100 transition-opacity bg-transparent border-none cursor-pointer"
-            >
-              <span className="w-[42px] h-[42px] border border-[#FFF7F2]/30 rounded-full flex items-center justify-center"><Play size={14} /></span>
-              Ver clases
-            </button>
-          </div>
-        </div>
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 animate-pulse-dot z-10">
-          <div className="w-[1px] h-10 bg-gradient-to-b from-transparent to-[#FFF7F2]/40" />
-          <span className="text-[0.6rem] tracking-[0.2em] uppercase text-[#FFF7F2]/40">Scroll</span>
-        </div>
-      </section>
-
-      {/* ── EXPERIENCIA — BARRE · COMUNIDAD · BIENESTAR ── */}
-      <div className="bg-secondary border-t border-b border-border">
-        <div className="grid grid-cols-3 text-center">
-          <div className="py-8 sm:py-10 px-3 sm:px-5 border-r border-border hover:bg-[hsl(var(--primary)/0.03)] transition-colors group cursor-default">
-            <div className="flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center"
-                style={{ backgroundColor: "#76214D20", border: "1px solid #76214D40" }}>
-                <img src={imgPilates} alt="Barre" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{ filter: "brightness(0) invert(1)", opacity: 0.9 }} />
-              </div>
+        <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
+          <a href="#top" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex items-center gap-3 no-underline">
+            <img src={kalaIconUrl} alt="Kala Studio" className="h-9 w-9 object-contain" />
+            <div className="flex items-baseline gap-2">
+              <span className="font-bebas text-[1.55rem] sm:text-[1.85rem] leading-none tracking-tight" style={{ color: KALA.berry }}>kala</span>
+              <span className="hidden sm:inline-block text-[0.62rem] uppercase tracking-[0.32em] text-[color:var(--ink)]/55">SLP</span>
             </div>
-            <div className="font-bebas text-[1.4rem] sm:text-[2rem] leading-none mb-1 sm:mb-2" style={{ color: "#76214D" }}>BARRE</div>
-            <div className="text-[0.65rem] sm:text-[0.78rem] text-muted-foreground tracking-wide">Fuerza, postura y control</div>
-          </div>
-          <div className="py-8 sm:py-10 px-3 sm:px-5 border-r border-border hover:bg-[hsl(var(--primary)/0.03)] transition-colors group cursor-default">
-            <div className="flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center"
-                style={{ backgroundColor: "#77845520", border: "1px solid #77845540" }}>
-                <img src={imgPilates} alt="Pilates" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{ filter: "brightness(0) invert(1)", opacity: 0.9 }} />
-              </div>
-            </div>
-            <div className="font-bebas text-[1.4rem] sm:text-[2rem] leading-none mb-1 sm:mb-2" style={{ color: "#E9745F" }}>COMUNIDAD</div>
-            <div className="text-[0.65rem] sm:text-[0.78rem] text-muted-foreground tracking-wide">Cercana, casual y personalizada</div>
-          </div>
-          <div className="py-8 sm:py-10 px-3 sm:px-5 hover:bg-[hsl(var(--primary)/0.03)] transition-colors group cursor-default">
-            <div className="flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center"
-                style={{ backgroundColor: "#F58A2420", border: "1px solid #F58A2440" }}>
-                <img src={imgYoga} alt="Yoga" className="h-8 w-8 sm:h-9 sm:w-9 object-contain" style={{ filter: "brightness(0) invert(1)", opacity: 0.9 }} />
-              </div>
-            </div>
-            <div className="font-bebas text-[1.4rem] sm:text-[2rem] leading-none mb-1 sm:mb-2" style={{ color: "#F58A24" }}>BIENESTAR</div>
-            <div className="text-[0.65rem] sm:text-[0.78rem] text-muted-foreground tracking-wide">Compromiso con tus objetivos</div>
-          </div>
-        </div>
-      </div>
+          </a>
 
-      {/* ── MANIFIESTO ── */}
-      <section className="py-20 lg:py-28 px-6 lg:px-[60px] relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.08)_0%,transparent_60%)] pointer-events-none" />
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700 relative z-10 max-w-[800px] mx-auto text-center">
-          <h2 className="font-bebas text-[clamp(2.25rem,3.7vw,3.65rem)] leading-[0.95] text-foreground mb-8">
-            MÁS QUE UN ESTUDIO,<br /><span className="text-primary">UN ESPACIO PARA TI</span>
-          </h2>
-          <p className="text-[1.05rem] text-muted-foreground leading-[1.9] mb-6">
-            Kala Barre Studio es un espacio cercano, energetico y facil de entender.
-            Cada clase esta pensada para que des un paso mas hacia tus objetivos,
-            te sientas acompanada y hagas algo real por tu crecimiento.
-          </p>
-          <p className="text-[1rem] text-foreground/80 leading-[1.8] italic font-alilato">
-            &ldquo;Bienestar, comunidad y compromiso en clases pequenas con atencion personalizada&rdquo;
-          </p>
-        </div>
-      </section>
-
-      <LandingProgressSphere onStart={() => navigate(membershipCtaPath)} />
-
-      {/* ── CLASES — 8 clases, card flip ── */}
-      <section id="clases" className="py-16 lg:py-24 px-6 lg:px-[60px]">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Nuestras modalidades
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-4">
-            <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground">NUESTRAS CLASES</h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Toca una clase para descubrir de qué se trata. Cada semana cambian los tipos, no los horarios.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-4 mb-10 text-[0.72rem] tracking-wider uppercase">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-[#76214D]" /> Barre</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-[#778455]" /> 4 a 5 lugares</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-[#F58A24]" /> Cada clase es diferente</span>
-          </div>
-        </div>
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700 grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
-          {classTypes.slice(0, 8).map((c) => {
-            const catBorder: Record<string, string> = { barre: "#76214D", jumping: "#76214D", pilates: "#E9745F", mixto: "#F58A24" };
-            const accent = catBorder[c.category] ?? "#76214D";
-            const isFlipped = flippedCard === c.id;
-            const Icon = getCardIcon(c.emoji, c.name);
-            const classImg = getClassImage(c.name);
-            return (
-              <div key={c.id} className="cursor-pointer group" style={{ perspective: "1200px" }}
-                onClick={() => setFlippedCard(isFlipped ? null : c.id)}>
-                <div className="relative aspect-[3/4]" style={{ transformStyle: "preserve-3d", transform: isFlipped ? "rotateY(180deg)" : "rotateY(0deg)", transition: "transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)" }}>
-                  {/* Front — solo imagen */}
-                  <div className="rounded-2xl overflow-hidden absolute inset-0"
-                    style={{ backfaceVisibility: "hidden", border: "2px solid " + accent + "50" }}>
-                    {classImg ? (
-                      <img src={classImg} alt={c.name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                    ) : (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3" style={{ background: accent + "10" }}>
-                        <Icon size={48} style={{ color: accent, opacity: 0.4 }} />
-                        <h3 className="font-gulfs text-lg text-foreground uppercase">{c.name}</h3>
-                      </div>
-                    )}
-                  </div>
-                  {/* Back — información */}
-                  <div className="rounded-2xl p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center text-center gap-2 sm:gap-3 absolute inset-0 overflow-hidden"
-                    style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)", border: "2px solid " + accent, background: "linear-gradient(160deg, #FFFFFF 0%, " + accent + "12 100%)" }}>
-                    <Icon size={22} className="sm:hidden" style={{ color: accent }} />
-                    <Icon size={28} className="hidden sm:block" style={{ color: accent }} />
-                    <h3 className="font-gulfs text-[1.1rem] sm:text-[1.5rem] lg:text-[1.8rem] text-foreground uppercase tracking-wide leading-tight">{c.name}</h3>
-                    {c.subtitle && <p className="text-[0.72rem] sm:text-[0.85rem] font-medium -mt-0.5" style={{ color: accent }}>{c.subtitle}</p>}
-                    <p className="text-[0.75rem] sm:text-[0.88rem] text-muted-foreground leading-[1.6] sm:leading-[1.75] line-clamp-4 sm:line-clamp-none">{c.description}</p>
-                    <div className="flex gap-2 text-[0.65rem] sm:text-[0.75rem] text-muted-foreground mt-1">
-                      <span>{c.duration_min} min</span><span>·</span><span>{c.level}</span>
-                    </div>
-                    <div className="flex items-center gap-3 pt-2 sm:pt-3 border-t w-full justify-center" style={{ borderColor: accent + "30" }}>
-                      <span className="text-[0.65rem] sm:text-[0.75rem] font-medium tracking-wider" style={{ color: accent }}>{c.category.toUpperCase()}</span>
-                      <span className="text-[0.65rem] sm:text-[0.75rem] text-muted-foreground">·</span>
-                      <span className="text-[0.65rem] sm:text-[0.75rem] text-muted-foreground">Max. {c.capacity}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="text-[0.72rem] text-muted-foreground text-center mt-8 tracking-wide">
-          CADA SEMANA CAMBIAN LOS TIPOS DE CLASES, NO LOS HORARIOS · TOCA UNA TARJETA PARA VER MÁS
-        </p>
-      </section>
-
-      {/* ── HORARIO ── */}
-      <Schedule />
-
-      {/* ── VIDEOS ── */}
-      <section id="videos" className="py-16 lg:py-24 px-6 lg:px-[60px]">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Conoce la experiencia
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-10">
-            <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground">ARE U READY?</h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Descubre la energia de cada clase. Fragmentos de lo que te espera en Kala.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {videoCards.map((v) => {
-              const videoUrl = normalizeVideoUrl(v.video_url);
-              const isPlaying = playingVideoId === v.id;
-              const hasThumbnail = Boolean(v.thumbnail_url);
-              const handlePlay = () => {
-                if (!videoUrl) return;
-                setPlayingVideoId(v.id);
-                setTimeout(() => { const el = videoRefs.current[v.id]; if (el) el.play().catch(() => {}); }, 100);
-              };
-              return (
-                <div key={v.id} className="group rounded-3xl overflow-hidden bg-secondary border border-border hover:border-primary/50 transition-all">
-                  <div className="relative aspect-video bg-gradient-to-br from-white via-[#FFF0E4] to-[#FCE6E1] flex items-center justify-center overflow-hidden">
-                    {videoUrl && isPlaying ? (
-                      <video ref={(el) => { videoRefs.current[v.id] = el; }} src={videoUrl}
-                        className="absolute inset-0 w-full h-full object-contain bg-black"
-                        controls autoPlay playsInline title={v.title} onEnded={() => setPlayingVideoId(null)} />
-                    ) : videoUrl ? (
-                      <button onClick={handlePlay} className="absolute inset-0 w-full h-full cursor-pointer focus:outline-none" aria-label={"Reproducir " + v.title}>
-                        {hasThumbnail ? (
-                          <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />
-                        ) : (
-                          <video src={videoUrl} className="absolute inset-0 w-full h-full object-contain bg-black pointer-events-none" preload="metadata" muted playsInline />
-                        )}
-                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/20 transition-colors">
-                          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/80 backdrop-blur-sm border-2 border-white/30 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_40px_hsl(var(--primary)/0.4)]">
-                            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" className="text-white ml-1"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                          </div>
-                        </div>
-                      </button>
-                    ) : (
-                      <>
-                        {hasThumbnail ? (
-                          <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 w-full h-full object-cover" />
-                        ) : (
-                          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,hsl(var(--primary)/0.15)_0%,transparent_65%)]" />
-                        )}
-                        <div className="relative flex flex-col items-center gap-3">
-                          <div className="w-20 h-20 rounded-full bg-primary/20 border-2 border-primary/40 flex items-center justify-center group-hover:scale-110 transition-transform shadow-[0_0_40px_hsl(var(--primary)/0.3)]">
-                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" className="text-primary ml-1"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                          </div>
-                          <span className="text-[0.65rem] tracking-[0.15em] uppercase text-primary/60 font-medium">Video próximamente</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div className="p-5">
-                    <div className="flex items-center gap-2 mb-2">
-                      {(() => { const Ic = getCardIcon(v.emoji, v.title); return <Ic size={20} className="text-primary flex-shrink-0" />; })()}
-                      <h3 className="font-syne font-bold text-[1rem] text-foreground">{v.title}</h3>
-                    </div>
-                    <p className="text-[0.82rem] text-muted-foreground leading-[1.6]">{v.description}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ── PAQUETES ── */}
-      <section id="membresias" className="py-20 lg:py-[120px] px-6 lg:px-[60px] bg-secondary">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Inversión
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-12">
-            <h2 className="font-bebas text-[clamp(2.55rem,4.6vw,4.4rem)] leading-[0.95] text-foreground">ELIGE TU<br />PAQUETE</h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Paquetes mensuales, mensualidades por semana y clase muestra de $50. Compra directo desde la app.
-            </p>
-          </div>
-          {/* Clase muestra */}
-          <div className="rounded-3xl border border-primary/30 bg-background mb-8 p-5 sm:p-7">
-            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 mb-5">
-              <div>
-                <p className="text-[0.68rem] tracking-[0.15em] uppercase text-primary font-medium">Clase muestra</p>
-                <h3 className="font-syne font-bold text-[1.4rem] text-foreground mt-1">Primera experiencia KALA</h3>
-              </div>
-              <p className="text-[0.8rem] text-muted-foreground lg:text-right">
-                $50 por persona · no transferible · no repetible
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {trialPlans.map((plan) => {
-                const accent = "#76214D";
-                const icon = imgPilates;
-                return (
-                  <div key={plan.id} className="rounded-2xl border border-border bg-secondary p-5 flex flex-col gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-xl border flex items-center justify-center" style={{ borderColor: accent + "55", background: accent + "18" }}>
-                        <img src={icon} alt="" className="h-8 w-8 object-contain" style={{ filter: "brightness(0) invert(1) sepia(1) saturate(0) hue-rotate(0deg) brightness(0.95)", opacity: 0.85 }} />
-                      </div>
-                      <div>
-                        <p className="text-[0.7rem] tracking-[0.15em] uppercase" style={{ color: accent }}>Barre</p>
-                        <h4 className="font-syne font-bold text-[1rem] text-foreground">{plan.name}</h4>
-                      </div>
-                    </div>
-                    <div className="flex items-end gap-1">
-                      <span className="font-alilato text-[2.8rem] leading-none text-primary">${plan.price.toLocaleString("es-MX")}</span>
-                      <span className="text-[0.75rem] text-muted-foreground mb-1">MXN</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-[0.67rem]">
-                      <span className="px-2 py-1 rounded-full border border-primary/30 text-primary">{plan.classLimit} clase</span>
-                      <span className="px-2 py-1 rounded-full border border-border text-muted-foreground">{plan.durationDays} días vigencia</span>
-                      {plan.isNonTransferable && <span className="px-2 py-1 rounded-full border border-amber-300/25 text-amber-300">No transferible</span>}
-                      {plan.isNonRepeatable && <span className="px-2 py-1 rounded-full border border-rose-300/25 text-rose-300">No repetible</span>}
-                    </div>
-                    <button onClick={() => navigate(membershipCtaPath)}
-                      className="mt-2 w-full py-3 rounded-full text-[0.76rem] font-medium tracking-wider uppercase border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-all">
-                      Quiero mi clase muestra
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-          {/* Clase suelta */}
-          <div className="rounded-3xl border border-border bg-background mb-8 p-5 sm:p-7">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <p className="text-[0.68rem] tracking-[0.15em] uppercase text-primary font-medium">Clase suelta — Visita</p>
-                <h3 className="font-syne font-bold text-[1.4rem] text-foreground mt-1">$125 MXN por clase</h3>
-              </div>
-              <p className="text-[0.8rem] text-muted-foreground">
-                Sin paquete · Pago por sesion
-              </p>
-              <button onClick={() => navigate(membershipCtaPath)}
-                className="mt-2 sm:mt-0 px-6 py-3 rounded-full text-[0.76rem] font-medium tracking-wider uppercase border border-primary text-primary hover:bg-primary hover:text-primary-foreground transition-all whitespace-nowrap">
-                Reservar visita
-              </button>
-            </div>
-          </div>
-          {/* Category tabs */}
-          <div className="flex gap-2 mb-8 flex-wrap">
-            {(["barre"] as const).map((cat) => {
-              const tabColors: Record<string, string> = { barre: "#76214D", jumping: "#76214D", pilates: "#E9745F", mixtos: "#F58A24" };
-              const tabColor = tabColors[cat] ?? "#76214D";
-              const isActive = activePkgTab === cat;
-              return (
-                <button key={cat} onClick={() => setActivePkgTab(cat)}
-                  className={"px-5 py-2 rounded-full text-[0.78rem] font-medium tracking-wide uppercase transition-all " + (
-                    isActive
-                      ? "text-black shadow-[0_4px_20px_rgba(0,0,0,0.2)]"
-                      : "border border-border text-muted-foreground hover:text-foreground"
-                  )}
-                  style={isActive ? { backgroundColor: tabColor, borderColor: tabColor } : { borderColor: tabColor + "40" }}>
-                  {cat === "barre" ? "Barre" : cat}
+          <ul className="hidden lg:flex items-center gap-7 list-none m-0 p-0">
+            {[
+              { label: "Estudio", id: "estudio" },
+              { label: "Clases", id: "clases" },
+              { label: "Horario", id: "horario" },
+              { label: "Progreso", id: "progreso" },
+              { label: "Paquetes", id: "paquetes" },
+              { label: "Coaches", id: "coaches" },
+              { label: "Galería", id: "galeria" },
+            ].map((item) => (
+              <li key={item.id}>
+                <button
+                  onClick={() => scrollTo(item.id)}
+                  className="relative bg-transparent border-0 cursor-pointer text-[0.78rem] uppercase tracking-[0.2em] text-[color:var(--ink)]/68 hover:text-[color:var(--berry)] transition-colors"
+                >
+                  {item.label}
                 </button>
-              );
-            })}
-          </div>
-          {/* Package grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {packages
-              .filter((p) => p.category === activePkgTab && p.is_active)
-              .sort((a, b) => a.sort_order - b.sort_order)
-              .map((p, i, arr) => {
-                const isUnlimited = p.num_classes?.toString().toUpperCase() === "ILIMITADO";
-                const isPopular = i === arr.length - 2 && !isUnlimited;
-                const catColor: Record<string, string> = { barre: "#76214D", jumping: "#76214D", pilates: "#E9745F", mixtos: "#F58A24" };
-                const pkgAccent = catColor[p.category] ?? "#76214D";
-                const isDarkText = false;
-                return (
-                  <div key={p.id}
-                    className={"relative rounded-3xl p-8 flex flex-col gap-4 transition-all hover:-translate-y-2 " + (
-                      isUnlimited
-                        ? "shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
-                        : isPopular
-                        ? "bg-background shadow-[0_10px_40px_rgba(0,0,0,0.15)]"
-                        : "bg-background border border-border"
-                    )}
-                    style={isUnlimited ? { backgroundColor: pkgAccent, border: "2px solid " + pkgAccent } : isPopular ? { border: "2px solid " + pkgAccent + "99" } : { borderColor: pkgAccent + "30" }}>
-                    {isPopular && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-white text-[0.6rem] tracking-[0.15em] uppercase px-3 py-1 rounded-full font-medium whitespace-nowrap" style={{ backgroundColor: pkgAccent }}>Más popular</div>
-                    )}
-                    {isUnlimited && (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 text-[0.6rem] tracking-[0.15em] uppercase px-3 py-1 rounded-full font-medium whitespace-nowrap" style={{ backgroundColor: "#FFF7F2", color: pkgAccent }}>Mejor valor</div>
-                    )}
-                    <div className={"text-[0.7rem] tracking-[0.15em] uppercase font-medium " + (isUnlimited ? (isDarkText ? "text-black/60" : "text-white/70") : "text-muted-foreground")}>
-                      {p.validity_days ?? 30} días de vigencia
-                    </div>
-                    <div className={"font-bebas text-[0.95rem] tracking-wide " + (isUnlimited ? (isDarkText ? "text-black" : "text-white") : "text-foreground")}>
-                      {isUnlimited ? "ILIMITADO" : p.num_classes + " CLASES"}
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                      <span className={"font-alilato text-[3.5rem] leading-none " + (isUnlimited ? (isDarkText ? "text-black" : "text-white") : "")}
-                        style={isUnlimited ? {} : { color: pkgAccent }}>
-                        ${Number(p.price).toLocaleString()}
-                      </span>
-                      <span className={"text-[0.75rem] " + (isUnlimited ? (isDarkText ? "text-black/60" : "text-white/60") : "text-muted-foreground")}>MXN</span>
-                    </div>
-                    {!isUnlimited && Number(p.num_classes) > 0 && (
-                      <div className={"text-[0.78rem] " + (isUnlimited ? (isDarkText ? "text-black/60" : "text-white/70") : "text-muted-foreground")}>
-                        ${(Number(p.price) / Number(p.num_classes)).toFixed(0)}/clase
-                      </div>
-                    )}
-                    <div className="mt-auto">
-                      <button onClick={() => navigate(membershipCtaPath)}
-                        className={"w-full py-3 rounded-full text-[0.78rem] font-medium tracking-wider uppercase transition-all"}
-                        style={isUnlimited
-                          ? { backgroundColor: "#FFF7F2", color: "#2E201C" }
-                          : { border: "1px solid " + pkgAccent, color: pkgAccent }
-                        }>
-                        Elegir paquete
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-          <p className="text-xs text-muted-foreground mt-8 text-center">
-            Vigencia desde la primera clase · Aplican términos y condiciones · Precios en MXN
-          </p>
-        </div>
-      </section>
-
-      {/* ── INSTRUCTORAS ── */}
-      <section id="instructoras" className="py-16 lg:py-24 px-6 lg:px-[60px]">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            El equipo
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-12">
-            <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground">COACHES</h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Certificadas, apasionadas y dedicadas a que cada clase sea tu mejor versión.
-            </p>
-          </div>
-          <div className={"grid grid-cols-1 " + ((instructors.length > 0 ? instructors.length : 2) === 1 ? "max-w-md mx-auto" : "sm:grid-cols-2") + " " + ((instructors.length > 0 ? instructors.length : 2) >= 3 ? "lg:grid-cols-3" : "") + " gap-6"}>
-            {(() => {
-              /* Known coach extra data — always shown regardless of API */
-              const KNOWN_COACHES: Record<string, { coachTitle: string; disciplines: string; funFact: string }> = {
-                karla: { coachTitle: "COACH KARLA", disciplines: "Barre", funFact: "Te recibe con energia cercana y una clase diferente cada dia" },
-              };
-              function matchCoach(name: string) {
-                const n = name.toLowerCase().trim();
-                for (const [key, val] of Object.entries(KNOWN_COACHES)) {
-                  if (n.includes(key)) return val;
-                }
-                return null;
-              }
-              const items = instructors.length > 0
-                ? instructors.map((inst) => {
-                    const known = matchCoach(inst.displayName);
-                    return {
-                      key: inst.id,
-                      label: inst.displayName,
-                      coachTitle: known?.coachTitle ?? null,
-                      sub: Array.isArray(inst.specialties)
-                        ? (inst.specialties as unknown as string[]).join(" & ")
-                        : typeof inst.specialties === "string" && inst.specialties ? inst.specialties : "Instructora",
-                      disciplines: known?.disciplines ?? null,
-                      bio: inst.bio || null,
-                      funFact: known?.funFact ?? null,
-                      photoUrl: inst.photoUrl || null,
-                      photoFocusX: clampFocus(inst.photoFocusX),
-                      photoFocusY: clampFocus(inst.photoFocusY),
-                    };
-                  })
-                : [
-                    { key: "karla", label: "Karla Cruz", coachTitle: "COACH KARLA",
-                      sub: "Barre · Bienestar · Comunidad",
-                      disciplines: "Barre",
-                      bio: "Atencion cercana y personalizada para que cada alumna avance a su ritmo y disfrute el proceso.",
-                      funFact: "Cada clase cambia para que tu dia tambien cambie",
-                      photoUrl: null, photoFocusX: 50, photoFocusY: 50 },
-                  ];
-              return items.map((inst) => (
-              <div key={inst.key} className="group rounded-3xl overflow-hidden bg-secondary border border-border hover:border-primary/50 hover:-translate-y-2 transition-all">
-                <div className="aspect-square bg-gradient-to-br from-white via-[#FFF0E4] to-[#FCE6E1] flex items-center justify-center relative overflow-hidden">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_60%,hsl(var(--primary)/0.18)_0%,transparent_65%)]" />
-                  {inst.photoUrl ? (
-                    <img src={inst.photoUrl} alt={inst.label}
-                      className="absolute inset-0 w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700"
-                      style={{ objectPosition: clampFocus(inst.photoFocusX) + "% " + clampFocus(inst.photoFocusY) + "%" }} />
-                  ) : (
-                    <div className="relative flex flex-col items-center gap-4">
-                      <div className="flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-[#76214D]/25 to-[#E9745F]/15 border-2 border-[#76214D]/30 shadow-[0_0_60px_hsl(var(--primary)/0.2)]">
-                        <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" className="text-[#76214D]/50">
-                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                        </svg>
-                      </div>
-                      <span className="text-[0.65rem] tracking-[0.2em] uppercase text-[#76214D]/50 font-medium">Foto próximamente</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-7">
-                  {inst.coachTitle && (
-                    <div className="font-bebas text-[1.6rem] tracking-wide leading-none mb-1" style={{ color: "#F58A24" }}>
-                      {inst.coachTitle}
-                    </div>
-                  )}
-                  {inst.disciplines && (
-                    <p className="text-[0.82rem] text-foreground mt-3">
-                      <span className="text-muted-foreground">Disciplinas: </span>
-                      <span className="font-medium">{inst.disciplines}</span>
-                    </p>
-                  )}
-                  {inst.funFact && (
-                    <p className="text-[0.82rem] text-foreground mt-1">
-                      <span className="text-muted-foreground">Fun Fact: </span>
-                      <span>{inst.funFact}</span>
-                    </p>
-                  )}
-                </div>
-              </div>
-            ));
-            })()}
-          </div>
-        </div>
-      </section>
-
-      {/* ── HISTORIA DE KALA ── */}
-      <section className="py-20 lg:py-28 px-6 lg:px-[60px] bg-secondary relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,hsl(var(--primary)/0.06)_0%,transparent_50%)] pointer-events-none" />
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700 relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-            <div className="relative">
-              <div className="rounded-3xl overflow-hidden aspect-[4/5] relative">
-                <img src={kalaClassEnergy} alt="Clase grupal en Kala Barre Studio" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#2E201C]/55 to-transparent" />
-              </div>
-              <div className="absolute -bottom-4 -right-4 lg:-right-8 bg-primary/90 backdrop-blur-sm rounded-2xl px-6 py-4 shadow-[0_20px_60px_hsl(var(--primary)/0.3)]">
-                <p className="font-alilato italic text-[1.1rem] text-primary-foreground leading-tight">
-                  &ldquo;Ella era mi<br />lugar seguro&rdquo;
-                </p>
-              </div>
-            </div>
-            <div>
-              <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-                <span className="w-[30px] h-[1px] bg-primary inline-block" />
-                Nuestra historia
-              </div>
-              <h2 className="font-bebas text-[clamp(2.25rem,3.7vw,3.65rem)] leading-[0.95] text-foreground mb-8">
-                ¿POR QUÉ<br /><span className="text-primary">&ldquo;KALA&rdquo;?</span>
-              </h2>
-              <div className="space-y-5 text-[0.95rem] text-muted-foreground leading-[1.85]">
-                <p><span className="text-foreground font-medium">Kala</span> nace como un studio cercano, casual y lleno de energia para mujeres comprometidas con su salud y bienestar.</p>
-                <p>La experiencia esta pensada para sentirse como si te recibiera una amiga en casa: clara, calida y personalizada.</p>
-                <p>Cada reserva es un paso mas hacia tus objetivos, y cada clase cambia para mantener tu motivacion activa.</p>
-                <p>Por eso Kala no es solo un studio de ejercicio.</p>
-                <p className="font-alilato italic text-foreground text-[1.1rem]">
-                  Es un lugar donde puedes venir a ser tú misma.</p>
-              </div>
-              <div className="mt-8 flex items-center gap-3">
-                <div className="w-12 h-[1px] bg-primary" />
-                <span className="text-[0.78rem] text-primary font-medium tracking-wide">Karla Cruz — Fundadora</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── POLÍTICAS ── */}
-      <section id="politicas" className="py-16 lg:py-24 px-6 lg:px-[60px]">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Información importante
-          </div>
-          <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground mb-10">POLÍTICAS DE CLASE</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { num: "01", title: "Primera vez", text: "Si eres nueva, llega 15 minutos antes para recibir indicaciones y prepararte sin prisa." },
-              { num: "02", title: "Reservacion", text: "Todas las clases requieren reservacion previa. Cupo regular de 4 a 5 lugares; eventos especiales o privados pueden llegar a 6." },
-              { num: "03", title: "Cancelaciones", text: "Alumnas nuevas cancelan de 4 a 5 horas antes. Comunidad KALA puede cancelar hasta 2 horas antes sin penalizacion." },
-              { num: "04", title: "No-show", text: "Si no asistes o cancelas tarde, la clase se considera tomada y no se puede revalidar." },
-              { num: "05", title: "Pagos", text: "Transferencia a BBVA · Karla Cruz · CLABE: 012 700 01539444488 8. Tambien se acepta pago fisico con tarjeta o efectivo." },
-              { num: "06", title: "Vigencia", text: "Paquetes y mensualidades tienen vigencia de 1 mes a partir de la compra." },
-              { num: "07", title: "Asistencia", text: "El check-in con QR ayuda a registrar asistencias, recompensas y seguimiento de progreso." },
-              { num: "08", title: "Comunidad", text: "Los recordatorios, promociones y recompensas se comunican principalmente por WhatsApp." },
-            ].map((p) => (
-              <div key={p.num} className="rounded-2xl border border-border bg-secondary p-5 hover:border-primary/30 transition-all">
-                <div className="font-bebas text-[2.5rem] text-foreground/[0.07] leading-none -mb-1">{p.num}</div>
-                <h4 className="font-syne font-bold text-[0.92rem] text-foreground mb-2">{p.title}</h4>
-                <p className="text-[0.8rem] text-muted-foreground leading-[1.65]">{p.text}</p>
-              </div>
+              </li>
             ))}
-          </div>
-        </div>
-      </section>
+          </ul>
 
-      {/* ── TESTIMONIOS ── */}
-      <section className="py-16 lg:py-24 px-6 lg:px-[60px] bg-secondary">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Lo que dicen nuestras alumnas
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-12">
-            <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground">EXPERIENCIAS<br />REALES</h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Cada historia nos inspira a seguir creando un espacio único.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              { name: "Ana Garcia", time: "Alumna frecuente", text: "Kala se siente cercano desde que entras. Las clases son pequenas y siempre me corrigen con mucha atencion.", stars: 5 },
-              { name: "Laura Martinez", time: "Comunidad KALA", text: "Me gusta que cada clase es diferente. Salgo con energia y con la sensacion de que hice algo por mi.", stars: 5 },
-              { name: "Sofia Hernandez", time: "Alumna desde 2025", text: "Reservar es facil y los recordatorios por WhatsApp me ayudan a no perder mis clases.", stars: 5 },
-              { name: "Daniela Rios", time: "Clase muestra", text: "Fui por una clase muestra y me senti acompanada, aunque era mi primera vez.", stars: 5 },
-              { name: "Mariana Lopez", time: "Paquete mensual", text: "La energia del studio cambia mi dia. Es casual, bonito y muy humano.", stars: 5 },
-              { name: "Valeria Torres", time: "Comunidad KALA", text: "El seguimiento de asistencias y recompensas me motiva a seguir constante.", stars: 5 },
-            ].map((t, i) => (
-              <div key={i} className="rounded-2xl border border-border bg-background p-6 hover:border-primary/30 transition-all flex flex-col gap-4">
-                <div className="flex gap-0.5">
-                  {Array.from({ length: t.stars }).map((_, s) => (
-                    <svg key={s} width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-[#F58A24]">
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                    </svg>
-                  ))}
-                </div>
-                <p className="text-[0.88rem] text-muted-foreground leading-[1.7] flex-1 italic">
-                  &ldquo;{t.text}&rdquo;
-                </p>
-                <div className="flex items-center gap-3 pt-3 border-t border-border">
-                  <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center text-[0.8rem] font-bold text-primary">
-                    {t.name.split(" ").map(w => w[0]).join("").slice(0, 2)}
-                  </div>
-                  <div>
-                    <div className="text-[0.85rem] font-medium text-foreground">{t.name}</div>
-                    <div className="text-[0.7rem] text-muted-foreground">{t.time}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── GALERÍA ROTATIVA ── */}
-      <section id="galeria" className="py-16 lg:py-24 px-6 lg:px-[60px]">
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700">
-          <div className="text-[0.72rem] tracking-[0.15em] uppercase text-primary font-medium mb-4 flex items-center gap-[10px]">
-            <span className="w-[30px] h-[1px] bg-primary inline-block" />
-            Galería
-          </div>
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-10">
-            <h2 className="font-bebas text-[clamp(2.35rem,4.1vw,4rem)] leading-[0.95] text-foreground">
-              VIVE LA<br />EXPERIENCIA
-            </h2>
-            <p className="text-[0.88rem] text-muted-foreground max-w-[360px] leading-[1.7]">
-              Cada sesión es única. Capturamos los mejores momentos de nuestras alumnas.
-            </p>
-          </div>
-          {/* Main carousel */}
-          <div className="relative rounded-3xl overflow-hidden bg-black h-[400px] sm:h-[500px] lg:h-[600px] mb-5 group">
-            {GALLERY_IMAGES.map((img, i) => (
-              <img key={i} src={img} alt={"Kala Barre Studio momento " + (i + 1)}
-                className={"absolute inset-0 w-full h-full object-contain transition-opacity duration-1000 " + (i === galleryIdx ? "opacity-100" : "opacity-0")} />
-            ))}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
-            <button onClick={() => setGalleryIdx((prev) => (prev - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length)}
-              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60">
-              <ChevronLeft size={20} />
-            </button>
-            <button onClick={() => setGalleryIdx((prev) => (prev + 1) % GALLERY_IMAGES.length)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/60">
-              <ChevronRight size={20} />
-            </button>
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              {GALLERY_IMAGES.map((_, i) => (
-                <button key={i} onClick={() => setGalleryIdx(i)}
-                  className={"w-2 h-2 rounded-full transition-all " + (i === galleryIdx ? "bg-primary w-6" : "bg-white/50 hover:bg-white/70")} />
-              ))}
-            </div>
-          </div>
-          {/* Thumbnails */}
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-            {GALLERY_IMAGES.map((img, i) => (
-              <button key={i} onClick={() => setGalleryIdx(i)}
-                className={"rounded-xl overflow-hidden aspect-square transition-all " + (i === galleryIdx ? "ring-2 ring-primary ring-offset-2 ring-offset-background scale-[0.95]" : "opacity-50 hover:opacity-80")}>
-                <img src={img} alt="" className="w-full h-full object-cover" />
+          <div className="flex items-center gap-2">
+            {isAuthenticated && user ? (
+              <button
+                onClick={() => navigate(["admin", "super_admin", "instructor", "reception"].includes(user.role) ? "/admin/dashboard" : "/app")}
+                className="hidden sm:inline-flex items-center gap-2 rounded-full px-4 py-2 text-[0.78rem] font-medium tracking-wide text-[color:var(--cream)] transition-transform hover:-translate-y-px"
+                style={{ backgroundColor: KALA.berry }}
+              >
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-[color:var(--cream)]/22 text-[0.7rem] font-bold uppercase">
+                  {user.displayName?.[0] ?? user.email?.[0] ?? "U"}
+                </span>
+                <span className="truncate max-w-[110px]">
+                  {["admin", "super_admin"].includes(user.role) ? "Admin" : user.displayName?.split(" ")[0] ?? "Mi cuenta"}
+                </span>
               </button>
-            ))}
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate("/auth/login")}
+                  className="hidden sm:inline-block bg-transparent border-0 cursor-pointer text-[0.78rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/68 hover:text-[color:var(--berry)] transition-colors"
+                >
+                  Entrar
+                </button>
+                <button
+                  onClick={() => navigate("/auth/register")}
+                  className="group inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-[0.76rem] font-medium uppercase tracking-[0.16em] transition-transform hover:-translate-y-px"
+                  style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                >
+                  Reservar
+                  <ArrowUpRight size={14} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => setNavOpen((v) => !v)}
+              aria-label="Menú"
+              className="lg:hidden grid h-10 w-10 place-items-center rounded-full border border-[#E8CAC1]/70 bg-[#FFF7F2]/85 text-[color:var(--ink)] transition-colors hover:border-[color:var(--berry)]"
+            >
+              {navOpen ? <Minus size={16} /> : <Plus size={16} />}
+            </button>
           </div>
         </div>
-      </section>
 
-      {/* ── CTA — "¿Lista para vivir la experiencia Kala?" ── */}
-      <section id="contacto" className="py-16 lg:py-24 px-6 lg:px-[60px] relative overflow-hidden bg-secondary">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.12)_0%,transparent_60%)] pointer-events-none" />
-        <div className="reveal opacity-0 translate-y-10 transition-all duration-700 relative z-10">
-          <div className="text-center mb-16">
-            <div className="text-primary text-[0.8rem] tracking-[0.15em] uppercase mb-6">Tu momento es ahora</div>
-            <h2 className="font-bebas text-[clamp(2.8rem,6.4vw,6rem)] leading-[0.9] text-foreground mb-8">
-              ¿LISTA PARA VIVIR<br /><span className="text-primary">LA EXPERIENCIA</span><br />
-              <span style={{ WebkitTextStroke: "2px hsl(53 74% 94% / 0.4)", color: "transparent" }}>KALA?</span>
-            </h2>
-            <p className="text-[1.1rem] text-muted-foreground max-w-[500px] mx-auto mb-10 leading-[1.7]">
-              Descubre una forma cercana y energetica de entrenar barre en San Luis Potosi. Te esperamos.
-            </p>
-            <div className="flex gap-4 justify-center items-center flex-wrap">
-              <button onClick={() => navigate(membershipCtaPath)}
-                className="bg-primary text-primary-foreground px-10 py-[18px] rounded-full text-[0.9rem] font-medium tracking-wider uppercase inline-flex items-center gap-[10px] hover:-translate-y-[3px] hover:scale-[1.02] hover:shadow-[0_20px_50px_hsl(var(--primary)/0.4)] transition-all">
-                Reservar clase muestra
-                <span className="w-[22px] h-[22px] bg-primary-foreground/20 rounded-full flex items-center justify-center"><ArrowUpRight size={12} /></span>
-              </button>
-              <a href="https://wa.me/524443073266?text=Hola%2C%20me%20interesa%20conocer%20m%C3%A1s%20sobre%20Kala%20Barre%20Studio"
-                target="_blank" rel="noopener noreferrer"
-                className="border border-border text-foreground text-[0.85rem] font-normal tracking-wider uppercase flex items-center gap-3 px-8 py-[18px] rounded-full opacity-70 hover:opacity-100 hover:border-primary transition-all no-underline">
-                WhatsApp
-              </a>
-            </div>
-          </div>
-          {/* Info + Map */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-            <div className="rounded-3xl p-10 flex flex-col justify-between gap-8 bg-gradient-to-br from-white via-[#FFF0E4] to-[#FCE6E1] border border-[#76214D]/15 shadow-[0_24px_70px_rgba(118,33,77,0.12)] relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-[300px] h-[300px] rounded-full bg-[radial-gradient(circle,#76214D_0%,transparent_65%)] opacity-[0.07] pointer-events-none" />
-              <div className="absolute bottom-0 left-0 w-[200px] h-[200px] rounded-full bg-[radial-gradient(circle,#E9745F_0%,transparent_65%)] opacity-[0.07] pointer-events-none" />
-              <div className="relative z-10">
-                <div className="text-[0.7rem] tracking-[0.18em] uppercase text-[#76214D] font-semibold mb-3">Encuéntranos</div>
-                <h3 className="font-bebas text-[clamp(2.15rem,3.2vw,3.15rem)] leading-[0.95] text-foreground mb-8">VISÍTANOS<br />EN ESTUDIO</h3>
-                <div className="flex flex-col gap-6">
-                  {[
-                    { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>, label: "Ubicacion", value: "Av. Nicolas Zapata #845 int. 4, Plaza San Martin, San Luis Potosi", accent: "#76214D" },
-                    { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.86 11 19.79 19.79 0 0 1 1.77 2.38 2 2 0 0 1 3.74.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 7.91a16 16 0 0 0 6.08 6.08l1.28-1.28a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>, label: "Telefono", value: "444 307 3266", accent: "#E9745F" },
-                    { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>, label: "Email", value: "info@kalabarre.mx", accent: "#76214D" },
-                    { icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>, label: "Horarios", value: "Lun-Vie 7am-3pm y 5pm-9pm · Sab 7am-9am", accent: "#F58A24" },
-                  ].map((item) => (
-                    <div key={item.label} className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: item.accent + "20", color: item.accent, border: "1px solid " + item.accent + "30" }}>{item.icon}</div>
-                      <div>
-                        <div className="text-[0.65rem] tracking-widest uppercase mb-0.5" style={{ color: item.accent }}>{item.label}</div>
-                        <div className="text-[1rem] text-foreground font-medium leading-snug">{item.value}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="relative z-10 flex gap-3 pt-6 border-t border-[#778455]/20">
-                {[
-                  { label: "Instagram", href: "https://www.instagram.com/kalabarre_slp/", short: "ig" },
-                  { label: "Facebook", href: "https://www.facebook.com/search/top?q=Kala%20Barre%20studio%20SLP", short: "fb" },
-                ].map((s) => (
-                  <a key={s.short} href={s.href} target="_blank" rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-full border border-[#76214D]/30 flex items-center justify-center text-[0.8rem] text-[#76214D]/80 hover:bg-[#76214D]/15 hover:text-[#76214D] transition-all no-underline">{s.short}</a>
-                ))}
-              </div>
-            </div>
-            <div className="rounded-3xl overflow-hidden border border-border min-h-[480px] lg:min-h-0">
-              <iframe
-                src="https://www.google.com/maps?q=Av.%20Nicolas%20Zapata%20845%20Plaza%20San%20Martin%20San%20Luis%20Potosi&output=embed"
-                width="100%" height="100%" style={{ border: 0, display: "block", minHeight: "480px" }}
-                allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Kala Barre Studio ubicacion" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer className="bg-background px-6 lg:px-[60px] pt-[60px] border-t border-border">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 pb-10">
-          <div>
-            <div className="mb-3">
-              <img
-                src={opheliaLogo}
-                alt="Kala Barre Studio"
-                className="w-[180px] sm:w-[210px] max-w-full object-contain drop-shadow-[0_0_20px_rgba(118,33,77,0.14)]"
-              />
-            </div>
-            <p className="text-[0.82rem] text-muted-foreground leading-[1.7] max-w-[200px]">
-              Aquí no solo entrenas… aquí vuelves a ti. Salto a salto, respiración a respiración.
-            </p>
-            <div className="flex gap-3 mt-6">
-              <a href="https://www.instagram.com/kalabarre_slp/" target="_blank" rel="noopener noreferrer" className="w-[38px] h-[38px] rounded-full border border-border flex items-center justify-center text-muted-foreground text-[0.85rem] hover:border-primary hover:text-primary transition-colors no-underline">ig</a>
-              <a href="https://www.facebook.com/profile.php?id=61574872102085" target="_blank" rel="noopener noreferrer" className="w-[38px] h-[38px] rounded-full border border-border flex items-center justify-center text-muted-foreground text-[0.85rem] hover:border-primary hover:text-primary transition-colors no-underline">fb</a>
-            </div>
-          </div>
-          <div>
-            <div className="text-[0.72rem] tracking-widest uppercase text-muted-foreground mb-5">Estudio</div>
-            <ul className="flex flex-col gap-[10px] list-none">
-              {[["Clases","clases"],["Horario","horario"],["Paquetes","membresias"],["Coaches","instructoras"],["Galería","galeria"],["Políticas","politicas"]].map(([label, id]) => (
-                <li key={id}><button onClick={() => scrollTo(id)} className="text-[0.85rem] text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer p-0">{label}</button></li>
+        {/* Mobile menu drawer */}
+        <div
+          className={
+            "lg:hidden grid overflow-hidden transition-[grid-template-rows] duration-500 ease-out " +
+            (navOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")
+          }
+        >
+          <div className="min-h-0 overflow-hidden">
+            <ul className="flex flex-col gap-1 px-5 py-4 list-none m-0" style={{ backgroundColor: KALA.cream, borderTop: `1px solid ${KALA.border}` }}>
+              {[
+                { label: "Estudio", id: "estudio" },
+                { label: "Clases", id: "clases" },
+                { label: "Horario", id: "horario" },
+                { label: "Progreso", id: "progreso" },
+                { label: "Paquetes", id: "paquetes" },
+                { label: "Coaches", id: "coaches" },
+                { label: "Galería", id: "galeria" },
+                { label: "Contacto", id: "contacto" },
+              ].map((item) => (
+                <li key={item.id}>
+                  <button
+                    onClick={() => scrollTo(item.id)}
+                    className="flex w-full items-center justify-between bg-transparent border-0 cursor-pointer py-3 text-[0.92rem] tracking-wide text-[color:var(--ink)]/85 hover:text-[color:var(--berry)] transition-colors"
+                  >
+                    {item.label}
+                    <ArrowRight size={14} className="opacity-40" />
+                  </button>
+                </li>
               ))}
             </ul>
           </div>
+        </div>
+      </nav>
+
+      {/* ═════════ HERO ═════════ */}
+      <section id="top" className="relative pt-28 sm:pt-32 lg:pt-36">
+        <div className="mx-auto grid max-w-[1320px] grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 px-5 sm:px-8 lg:px-12 pb-16 lg:pb-24">
+          {/* Headline column */}
+          <div className="lg:col-span-7 flex flex-col justify-end">
+            <div className="flex items-center gap-3">
+              <span className="inline-block h-px w-10" style={{ backgroundColor: KALA.coral }} />
+              <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.coral }}>
+                Barre boutique · San Luis Potosí
+              </span>
+            </div>
+
+            <h1 className="font-bebas mt-7 leading-[0.86] tracking-[-0.01em]" style={{ color: KALA.ink, fontSize: "clamp(3rem, 9vw, 7.6rem)" }}>
+              Aquí cambias
+              <span className="block" style={{ color: KALA.berry }}>el día,</span>
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.coral, fontSize: "clamp(2.2rem, 6vw, 5rem)", lineHeight: 1 }}>
+                no la rutina.
+              </span>
+            </h1>
+
+            <p className="mt-7 max-w-[44ch] text-[1.05rem] leading-[1.75] text-[color:var(--ink)]/75">
+              Cercana como una amiga en su casa. Energética como una clase de Karla. Distinta cada vez que vuelves: clases pequeñas, atención personalizada y un estudio que sabe tu nombre.
+            </p>
+
+            <div className="mt-9 flex flex-wrap items-center gap-4">
+              <button
+                onClick={() => navigate(membershipCtaPath)}
+                className="group inline-flex items-center gap-3 rounded-full px-7 py-4 text-[0.84rem] font-medium uppercase tracking-[0.16em] transition-transform hover:-translate-y-0.5"
+                style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+              >
+                Reserva tu clase muestra
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--cream)]/18 transition-transform group-hover:translate-x-1">
+                  <ArrowUpRight size={13} />
+                </span>
+                <span className="ml-1 text-[0.78rem] font-normal opacity-80">$50</span>
+              </button>
+              <button
+                onClick={() => scrollTo("clases")}
+                className="group inline-flex items-center gap-3 bg-transparent border-0 cursor-pointer text-[0.82rem] uppercase tracking-[0.2em] text-[color:var(--ink)]/72 hover:text-[color:var(--ink)] transition-colors"
+              >
+                <span className="grid h-10 w-10 place-items-center rounded-full transition-colors group-hover:bg-[color:var(--blush)]" style={{ border: `1px solid ${KALA.border}` }}>
+                  <Play size={12} className="ml-0.5" />
+                </span>
+                Ver clases
+              </button>
+            </div>
+
+            {/* Inline studio facts (no card grid) */}
+            <dl className="mt-12 grid grid-cols-3 gap-6 max-w-[520px]">
+              {[
+                { k: "5", l: "Lugares por clase" },
+                { k: "50min", l: "Cada sesión" },
+                { k: "Karla", l: "Te recibe" },
+              ].map((stat) => (
+                <div key={stat.l} className="border-t pt-3" style={{ borderColor: KALA.border }}>
+                  <dt className="font-bebas text-[1.85rem] leading-none" style={{ color: KALA.berry }}>{stat.k}</dt>
+                  <dd className="mt-1 text-[0.72rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">{stat.l}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+
+          {/* Image column */}
+          <div className="lg:col-span-5 relative">
+            <div className="relative aspect-[4/5] sm:aspect-[3/4] lg:aspect-[4/5] overflow-hidden rounded-[28px]">
+              <img
+                src={HERO_PHOTOS[0]}
+                alt="Karla guía una clase de barre en Kala"
+                className="absolute inset-0 h-full w-full object-cover"
+                loading="eager"
+                fetchPriority="high"
+              />
+              <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(46,32,28,0) 55%, rgba(46,32,28,0.42) 100%)" }} />
+              {/* Quote sticker, coral */}
+              <div className="absolute left-4 bottom-4 sm:left-6 sm:bottom-6 max-w-[260px] rounded-2xl px-5 py-4" style={{ backgroundColor: KALA.coral, color: KALA.cream }}>
+                <p className="font-alilato italic text-[0.95rem] leading-[1.45]">
+                  «Pasa, te estábamos esperando.»
+                </p>
+                <p className="mt-1 text-[0.6rem] uppercase tracking-[0.28em] opacity-80">El recibimiento Kala</p>
+              </div>
+            </div>
+            {/* Decorative numeral */}
+            <div className="hidden lg:block absolute -top-3 -left-3 font-bebas leading-none select-none pointer-events-none" style={{ color: KALA.olive, fontSize: "5.5rem", opacity: 0.85 }}>
+              01
+            </div>
+          </div>
+        </div>
+
+        {/* Marquee strip — coral drenched */}
+        <div className="overflow-hidden border-y" style={{ backgroundColor: KALA.coral, borderColor: KALA.coral, color: KALA.cream }}>
+          <div className="flex whitespace-nowrap gap-12 py-3 animate-[scroll-left_38s_linear_infinite]">
+            {[...Array(2)].map((_, dup) => (
+              <div key={dup} className="flex items-center gap-12 pr-12 shrink-0">
+                {["bienestar", "comunidad", "compromiso", "barre", "energía", "cercanía", "san luis potosí"].map((w) => (
+                  <span key={w + dup} className="flex items-center gap-12 text-[0.86rem] uppercase tracking-[0.36em] font-medium">
+                    {w}
+                    <span className="inline-block h-1 w-1 rounded-full" style={{ backgroundColor: KALA.cream }} />
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════ ESTUDIO · Esto es Kala ═════════ */}
+      <section id="estudio" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28">
+        <div className="mx-auto max-w-[1320px] grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-start">
+          <div className="lg:col-span-5 reveal opacity-0 translate-y-8 transition-all duration-700">
+            <div className="relative aspect-[4/5] overflow-hidden rounded-[24px]">
+              <img src={kalaClassEnergy} alt="Una clase llena en Kala Barre Studio" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+            </div>
+            <p className="mt-3 text-[0.72rem] uppercase tracking-[0.24em]" style={{ color: KALA.olive }}>
+              Estudio Plaza San Martín, SLP
+            </p>
+          </div>
+
+          <div className="lg:col-span-7 lg:pl-6 reveal opacity-0 translate-y-8 transition-all duration-700">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
+              Esto es Kala
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.5rem, 5.6vw, 5rem)" }}>
+              Un estudio donde
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>te conocen por tu nombre.</span>
+            </h2>
+            <div className="mt-7 space-y-5 text-[1.02rem] leading-[1.85] text-[color:var(--ink)]/76 max-w-[60ch]">
+              <p>
+                Kala nace de una idea simple: que entrenar pueda sentirse como llegar a casa de una amiga. Karla recibe a cada alumna, ajusta cada postura y cambia la clase para que ningún día se sienta igual.
+              </p>
+              <p>
+                Aquí no hay multitud, no hay aparatos imposibles, no hay vergüenza. Hay barra, suelo, música cuidada y una intención: que salgas con la sensación de haber hecho algo real por ti.
+              </p>
+            </div>
+
+            {/* Inline values, no card grid */}
+            <ul className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-0 list-none m-0 p-0">
+              {[
+                { tag: "01", word: "Bienestar", note: "Cuerpo, postura, energía." },
+                { tag: "02", word: "Comunidad", note: "Grupos pequeños, atención cercana." },
+                { tag: "03", word: "Compromiso", note: "Tu progreso, paso a paso." },
+              ].map((v, i) => (
+                <li
+                  key={v.word}
+                  className={"py-5 sm:py-0 sm:pl-6 " + (i === 0 ? "border-t sm:border-t-0 sm:border-l-0" : "border-t sm:border-t-0 sm:border-l")}
+                  style={{ borderColor: KALA.border }}
+                >
+                  <span className="font-bebas text-[0.92rem] tracking-[0.2em]" style={{ color: KALA.coral }}>{v.tag}</span>
+                  <h3 className="font-bebas text-[1.65rem] leading-tight mt-1" style={{ color: KALA.ink }}>{v.word.toUpperCase()}</h3>
+                  <p className="mt-2 text-[0.88rem] leading-[1.65] text-[color:var(--ink)]/65">{v.note}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════ CLASES ═════════ */}
+      <section id="clases" className="relative px-5 sm:px-8 lg:px-12 pb-20 lg:pb-28" style={{ backgroundColor: KALA.cream }}>
+        <div className="mx-auto max-w-[1320px]">
+          <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10 lg:mb-14">
+            <div>
+              <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
+                Tu semana en Kala
+              </span>
+              <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+                Cada clase,
+                <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>otra cosa.</span>
+              </h2>
+            </div>
+            <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
+              Cada semana cambian los tipos de clase, no los horarios. Toca una para conocerla. Cupos de 4 a 5 alumnas.
+            </p>
+          </div>
+
+          {/* Asymmetric editorial grid */}
+          <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-x-5 gap-y-10 list-none m-0 p-0">
+            {classTypes.slice(0, 8).map((c, idx) => {
+              const isOpen = openClassId === c.id;
+              const img = pickClassImage(c.name, idx);
+              const layout = idx % 7;
+              const span =
+                layout === 0 ? "lg:col-span-7" :
+                layout === 1 ? "lg:col-span-5" :
+                layout === 2 ? "lg:col-span-4" :
+                layout === 3 ? "lg:col-span-4" :
+                layout === 4 ? "lg:col-span-4" :
+                layout === 5 ? "lg:col-span-7" :
+                "lg:col-span-5";
+              const aspect =
+                layout === 0 ? "aspect-[5/4]" :
+                layout === 1 ? "aspect-[4/5]" :
+                layout === 5 ? "aspect-[5/4]" :
+                "aspect-[4/5]";
+              return (
+                <li key={c.id} className={span}>
+                  <button
+                    onClick={() => setOpenClassId(isOpen ? null : c.id)}
+                    className="group block w-full text-left bg-transparent border-0 p-0 cursor-pointer"
+                    aria-expanded={isOpen}
+                  >
+                    <div className={"relative overflow-hidden rounded-[22px] " + aspect}>
+                      <img
+                        src={img}
+                        alt={c.name}
+                        loading="lazy"
+                        className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.04]"
+                      />
+                      <div className="absolute inset-0 transition-opacity duration-500" style={{ background: "linear-gradient(180deg, rgba(46,32,28,0) 50%, rgba(46,32,28,0.55) 100%)" }} />
+                      <div className="absolute left-5 top-5 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[0.6rem] uppercase tracking-[0.22em]" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
+                        <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: KALA.berry }} />
+                        {c.category}
+                      </div>
+                      <div className="absolute inset-x-0 bottom-0 p-5 sm:p-6 flex items-end justify-between gap-4">
+                        <div>
+                          <h3 className="font-bebas text-[1.7rem] sm:text-[2.1rem] leading-[0.95]" style={{ color: KALA.cream }}>
+                            {c.name}
+                          </h3>
+                          {c.subtitle && (
+                            <p className="mt-1 font-alilato italic text-[0.92rem]" style={{ color: KALA.cream, opacity: 0.85 }}>
+                              {c.subtitle}
+                            </p>
+                          )}
+                        </div>
+                        <span
+                          className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform group-hover:rotate-45"
+                          style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+                        >
+                          {isOpen ? <Minus size={14} /> : <Plus size={14} />}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div
+                      className="grid overflow-hidden transition-[grid-template-rows] duration-500 ease-out"
+                      style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="pt-5">
+                          <p className="text-[0.95rem] leading-[1.75] text-[color:var(--ink)]/76 max-w-[60ch]">
+                            {c.description}
+                          </p>
+                          <dl className="mt-4 flex flex-wrap gap-x-7 gap-y-2 text-[0.74rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">
+                            <div className="flex items-baseline gap-2"><dt>Duración</dt><dd className="font-bebas text-[0.95rem]" style={{ color: KALA.ink }}>{c.duration_min} min</dd></div>
+                            <div className="flex items-baseline gap-2"><dt>Nivel</dt><dd className="font-bebas text-[0.95rem]" style={{ color: KALA.ink }}>{c.level}</dd></div>
+                            <div className="flex items-baseline gap-2"><dt>Cupo</dt><dd className="font-bebas text-[0.95rem]" style={{ color: KALA.ink }}>{c.capacity}</dd></div>
+                          </dl>
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+
+      {/* ═════════ HORARIO (Schedule embed) ═════════ */}
+      <Schedule />
+
+      {/* ═════════ VIDEOS ═════════ */}
+      {videoCards.length > 0 && (
+        <section className="px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.blush }}>
+          <div className="mx-auto max-w-[1320px]">
+            <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+              <div>
+                <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
+                  La energía en pantalla
+                </span>
+                <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.2rem, 4.8vw, 4.2rem)" }}>
+                  Cómo se siente
+                  <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>una clase real.</span>
+                </h2>
+              </div>
+              <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
+                Fragmentos sin filtros del estudio. Mira y luego ven a vivirlo.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {videoCards.map((v) => {
+                const videoUrl = normalizeVideoUrl(v.video_url);
+                const isPlaying = playingVideoId === v.id;
+                const hasThumbnail = Boolean(v.thumbnail_url);
+                const handlePlay = () => {
+                  if (!videoUrl) return;
+                  setPlayingVideoId(v.id);
+                  setTimeout(() => { const el = videoRefs.current[v.id]; if (el) el.play().catch(() => {}); }, 100);
+                };
+                return (
+                  <div key={v.id} className="group">
+                    <div className="relative aspect-[4/5] overflow-hidden rounded-[22px]" style={{ backgroundColor: KALA.cream }}>
+                      {videoUrl && isPlaying ? (
+                        <video
+                          ref={(el) => { videoRefs.current[v.id] = el; }}
+                          src={videoUrl}
+                          className="absolute inset-0 h-full w-full object-cover bg-black"
+                          controls
+                          autoPlay
+                          playsInline
+                          title={v.title}
+                          onEnded={() => setPlayingVideoId(null)}
+                        />
+                      ) : videoUrl ? (
+                        <button onClick={handlePlay} className="absolute inset-0 h-full w-full bg-transparent border-0 p-0 cursor-pointer" aria-label={"Reproducir " + v.title}>
+                          {hasThumbnail ? (
+                            <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                          ) : (
+                            <video src={videoUrl} className="absolute inset-0 h-full w-full object-cover pointer-events-none" preload="metadata" muted playsInline />
+                          )}
+                          <div className="absolute inset-0 transition-colors" style={{ background: "linear-gradient(180deg, rgba(46,32,28,0) 35%, rgba(46,32,28,0.45) 100%)" }} />
+                          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 grid h-16 w-16 sm:h-20 sm:w-20 place-items-center rounded-full transition-transform group-hover:scale-110" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
+                            <Play size={22} className="ml-1" />
+                          </span>
+                        </button>
+                      ) : (
+                        <>
+                          {hasThumbnail ? (
+                            <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 h-full w-full object-cover" />
+                          ) : (
+                            <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 50% 60%, ${KALA.coral}33 0%, transparent 60%)` }} />
+                          )}
+                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
+                            <span className="grid h-16 w-16 place-items-center rounded-full" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
+                              <Play size={20} className="ml-1" />
+                            </span>
+                            <span className="text-[0.62rem] tracking-[0.22em] uppercase font-medium" style={{ color: KALA.berry }}>
+                              Pronto
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div className="mt-4">
+                      <h3 className="font-bebas text-[1.4rem] leading-tight" style={{ color: KALA.ink }}>{v.title}</h3>
+                      <p className="mt-2 text-[0.88rem] leading-[1.65] text-[color:var(--ink)]/68 max-w-[36ch]">{v.description}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ═════════ PROGRESO (Rings) ═════════ */}
+      <ProgresoSection onCta={() => navigate(membershipCtaPath)} />
+
+      {/* ═════════ COACHES (Olive drench) ═════════ */}
+      <CoachesSection instructors={instructors} />
+
+      {/* ═════════ MEMBRESÍAS (Berry drench) ═════════ */}
+      <PaquetesSection
+        trialPlans={trialPlans}
+        monthlyPackages={monthlyPackages}
+        singleClass={singleClass}
+        onPick={() => navigate(membershipCtaPath)}
+      />
+
+      {/* ═════════ POLÍTICAS ═════════ */}
+      <PoliticasSection />
+
+      {/* ═════════ TESTIMONIOS ═════════ */}
+      <TestimoniosSection />
+
+      {/* ═════════ GALERÍA ═════════ */}
+      <GaleriaSection galleryIdx={galleryIdx} setGalleryIdx={setGalleryIdx} />
+
+      {/* ═════════ CIERRE (Coral drench) ═════════ */}
+      <section className="relative overflow-hidden px-5 sm:px-8 lg:px-12 py-24 lg:py-32" style={{ backgroundColor: KALA.coral }}>
+        <div className="absolute inset-0 pointer-events-none" style={{ background: `radial-gradient(circle at 80% 20%, ${KALA.orange}55 0%, transparent 55%)` }} />
+        <div className="relative mx-auto max-w-[1100px] text-center reveal opacity-0 translate-y-8 transition-all duration-700">
+          <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.cream, opacity: 0.78 }}>
+            Tu turno
+          </span>
+          <h2 className="font-bebas mt-5 leading-[0.86]" style={{ color: KALA.cream, fontSize: "clamp(2.8rem, 8vw, 6.5rem)" }}>
+            Reserva tu clase muestra,
+            <span className="block italic font-alilato font-normal mt-2" style={{ color: KALA.cream }}>te recibimos.</span>
+          </h2>
+          <p className="mt-7 mx-auto max-w-[52ch] text-[1.05rem] leading-[1.7]" style={{ color: KALA.cream, opacity: 0.88 }}>
+            Cincuenta pesos. Cincuenta minutos. Una sola vez. Karla te enseña la barra, ajusta tu postura y te muestra cómo se siente entrenar acompañada.
+          </p>
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
+            <button
+              onClick={() => navigate(membershipCtaPath)}
+              className="group inline-flex items-center gap-3 rounded-full px-8 py-4 text-[0.86rem] font-medium uppercase tracking-[0.18em] transition-transform hover:-translate-y-0.5"
+              style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+            >
+              Reservar $50
+              <span className="grid h-7 w-7 place-items-center rounded-full transition-transform group-hover:translate-x-1" style={{ backgroundColor: KALA.berry, color: KALA.cream }}>
+                <ArrowUpRight size={13} />
+              </span>
+            </button>
+            <a
+              href="https://wa.me/524443073266?text=Hola%2C%20me%20interesa%20conocer%20m%C3%A1s%20sobre%20Kala%20Barre%20Studio"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-3 rounded-full px-7 py-4 text-[0.84rem] uppercase tracking-[0.18em] no-underline transition-colors hover:bg-[color:var(--cream)]/10"
+              style={{ border: `1px solid ${KALA.cream}66`, color: KALA.cream }}
+            >
+              <MessageCircle size={16} /> WhatsApp directo
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ═════════ CONTACTO + MAPA ═════════ */}
+      <ContactoSection />
+
+      {/* ═════════ FOOTER (Berry drench) ═════════ */}
+      <FooterSection scrollTo={scrollTo} navigate={navigate} />
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PROGRESO — Rings story (orange role)
+   ═══════════════════════════════════════════════════════════ */
+const ProgresoSection = ({ onCta }: { onCta: () => void }) => {
+  const ringMetrics: KalaRing[] = [
+    { key: "constancia", label: "Constancia", value: "2/3", goalLabel: "clases asistidas", progress: 67, ...KALA_RING_COLORS.constancia },
+    { key: "esfuerzo", label: "Esfuerzo", value: "1/2", goalLabel: "retos o clases intensas", progress: 50, ...KALA_RING_COLORS.esfuerzo },
+    { key: "conexion", label: "Conexión", value: "6/10", goalLabel: "puntos de comunidad", progress: 60, ...KALA_RING_COLORS.conexion },
+  ];
+
+  const stories = [
+    { tag: "Constancia", word: "Asistir", note: "Cada check-in suma. El primero es el difícil; los demás vienen solos.", color: KALA_RING_COLORS.constancia.color },
+    { tag: "Esfuerzo", word: "Retarte", note: "Las clases intensas y los retos del mes empujan este anillo.", color: KALA_RING_COLORS.esfuerzo.color },
+    { tag: "Conexión", word: "Conectar", note: "Eventos, invitadas y comunidad suman puntos sin que lo notes.", color: KALA_RING_COLORS.conexion.color },
+  ];
+
+  const planGoals = [
+    { plan: "Clase suelta", c: "1", e: "1", k: "3" },
+    { plan: "8 clases / mes", c: "2", e: "2", k: "10" },
+    { plan: "12 clases / mes", c: "3", e: "2", k: "10" },
+    { plan: "20 clases / mes", c: "5", e: "3", k: "10" },
+  ];
+
+  return (
+    <section id="progreso" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
+      <div className="mx-auto max-w-[1320px]">
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-12 gap-10 items-end mb-12">
+          <div className="lg:col-span-7">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.orange }}>
+              Tu progreso es la meta
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+              No configures tu meta,
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.orange }}>gánala.</span>
+            </h2>
+          </div>
+          <p className="lg:col-span-5 max-w-[44ch] text-[0.96rem] leading-[1.75] text-[color:var(--ink)]/72">
+            Tres anillos. Una historia: <em className="not-italic font-medium" style={{ color: KALA.ink }}>constancia</em>, <em className="not-italic font-medium" style={{ color: KALA.ink }}>esfuerzo</em>, <em className="not-italic font-medium" style={{ color: KALA.ink }}>conexión</em>. Tú reservas, vienes y participas. El sistema convierte ese ritmo en algo visible.
+          </p>
+        </div>
+
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+          {/* Rings visual */}
+          <div className="lg:col-span-5 relative overflow-hidden rounded-[26px] p-7 sm:p-9 flex flex-col justify-between" style={{ backgroundColor: KALA.blush }}>
+            <div className="absolute -top-16 -right-16 h-56 w-56 rounded-full pointer-events-none" style={{ background: `radial-gradient(circle, ${KALA.orange}44 0%, transparent 65%)` }} />
+            <div className="relative grid place-items-center py-4">
+              <div className="rounded-full p-3" style={{ backgroundColor: KALA.ink }}>
+                <RingsTriple
+                  rings={ringMetrics}
+                  centerLabel="semana actual"
+                  centerValue="1/3"
+                  centerSub="anillo cerrado"
+                  shellClassName="border-transparent shadow-none"
+                />
+              </div>
+            </div>
+            <div className="relative mt-6 flex items-center gap-2 text-[0.7rem] uppercase tracking-[0.22em]" style={{ color: KALA.berry }}>
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: KALA.orange }} />
+              Se actualiza con cada visita
+            </div>
+          </div>
+
+          {/* Stories */}
+          <ul className="lg:col-span-7 grid grid-cols-1 gap-3 list-none m-0 p-0">
+            {stories.map((s) => (
+              <li key={s.tag} className="grid grid-cols-[auto_1fr_auto] items-center gap-5 px-5 py-5 rounded-[18px]" style={{ border: `1px solid ${KALA.border}`, backgroundColor: KALA.cream }}>
+                <span className="grid h-11 w-11 place-items-center rounded-full" style={{ backgroundColor: s.color + "1f" }}>
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: s.color }} />
+                </span>
+                <div>
+                  <p className="text-[0.62rem] uppercase tracking-[0.22em]" style={{ color: s.color }}>{s.tag}</p>
+                  <h3 className="font-bebas text-[1.6rem] leading-tight mt-0.5" style={{ color: KALA.ink }}>{s.word.toUpperCase()}</h3>
+                  <p className="mt-1 text-[0.88rem] leading-[1.6] text-[color:var(--ink)]/68 max-w-[52ch]">{s.note}</p>
+                </div>
+                <ArrowRight size={16} style={{ color: s.color, opacity: 0.6 }} />
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Plan goals + reward */}
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-7 overflow-hidden rounded-[20px]" style={{ border: `1px solid ${KALA.border}`, backgroundColor: KALA.cream }}>
+            <div className="grid grid-cols-[1.4fr_repeat(3,1fr)] px-5 py-3 text-[0.6rem] uppercase tracking-[0.18em] font-medium" style={{ color: KALA.ink, backgroundColor: KALA.blush }}>
+              <span>Plan</span>
+              <span className="text-center">Constancia</span>
+              <span className="text-center">Esfuerzo</span>
+              <span className="text-center">Conexión</span>
+            </div>
+            {planGoals.map((row, i) => (
+              <div
+                key={row.plan}
+                className="grid grid-cols-[1.4fr_repeat(3,1fr)] items-center px-5 py-4 text-[0.86rem]"
+                style={i < planGoals.length - 1 ? { borderBottom: `1px solid ${KALA.border}` } : undefined}
+              >
+                <span className="font-medium" style={{ color: KALA.ink }}>{row.plan}</span>
+                <span className="text-center font-bebas tabular-nums text-[1rem]" style={{ color: KALA.berry }}>{row.c}</span>
+                <span className="text-center font-bebas tabular-nums text-[1rem]" style={{ color: KALA.olive }}>{row.e}</span>
+                <span className="text-center font-bebas tabular-nums text-[1rem]" style={{ color: KALA.orange }}>{row.k}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="lg:col-span-5 relative overflow-hidden rounded-[20px] p-7 flex flex-col justify-between gap-6" style={{ backgroundColor: KALA.orange, color: KALA.cream }}>
+            <div className="absolute -bottom-12 -left-10 h-44 w-44 rounded-full pointer-events-none" style={{ background: `radial-gradient(circle, ${KALA.cream}33 0%, transparent 60%)` }} />
+            <div className="relative">
+              <p className="text-[0.62rem] uppercase tracking-[0.24em] opacity-85">Recompensa</p>
+              <h3 className="font-bebas mt-3 leading-[0.92]" style={{ fontSize: "clamp(1.85rem, 3vw, 2.7rem)" }}>
+                Cierra los tres,
+                <span className="block italic font-alilato font-normal opacity-95">desbloquea algo.</span>
+              </h3>
+              <p className="mt-3 text-[0.9rem] leading-[1.6] opacity-90 max-w-[36ch]">
+                Una clase extra, un descuento, merch del estudio o un premio interno. Karla decide la recompensa por plan.
+              </p>
+            </div>
+            <button
+              onClick={onCta}
+              className="group relative inline-flex w-fit items-center gap-3 rounded-full px-6 py-3 text-[0.78rem] font-medium uppercase tracking-[0.16em] transition-transform hover:-translate-y-0.5"
+              style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+            >
+              Ver paquetes
+              <span className="grid h-7 w-7 place-items-center rounded-full transition-transform group-hover:translate-x-1" style={{ backgroundColor: KALA.berry, color: KALA.cream }}>
+                <ArrowUpRight size={13} />
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   COACHES (Olive drench)
+   ═══════════════════════════════════════════════════════════ */
+const CoachesSection = ({ instructors }: { instructors: { id: string; displayName: string; bio?: string; specialties?: string | string[]; photoUrl?: string; photoFocusX?: number; photoFocusY?: number }[] }) => {
+  const KNOWN_COACHES: Record<string, { coachTitle: string; disciplines: string; funFact: string }> = {
+    karla: { coachTitle: "Coach Karla", disciplines: "Barre · Bienestar · Comunidad", funFact: "Te recibe con energía cercana y cambia la clase para que ningún día sea igual." },
+  };
+  const matchCoach = (name: string) => {
+    const n = name.toLowerCase().trim();
+    for (const [key, val] of Object.entries(KNOWN_COACHES)) {
+      if (n.includes(key)) return val;
+    }
+    return null;
+  };
+  const items = instructors.length > 0
+    ? instructors.map((inst) => {
+        const known = matchCoach(inst.displayName);
+        return {
+          key: inst.id,
+          label: inst.displayName,
+          coachTitle: known?.coachTitle ?? inst.displayName,
+          sub: Array.isArray(inst.specialties)
+            ? (inst.specialties as unknown as string[]).join(" · ")
+            : (typeof inst.specialties === "string" && inst.specialties ? inst.specialties : (known?.disciplines ?? "Instructora")),
+          bio: inst.bio || known?.funFact || null,
+          photoUrl: inst.photoUrl || null,
+          photoFocusX: clampFocus(inst.photoFocusX),
+          photoFocusY: clampFocus(inst.photoFocusY),
+        };
+      })
+    : [
+        { key: "karla", label: "Karla Cruz", coachTitle: "Coach Karla", sub: "Barre · Bienestar · Comunidad",
+          bio: "Atención cercana y personalizada para que cada alumna avance a su ritmo y disfrute el proceso. Cada clase cambia, cada postura se ajusta.",
+          photoUrl: null, photoFocusX: 50, photoFocusY: 50 },
+      ];
+
+  const isSolo = items.length === 1;
+
+  return (
+    <section id="coaches" className="relative overflow-hidden px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.olive }}>
+      <div className="absolute inset-0 pointer-events-none opacity-[0.07]" style={{ background: `radial-gradient(circle at 20% 30%, ${KALA.cream} 0%, transparent 55%)` }} />
+      <div className="relative mx-auto max-w-[1320px]">
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-12">
           <div>
-            <div className="text-[0.72rem] tracking-widest uppercase text-muted-foreground mb-5">Legal</div>
-            <ul className="flex flex-col gap-[10px] list-none">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.cream, opacity: 0.7 }}>
+              Quién te va a recibir
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.cream, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+              Te enseña
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.cream, opacity: 0.85 }}>una persona, no un sistema.</span>
+            </h2>
+          </div>
+          <p className="max-w-[40ch] text-[0.95rem] leading-[1.7]" style={{ color: KALA.cream, opacity: 0.78 }}>
+            Karla diseña cada clase, recibe a cada alumna y sigue tu progreso de cerca. Sin recetas genéricas.
+          </p>
+        </div>
+
+        <div className={"reveal opacity-0 translate-y-8 transition-all duration-700 grid gap-8 " + (isSolo ? "grid-cols-1 lg:grid-cols-12" : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3")}>
+          {items.map((inst, idx) => (
+            <article
+              key={inst.key}
+              className={isSolo ? "lg:col-span-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center" : ""}
+            >
+              <div className={(isSolo ? "lg:col-span-6 " : "") + "relative overflow-hidden rounded-[24px] " + (isSolo ? "aspect-[4/5] lg:aspect-[5/6]" : "aspect-[3/4]")}>
+                {inst.photoUrl ? (
+                  <img
+                    src={inst.photoUrl}
+                    alt={inst.label}
+                    className="absolute inset-0 h-full w-full object-cover saturate-[0.85] transition-[filter,transform] duration-700 hover:saturate-100 hover:scale-[1.03]"
+                    style={{ objectPosition: clampFocus(inst.photoFocusX) + "% " + clampFocus(inst.photoFocusY) + "%" }}
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="absolute inset-0 grid place-items-center" style={{ backgroundColor: KALA.olive, color: KALA.cream }}>
+                    <img
+                      src={CLASS_IMAGE_POOL[idx % CLASS_IMAGE_POOL.length]}
+                      alt=""
+                      className="absolute inset-0 h-full w-full object-cover saturate-[0.7] opacity-95"
+                    />
+                    <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, transparent 50%, ${KALA.olive}cc 100%)` }} />
+                  </div>
+                )}
+              </div>
+              <div className={isSolo ? "lg:col-span-6" : "mt-5"}>
+                <span className="text-[0.62rem] uppercase tracking-[0.24em]" style={{ color: KALA.cream, opacity: 0.7 }}>{inst.sub}</span>
+                <h3 className="font-bebas mt-2 leading-[0.92]" style={{ color: KALA.cream, fontSize: isSolo ? "clamp(2.4rem, 4.4vw, 4rem)" : "clamp(1.7rem, 2.4vw, 2.4rem)" }}>
+                  {inst.coachTitle}
+                </h3>
+                {inst.bio && (
+                  <p className={"text-[0.95rem] leading-[1.75] max-w-[60ch] " + (isSolo ? "mt-5" : "mt-3")} style={{ color: KALA.cream, opacity: 0.86 }}>
+                    {inst.bio}
+                  </p>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PAQUETES (Berry drench)
+   ═══════════════════════════════════════════════════════════ */
+const PaquetesSection = ({
+  trialPlans,
+  monthlyPackages,
+  singleClass,
+  onPick,
+}: {
+  trialPlans: TrialPlanRow[];
+  monthlyPackages: PackageRow[];
+  singleClass: PackageRow | undefined;
+  onPick: () => void;
+}) => {
+  const [activeIdx, setActiveIdx] = useState<number>(Math.max(0, monthlyPackages.length - 4));
+  return (
+    <section id="paquetes" className="relative overflow-hidden px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.berry }}>
+      <div className="absolute inset-0 pointer-events-none opacity-[0.10]" style={{ background: `radial-gradient(circle at 80% 0%, ${KALA.coral} 0%, transparent 55%), radial-gradient(circle at 0% 100%, ${KALA.orange} 0%, transparent 60%)` }} />
+      <div className="relative mx-auto max-w-[1320px]">
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-12">
+          <div>
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.cream, opacity: 0.72 }}>
+              Inversión
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.9]" style={{ color: KALA.cream, fontSize: "clamp(2.6rem, 6vw, 5.4rem)" }}>
+              Un paquete
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.cream, opacity: 0.92 }}>para tu ritmo.</span>
+            </h2>
+          </div>
+          <p className="max-w-[42ch] text-[0.95rem] leading-[1.7]" style={{ color: KALA.cream, opacity: 0.78 }}>
+            Paquetes mensuales con 30 días de vigencia. Clase muestra de $50 si nunca has venido. Compra directa desde la app.
+          </p>
+        </div>
+
+        {/* Trial highlight + single class — editorial row, not cards-in-cards */}
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mb-10 grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="lg:col-span-7 rounded-[24px] p-7 sm:p-9 flex flex-col gap-5" style={{ backgroundColor: KALA.cream }}>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+              <div>
+                <span className="text-[0.62rem] uppercase tracking-[0.24em]" style={{ color: KALA.coral }}>Primera vez en Kala</span>
+                <h3 className="font-bebas mt-2 leading-tight" style={{ color: KALA.berry, fontSize: "clamp(1.8rem, 3vw, 2.6rem)" }}>Clase muestra</h3>
+              </div>
+              <span className="text-[0.78rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/60">No transferible · No repetible</span>
+            </div>
+            {trialPlans.map((plan) => (
+              <div key={plan.id} className="flex flex-col sm:flex-row sm:items-end gap-5">
+                <div className="flex items-baseline gap-1">
+                  <span className="font-bebas leading-none" style={{ color: KALA.berry, fontSize: "clamp(3.5rem, 7vw, 5.8rem)" }}>${plan.price}</span>
+                  <span className="text-[0.8rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">MXN</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-[0.92rem] leading-[1.6] text-[color:var(--ink)]/72 max-w-[40ch]">
+                    {plan.name}. {plan.classLimit} clase, {plan.durationDays} días para usarla. Karla te explica la barra y te ajusta cada postura.
+                  </p>
+                </div>
+                <button
+                  onClick={onPick}
+                  className="group inline-flex items-center gap-2 rounded-full px-6 py-3 text-[0.76rem] font-medium uppercase tracking-[0.18em] transition-transform hover:-translate-y-0.5"
+                  style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                >
+                  Quiero la mía
+                  <ArrowUpRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {singleClass && (
+            <div className="lg:col-span-5 rounded-[24px] p-7 sm:p-9 flex flex-col justify-between gap-6" style={{ border: `1px solid ${KALA.cream}33`, color: KALA.cream }}>
+              <div>
+                <span className="text-[0.62rem] uppercase tracking-[0.24em]" style={{ color: KALA.cream, opacity: 0.7 }}>Sin paquete</span>
+                <h3 className="font-bebas mt-2 leading-tight" style={{ fontSize: "clamp(1.6rem, 2.6vw, 2.2rem)" }}>Clase suelta</h3>
+                <div className="mt-4 flex items-baseline gap-1">
+                  <span className="font-bebas leading-none" style={{ fontSize: "clamp(2.6rem, 5vw, 4rem)" }}>${singleClass.price}</span>
+                  <span className="text-[0.78rem] uppercase tracking-[0.18em] opacity-70">MXN</span>
+                </div>
+                <p className="mt-3 text-[0.9rem] leading-[1.6] opacity-80 max-w-[34ch]">Pago por sesión, sin compromiso. Útil cuando vienes de visita o quieres un día puntual.</p>
+              </div>
+              <button
+                onClick={onPick}
+                className="group inline-flex w-fit items-center gap-2 rounded-full px-5 py-2.5 text-[0.74rem] font-medium uppercase tracking-[0.18em] transition-colors"
+                style={{ border: `1px solid ${KALA.cream}88`, color: KALA.cream }}
+              >
+                Reservar visita
+                <ArrowRight size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Monthly packages — editorial table row layout */}
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 rounded-[24px] overflow-hidden" style={{ backgroundColor: KALA.cream }}>
+          <div className="px-7 sm:px-9 pt-7 sm:pt-9 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div>
+              <span className="text-[0.62rem] uppercase tracking-[0.24em]" style={{ color: KALA.olive }}>Paquetes mensuales</span>
+              <h3 className="font-bebas mt-2 leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.85rem, 3vw, 2.6rem)" }}>Compra y reserva todo el mes</h3>
+            </div>
+            <p className="text-[0.84rem] text-[color:var(--ink)]/60 max-w-[36ch] leading-[1.6]">Vigencia de 30 días desde la primera clase. Aplican términos y condiciones.</p>
+          </div>
+
+          <ul className="mt-6 list-none m-0 p-0">
+            {monthlyPackages.map((p, i) => {
+              const perClass = Number(p.num_classes) > 0 ? Math.round(Number(p.price) / Number(p.num_classes)) : null;
+              const active = i === activeIdx;
+              const isLast = i === monthlyPackages.length - 1;
+              return (
+                <li
+                  key={p.id}
+                  onMouseEnter={() => setActiveIdx(i)}
+                  onFocus={() => setActiveIdx(i)}
+                  className="group relative grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1.6fr_1fr_auto_auto] items-center gap-x-4 sm:gap-x-6 gap-y-1 px-7 sm:px-9 py-5 transition-colors"
+                  style={{
+                    backgroundColor: active ? KALA.blush : "transparent",
+                    borderTop: `1px solid ${KALA.border}`,
+                    borderBottom: isLast ? `0px` : `0`,
+                  }}
+                >
+                  <span className="font-bebas tabular-nums text-[0.86rem]" style={{ color: KALA.coral }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <h4 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.15rem, 1.5vw, 1.35rem)" }}>{p.name}</h4>
+                    <p className="text-[0.76rem] uppercase tracking-[0.16em] text-[color:var(--ink)]/55 mt-0.5">
+                      {p.num_classes} {Number(p.num_classes) === 1 ? "clase" : "clases"} · {p.validity_days ?? 30} días
+                    </p>
+                  </div>
+                  <div className="hidden sm:block text-[0.78rem] text-[color:var(--ink)]/55">
+                    {perClass !== null && <>${perClass} <span className="opacity-60">por clase</span></>}
+                  </div>
+                  <div className="text-right">
+                    <div className="font-bebas leading-none" style={{ color: KALA.berry, fontSize: "clamp(1.65rem, 2.4vw, 2.15rem)" }}>${Number(p.price).toLocaleString()}</div>
+                    <div className="text-[0.66rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/45 mt-0.5">MXN</div>
+                  </div>
+                  <button
+                    onClick={onPick}
+                    className="grid h-11 w-11 sm:h-12 sm:w-12 place-items-center rounded-full transition-transform group-hover:scale-105"
+                    style={{ backgroundColor: active ? KALA.berry : "transparent", color: active ? KALA.cream : KALA.berry, border: `1px solid ${KALA.berry}` }}
+                    aria-label={`Elegir ${p.name}`}
+                  >
+                    <ArrowUpRight size={16} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <p className="reveal opacity-0 translate-y-8 transition-all duration-700 mt-6 text-[0.78rem] uppercase tracking-[0.18em] text-center" style={{ color: KALA.cream, opacity: 0.55 }}>
+          Pagos por transferencia BBVA · Tarjeta o efectivo en estudio · Precios en MXN
+        </p>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   POLÍTICAS — editorial accordion list, not 8 cards
+   ═══════════════════════════════════════════════════════════ */
+const PoliticasSection = () => {
+  const items = [
+    { num: "01", title: "Primera vez", text: "Si eres nueva, llega 15 minutos antes. Karla te explica la barra y te muestra el espacio sin prisa." },
+    { num: "02", title: "Reservación", text: "Todas las clases requieren reserva previa. Cupo regular de 4 a 5 lugares; eventos especiales o privados pueden llegar a 6." },
+    { num: "03", title: "Cancelaciones", text: "Alumnas nuevas cancelan de 4 a 5 horas antes. Comunidad Kala puede cancelar hasta 2 horas antes sin penalización." },
+    { num: "04", title: "No-show", text: "Si no asistes o cancelas tarde, la clase se considera tomada y no se puede revalidar." },
+    { num: "05", title: "Pagos", text: "Transferencia BBVA · Karla Cruz · CLABE 012 700 01539444488 8. También aceptamos pago físico con tarjeta o efectivo." },
+    { num: "06", title: "Vigencia", text: "Paquetes y mensualidades tienen vigencia de 1 mes a partir de la compra." },
+    { num: "07", title: "Asistencia", text: "El check-in con QR registra tus asistencias, recompensas y progreso semanal." },
+    { num: "08", title: "Comunidad", text: "Recordatorios, promociones y recompensas se comunican principalmente por WhatsApp." },
+  ];
+  const [open, setOpen] = useState<string | null>("01");
+
+  return (
+    <section id="politicas" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
+      <div className="mx-auto max-w-[1320px]">
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-12 gap-10 mb-10">
+          <div className="lg:col-span-5">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
+              Lo que tienes que saber
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.2rem, 4.6vw, 4rem)" }}>
+              Reglas de la casa,
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>en una página.</span>
+            </h2>
+          </div>
+          <p className="lg:col-span-7 lg:pl-6 text-[0.96rem] leading-[1.75] text-[color:var(--ink)]/70 max-w-[60ch] self-end">
+            Toca cada punto para abrirlo. Lo que no esté aquí, pregúntanos por WhatsApp; respondemos rápido.
+          </p>
+        </div>
+
+        <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 list-none m-0 p-0">
+          {items.map((it, i) => {
+            const isOpen = open === it.num;
+            const isLast = i === items.length - 1;
+            return (
+              <li key={it.num} style={{ borderTop: `1px solid ${KALA.border}`, borderBottom: isLast ? `1px solid ${KALA.border}` : undefined }}>
+                <button
+                  onClick={() => setOpen(isOpen ? null : it.num)}
+                  className="w-full grid grid-cols-[auto_1fr_auto] items-center gap-5 px-2 py-6 bg-transparent border-0 cursor-pointer text-left"
+                  aria-expanded={isOpen}
+                >
+                  <span className="font-bebas tabular-nums text-[1rem]" style={{ color: KALA.coral, opacity: 0.85 }}>{it.num}</span>
+                  <h3 className="font-bebas tracking-tight leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.3rem, 2.4vw, 2rem)" }}>
+                    {it.title}
+                  </h3>
+                  <span className="grid h-9 w-9 place-items-center rounded-full transition-transform" style={{ backgroundColor: isOpen ? KALA.berry : "transparent", color: isOpen ? KALA.cream : KALA.berry, border: `1px solid ${KALA.berry}` }}>
+                    {isOpen ? <Minus size={14} /> : <Plus size={14} />}
+                  </span>
+                </button>
+                <div className="grid overflow-hidden transition-[grid-template-rows] duration-500 ease-out" style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}>
+                  <div className="min-h-0 overflow-hidden">
+                    <p className="pb-7 pl-9 sm:pl-10 pr-2 text-[0.96rem] leading-[1.75] text-[color:var(--ink)]/72 max-w-[64ch]">
+                      {it.text}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   TESTIMONIOS — pull quote + supporting voices
+   ═══════════════════════════════════════════════════════════ */
+const TestimoniosSection = () => {
+  const quotes = [
+    { name: "Ana García", time: "Alumna frecuente", text: "Kala se siente cercano desde que entras. Las clases son pequeñas y siempre me corrigen con mucha atención." },
+    { name: "Laura Martínez", time: "Comunidad Kala", text: "Me gusta que cada clase es diferente. Salgo con energía y con la sensación de que hice algo por mí." },
+    { name: "Sofía Hernández", time: "Alumna desde 2025", text: "Reservar es fácil y los recordatorios por WhatsApp me ayudan a no perder mis clases." },
+    { name: "Daniela Ríos", time: "Clase muestra", text: "Fui por una clase muestra y me sentí acompañada, aunque era mi primera vez." },
+    { name: "Mariana López", time: "Paquete mensual", text: "La energía del estudio cambia mi día. Es casual, bonito y muy humano." },
+  ];
+  const [main, ...rest] = quotes;
+  return (
+    <section className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.blush }}>
+      <div className="mx-auto max-w-[1320px] grid grid-cols-1 lg:grid-cols-12 gap-10">
+        <div className="lg:col-span-7 reveal opacity-0 translate-y-8 transition-all duration-700">
+          <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
+            Lo que dicen
+          </span>
+          <blockquote className="mt-6 font-bebas leading-[0.96]" style={{ color: KALA.ink, fontSize: "clamp(2.2rem, 4.4vw, 3.8rem)" }}>
+            <span className="font-alilato font-normal italic" style={{ color: KALA.berry }}>“</span>
+            {main.text.replace(/[“”]/g, "")}
+            <span className="font-alilato font-normal italic" style={{ color: KALA.berry }}>”</span>
+          </blockquote>
+          <div className="mt-6 flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center rounded-full text-[0.86rem] font-bold" style={{ backgroundColor: KALA.berry, color: KALA.cream }}>
+              {main.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+            </span>
+            <div>
+              <div className="font-bebas text-[1.05rem] leading-tight" style={{ color: KALA.ink }}>{main.name}</div>
+              <div className="text-[0.74rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">{main.time}</div>
+            </div>
+          </div>
+        </div>
+
+        <ul className="lg:col-span-5 reveal opacity-0 translate-y-8 transition-all duration-700 list-none m-0 p-0 grid grid-cols-1 gap-3">
+          {rest.map((t) => (
+            <li key={t.name} className="rounded-[18px] p-5" style={{ backgroundColor: KALA.cream }}>
+              <p className="text-[0.92rem] leading-[1.65] text-[color:var(--ink)]/80 italic font-alilato">“{t.text}”</p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-[0.84rem]" style={{ color: KALA.ink }}>{t.name}</div>
+                <div className="text-[0.66rem] uppercase tracking-[0.2em] text-[color:var(--ink)]/50">{t.time}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   GALERÍA — featured + masonry
+   ═══════════════════════════════════════════════════════════ */
+const GaleriaSection = ({ galleryIdx, setGalleryIdx }: { galleryIdx: number; setGalleryIdx: (n: number) => void }) => {
+  useEffect(() => {
+    const t = setInterval(() => setGalleryIdx((galleryIdx + 1) % GALLERY_IMAGES.length), 5000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [galleryIdx]);
+
+  const next = () => setGalleryIdx((galleryIdx + 1) % GALLERY_IMAGES.length);
+  const prev = () => setGalleryIdx((galleryIdx - 1 + GALLERY_IMAGES.length) % GALLERY_IMAGES.length);
+
+  return (
+    <section id="galeria" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
+      <div className="mx-auto max-w-[1320px]">
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
+          <div>
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.coral }}>
+              Por dentro
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+              El estudio,
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.coral }}>en sus mejores momentos.</span>
+            </h2>
+          </div>
+          <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
+            Fotos reales del feed. Sin retoque excesivo, sin stock.
+          </p>
+        </div>
+
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div className="lg:col-span-8 relative aspect-[4/3] overflow-hidden rounded-[24px] group" style={{ backgroundColor: KALA.ink }}>
+            {GALLERY_IMAGES.map((img, i) => (
+              <img
+                key={i}
+                src={img}
+                alt={"Kala momento " + (i + 1)}
+                loading="lazy"
+                className={"absolute inset-0 h-full w-full object-cover transition-opacity duration-700 " + (i === galleryIdx ? "opacity-100" : "opacity-0")}
+              />
+            ))}
+            <button onClick={prev} aria-label="Anterior" className="absolute left-4 top-1/2 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full transition-opacity opacity-0 group-hover:opacity-100" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
+              <ChevronLeft size={18} />
+            </button>
+            <button onClick={next} aria-label="Siguiente" className="absolute right-4 top-1/2 -translate-y-1/2 grid h-11 w-11 place-items-center rounded-full transition-opacity opacity-0 group-hover:opacity-100" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
+              <ChevronRight size={18} />
+            </button>
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1.5">
+              {GALLERY_IMAGES.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => setGalleryIdx(i)}
+                  className="h-1.5 rounded-full transition-all"
+                  style={{ width: i === galleryIdx ? 24 : 6, backgroundColor: i === galleryIdx ? KALA.cream : KALA.cream + "66" }}
+                  aria-label={"Ir a foto " + (i + 1)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="lg:col-span-4 grid grid-cols-3 lg:grid-cols-2 gap-3">
+            {GALLERY_IMAGES.slice(0, 6).map((img, i) => (
+              <button
+                key={i}
+                onClick={() => setGalleryIdx(i)}
+                className={"relative aspect-square overflow-hidden rounded-[14px] bg-transparent border-0 p-0 cursor-pointer transition-opacity " + (i === galleryIdx ? "opacity-100" : "opacity-65 hover:opacity-100")}
+                aria-label={"Ver foto " + (i + 1)}
+              >
+                <img src={img} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                {i === galleryIdx && <span className="absolute inset-0" style={{ outline: `2px solid ${KALA.berry}`, outlineOffset: -2, borderRadius: 14 }} />}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   CONTACTO + MAPA
+   ═══════════════════════════════════════════════════════════ */
+const ContactoSection = () => {
+  const items = [
+    { icon: <MapPin size={18} />, label: "Ubicación", value: "Av. Nicolás Zapata 845 int. 4, Plaza San Martín, San Luis Potosí" },
+    { icon: <Phone size={18} />, label: "Teléfono", value: "444 307 3266", href: "tel:+524443073266" },
+    { icon: <Mail size={18} />, label: "Email", value: "info@kalabarre.mx", href: "mailto:info@kalabarre.mx" },
+    { icon: <Clock size={18} />, label: "Horarios", value: "Lun a Vie 7am a 3pm y 5pm a 9pm · Sáb 7am a 9am" },
+  ];
+  return (
+    <section id="contacto" className="px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
+      <div className="mx-auto max-w-[1320px] grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+        <div className="lg:col-span-5 reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col">
+          <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
+            Cómo llegar
+          </span>
+          <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.2rem, 4.6vw, 4rem)" }}>
+            Plaza San Martín,
+            <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>San Luis Potosí.</span>
+          </h2>
+          <ul className="mt-8 list-none m-0 p-0 grid gap-5">
+            {items.map((it) => (
+              <li key={it.label} className="grid grid-cols-[auto_1fr] items-start gap-4 py-3" style={{ borderTop: `1px solid ${KALA.border}` }}>
+                <span className="grid h-10 w-10 place-items-center rounded-full" style={{ backgroundColor: KALA.blush, color: KALA.berry }}>
+                  {it.icon}
+                </span>
+                <div>
+                  <div className="text-[0.6rem] uppercase tracking-[0.24em] text-[color:var(--ink)]/55">{it.label}</div>
+                  {it.href ? (
+                    <a href={it.href} className="mt-1 block text-[0.98rem] leading-[1.55] no-underline transition-colors hover:text-[color:var(--berry)]" style={{ color: KALA.ink }}>
+                      {it.value}
+                    </a>
+                  ) : (
+                    <div className="mt-1 text-[0.98rem] leading-[1.55]" style={{ color: KALA.ink }}>{it.value}</div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-8 flex items-center gap-3">
+            <a href="https://www.instagram.com/kalabarre_slp/" target="_blank" rel="noopener noreferrer" className="grid h-11 w-11 place-items-center rounded-full no-underline transition-colors hover:bg-[color:var(--blush)]" style={{ border: `1px solid ${KALA.border}`, color: KALA.berry }}>
+              <IconInstagram size={16} />
+            </a>
+            <a href="https://www.facebook.com/search/top?q=Kala%20Barre%20studio%20SLP" target="_blank" rel="noopener noreferrer" className="grid h-11 w-11 place-items-center rounded-full no-underline transition-colors hover:bg-[color:var(--blush)]" style={{ border: `1px solid ${KALA.border}`, color: KALA.berry }}>
+              <IconFacebook size={16} />
+            </a>
+            <a href="https://wa.me/524443073266" target="_blank" rel="noopener noreferrer" className="grid h-11 w-11 place-items-center rounded-full no-underline transition-colors hover:bg-[color:var(--blush)]" style={{ border: `1px solid ${KALA.border}`, color: KALA.berry }}>
+              <MessageCircle size={16} />
+            </a>
+          </div>
+        </div>
+
+        <div className="lg:col-span-7 reveal opacity-0 translate-y-8 transition-all duration-700 overflow-hidden rounded-[24px] min-h-[420px] lg:min-h-[520px]" style={{ border: `1px solid ${KALA.border}` }}>
+          <iframe
+            src="https://www.google.com/maps?q=Av.%20Nicolas%20Zapata%20845%20Plaza%20San%20Martin%20San%20Luis%20Potosi&output=embed"
+            width="100%"
+            height="100%"
+            style={{ border: 0, display: "block", minHeight: 420, filter: "saturate(0.9)" }}
+            allowFullScreen
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            title="Kala Barre Studio ubicación"
+          />
+        </div>
+      </div>
+    </section>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════
+   FOOTER (Berry drench)
+   ═══════════════════════════════════════════════════════════ */
+const FooterSection = ({ scrollTo, navigate }: { scrollTo: (id: string) => void; navigate: (path: string) => void }) => {
+  return (
+    <footer className="relative overflow-hidden px-5 sm:px-8 lg:px-12 pt-16 pb-8" style={{ backgroundColor: KALA.berry, color: KALA.cream }}>
+      <div className="absolute inset-0 pointer-events-none opacity-[0.08]" style={{ background: `radial-gradient(circle at 90% 10%, ${KALA.coral} 0%, transparent 55%)` }} />
+      <div className="relative mx-auto max-w-[1320px]">
+        {/* Giant wordmark */}
+        <div className="flex items-center gap-6 pb-12">
+          <img
+            src={kalaIconUrl}
+            alt=""
+            className="h-[clamp(4rem,12vw,11rem)] w-[clamp(4rem,12vw,11rem)] object-contain shrink-0"
+            style={{ filter: "brightness(0) invert(1)" }}
+          />
+          <div className="font-bebas leading-[0.86] tracking-[-0.02em]" style={{ fontSize: "clamp(5rem, 18vw, 16rem)", color: KALA.cream }}>
+            kala
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 pb-10" style={{ borderTop: `1px solid ${KALA.cream}22` }}>
+          <div className="col-span-2 sm:col-span-1 pt-8">
+            <p className="text-[0.92rem] leading-[1.65] max-w-[26ch] opacity-85">
+              Estudio cercano, casual y energético. Una amiga te recibe.
+            </p>
+          </div>
+          <div className="pt-8">
+            <div className="text-[0.62rem] uppercase tracking-[0.24em] opacity-65 mb-4">Estudio</div>
+            <ul className="flex flex-col gap-2 list-none m-0 p-0">
+              {[["Clases","clases"],["Horario","horario"],["Paquetes","paquetes"],["Coaches","coaches"],["Galería","galeria"],["Políticas","politicas"]].map(([label, id]) => (
+                <li key={id}>
+                  <button onClick={() => scrollTo(id)} className="bg-transparent border-0 p-0 cursor-pointer text-[0.88rem] opacity-80 hover:opacity-100 transition-opacity">{label}</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="pt-8">
+            <div className="text-[0.62rem] uppercase tracking-[0.24em] opacity-65 mb-4">Legal</div>
+            <ul className="flex flex-col gap-2 list-none m-0 p-0">
               {[
                 { label: "Aviso de privacidad", path: "/legal/privacidad" },
                 { label: "Términos y condiciones", path: "/legal/terminos" },
                 { label: "Política de cancelación", path: "/legal/cancelacion" },
               ].map((l) => (
-                <li key={l.path}><button onClick={() => navigate(l.path)} className="text-[0.85rem] text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer p-0">{l.label}</button></li>
+                <li key={l.path}>
+                  <button onClick={() => navigate(l.path)} className="bg-transparent border-0 p-0 cursor-pointer text-[0.88rem] opacity-80 hover:opacity-100 transition-opacity">{l.label}</button>
+                </li>
               ))}
             </ul>
           </div>
-          <div>
-            <div className="text-[0.72rem] tracking-widest uppercase text-muted-foreground mb-5">Contacto</div>
-            <ul className="flex flex-col gap-[10px] list-none">
-              <li><span className="text-[0.85rem] text-muted-foreground">San Luis Potosi, SLP</span></li>
-              <li><a href="mailto:info@kalabarre.mx" className="text-[0.85rem] text-muted-foreground hover:text-foreground transition-colors no-underline">info@kalabarre.mx</a></li>
-              <li><a href="https://wa.me/524443073266" target="_blank" rel="noopener noreferrer" className="text-[0.85rem] text-muted-foreground hover:text-foreground transition-colors no-underline">WhatsApp</a></li>
-              <li><button onClick={() => scrollTo("horario")} className="text-[0.85rem] text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer p-0">Horarios</button></li>
+          <div className="pt-8">
+            <div className="text-[0.62rem] uppercase tracking-[0.24em] opacity-65 mb-4">Contacto</div>
+            <ul className="flex flex-col gap-2 list-none m-0 p-0 text-[0.88rem]">
+              <li className="opacity-80">San Luis Potosí, SLP</li>
+              <li><a href="mailto:info@kalabarre.mx" className="opacity-80 hover:opacity-100 transition-opacity no-underline" style={{ color: KALA.cream }}>info@kalabarre.mx</a></li>
+              <li><a href="https://wa.me/524443073266" target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 transition-opacity no-underline" style={{ color: KALA.cream }}>WhatsApp</a></li>
+              <li><a href="https://www.instagram.com/kalabarre_slp/" target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 transition-opacity no-underline" style={{ color: KALA.cream }}>Instagram</a></li>
             </ul>
           </div>
         </div>
-        <div className="border-t border-border py-5 flex flex-col sm:flex-row justify-between items-center gap-2">
-          <p className="text-[0.75rem] text-muted-foreground/50">© 2026 Kala Barre Studio. Todos los derechos reservados.</p>
-          <p className="text-[0.75rem] text-muted-foreground/50 flex items-center gap-1">Hecho con pasion en San Luis Potosi <Heart size={12} className="text-primary/50" /></p>
+
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-6 text-[0.74rem]" style={{ borderTop: `1px solid ${KALA.cream}22` }}>
+          <p className="opacity-60">© 2026 Kala Barre Studio · San Luis Potosí.</p>
+          <p className="opacity-60">Hecho con cariño en SLP.</p>
         </div>
-      </footer>
-    </div>
+      </div>
+    </footer>
   );
 };
 
