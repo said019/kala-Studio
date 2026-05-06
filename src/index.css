@@ -1,0 +1,297 @@
+/* ──────────────────────────────────────────────────────────────
+   KALA BARRE STUDIO — TIPOGRAFÍAS BASE
+   Bricolage Grotesque → headings / display  (font-gulfs, font-bebas)
+   Alilato        →  body / text         (font-alilato)
+
+   Archivos propietarios en public/fonts/
+   Fallback vía Google Fonts: Jost
+   ────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Jost:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── font-face: fuentes propietarias desde public/fonts/ ── */
+@font-face {
+  font-family: 'Gulfs';
+  src: url('/fonts/gulfs-display-normal.woff2') format('woff2'),
+       url('/fonts/gulfs-display-normal.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Alilato';
+  src: url('/fonts/Alilato-ExtraLight.ttf') format('truetype');
+  font-weight: 200 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   PALETA KALA BARRE STUDIO — Instagram / estudio
+   Background : #FFF7F2  (blanco rosado)
+   Primario   : #76214D  (vino berry)
+   Acento 1   : #E9745F  (coral activo)
+   Acento 2   : #778455  (oliva de estudio)
+   Foreground : #2E201C  (espresso cálido)
+   Energía    : #F58A24  (naranja fruta)
+   Suave      : #FCE6E1  (blush floral)
+   ────────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    --background: 23 100% 97%;           /* #FFF7F2 */
+    --foreground: 13 24% 15%;            /* #2E201C */
+
+    --card: 0 0% 100%;                   /* #FFFFFF */
+    --card-foreground: 13 24% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 13 24% 15%;
+
+    /* Primario: vino berry #76214D */
+    --primary: 329 56% 30%;
+    --primary-foreground: 23 100% 97%;
+
+    --secondary: 27 100% 95%;            /* #FFF0E4 */
+    --secondary-foreground: 13 24% 15%;
+
+    --muted: 14 56% 88%;                 /* #F1D6CE */
+    --muted-foreground: 13 20% 40%;      /* #7B5B52 */
+
+    /* Acento: coral activo #E9745F */
+    --accent: 9 76% 64%;
+    --accent-foreground: 13 24% 15%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 14 46% 83%;                /* #E8CAC1 */
+    --input: 14 46% 83%;
+    --ring: 329 56% 30%;
+
+    --radius: 0.75rem;
+
+    /* Tokens legacy conservados para evitar refactor masivo de componentes */
+    --ophelia-purple:    13 24% 15%;     /* #2E201C */
+    --ophelia-magenta:   329 56% 30%;    /* #76214D */
+    --ophelia-violet:    77 22% 43%;     /* #778455 */
+    --ophelia-lime:      29 91% 55%;     /* #F58A24 */
+    --ophelia-cream:     23 100% 97%;    /* #FFF7F2 */
+    --ophelia-lilac:     9 76% 64%;      /* #E9745F */
+    --ophelia-pinklight: 11 82% 94%;     /* #FCE6E1 */
+
+    --pink-glow: 329 56% 30%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Alilato', 'Jost', sans-serif;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Bricolage Grotesque', 'Jost', sans-serif;
+    font-weight: 800;
+  }
+
+  .font-gulfs {
+    font-family: 'Bricolage Grotesque', 'Jost', sans-serif;
+    font-weight: 800;
+  }
+
+  .font-alilato {
+    font-family: 'Alilato', 'Jost', sans-serif;
+  }
+
+  /* Keep legacy classes working */
+  .font-bebas {
+    font-family: 'Bricolage Grotesque', 'Jost', sans-serif;
+    font-weight: 800;
+    letter-spacing: 0;
+  }
+
+  .font-syne {
+    font-family: 'Alilato', 'Jost', sans-serif;
+    font-weight: 700;
+  }
+
+  .font-dm {
+    font-family: 'Alilato', 'Jost', sans-serif;
+  }
+}
+
+/* Noise overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.4;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+/* Animations */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes jump {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-90px) scaleX(0.9); }
+  50% { transform: translateY(-100px) scaleX(1.05); }
+  70% { transform: translateY(-20px); }
+}
+
+@keyframes ring-pulse {
+  0% { opacity: 0.5; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.2); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+@keyframes float1 {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-30px) scale(1.05); }
+}
+
+@keyframes scroll-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s ease both;
+}
+
+.animate-jump {
+  animation: jump 1.8s ease-in-out infinite;
+}
+
+.animate-ring-pulse {
+  animation: ring-pulse 3s ease-out infinite;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s infinite;
+}
+
+.animate-float {
+  animation: float1 8s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float1 10s ease-in-out infinite reverse;
+}
+
+.animate-scroll-left {
+  animation: scroll-left 30s linear infinite;
+}
+
+.animate-scroll-left:hover {
+  animation-play-state: paused;
+}
+
+/* Delay utilities */
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }
+.delay-600 { animation-delay: 0.6s; }
+.delay-800 { animation-delay: 0.8s; }
+.delay-1000 { animation-delay: 1s; }
+
+/* ── Date/time inputs: clickable on entire field, not just the icon ── */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  cursor: pointer;
+  position: relative;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+
+  .admin-page {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 1rem;
+  }
+
+  .admin-card-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .admin-title {
+    font-size: clamp(1.25rem, 2.6vw, 1.85rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+}
+
+@media (min-width: 640px) {
+  .admin-page {
+    padding: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .admin-page {
+    padding: 1.5rem;
+  }
+
+  .admin-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .admin-mobile-main {
+    overflow-x: hidden;
+  }
+}

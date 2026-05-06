@@ -1,0 +1,334 @@
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/stores/authStore";
+import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
+import opheliaLogo from "@/assets/ophelia-logo-full.webp";
+import {
+  LayoutDashboard, Package, CreditCard, Users, CalendarDays,
+  BookOpen, DollarSign, ShoppingBag,
+  ShoppingCart, Tag, Gift, Video, BarChart2,
+  Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, Ticket, X,
+} from "lucide-react";
+
+const NAV_GROUPS = [
+  {
+    label: "Principal",
+    collapsible: false,
+    accentColor: "#76214D",
+    items: [
+      { path: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { path: "/admin/clients", label: "Clientes", icon: Users },
+      { path: "/admin/payments", label: "Pagos", icon: DollarSign },
+      { path: "/admin/bookings", label: "Reservas", icon: BookOpen },
+    ],
+  },
+  {
+    label: "Gestión",
+    collapsible: true,
+    accentColor: "#E9745F",
+    items: [
+      { path: "/admin/plans", label: "Planes", icon: Package },
+      { path: "/admin/memberships", label: "Membresías", icon: CreditCard },
+      { path: "/admin/classes", label: "Clases", icon: CalendarDays },
+      { path: "/admin/orders", label: "Órdenes", icon: ShoppingBag },
+      { path: "/admin/pos", label: "POS", icon: ShoppingCart },
+      { path: "/admin/discount-codes", label: "Descuentos", icon: Tag },
+      { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
+      { path: "/admin/videos", label: "Videos", icon: Video },
+      { path: "/admin/events", label: "Eventos", icon: Ticket },
+    ],
+  },
+  {
+    label: "Sistema",
+    collapsible: false,
+    accentColor: "#76214D",
+    items: [
+      { path: "/admin/reports", label: "Reportes", icon: BarChart2 },
+      { path: "/admin/settings", label: "Configuración", icon: Settings },
+    ],
+  },
+];
+
+const MOBILE_QUICK_NAV = [
+  { path: "/admin/dashboard", label: "Inicio", icon: LayoutDashboard },
+  { path: "/admin/classes", label: "Clases", icon: CalendarDays },
+  { path: "/admin/bookings", label: "Reservas", icon: BookOpen },
+  { path: "/admin/clients", label: "Clientes", icon: Users },
+  { path: "/admin/payments", label: "Pagos", icon: DollarSign },
+];
+
+interface AdminLayoutProps {
+  children: React.ReactNode;
+}
+
+const AdminLayout = ({ children }: AdminLayoutProps) => {
+  const isMobile = useIsMobile();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
+    Gestión: true,
+  });
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const logout = useAuthStore((s) => s.logout);
+  const user = useAuthStore((s) => s.user as any);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  const handleLogout = async () => {
+    logout();
+    navigate("/auth/login");
+  };
+
+  const toggleGroup = (label: string) => {
+    setOpenGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  };
+
+  const allItems = NAV_GROUPS.flatMap((g) => g.items);
+  const currentItem = allItems.find(
+    (i) => location.pathname === i.path || location.pathname.startsWith(i.path + "/"),
+  );
+
+  const activeGroup = NAV_GROUPS.find((g) =>
+    g.items.some((i) => location.pathname === i.path || location.pathname.startsWith(i.path + "/")),
+  );
+
+  const isCompact = collapsed && !mobileOpen;
+
+  return (
+    <div className="flex min-h-screen bg-[#080808] text-foreground">
+      {mobileOpen && (
+        <button
+          aria-label="Cerrar menú"
+          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 shrink-0",
+          "border-r border-white/[0.06]",
+          "bg-gradient-to-b from-[#0f0518] via-[#2E201C] to-[#080808]",
+          "w-[88vw] max-w-[300px] -translate-x-full lg:translate-x-0 lg:static",
+          mobileOpen && "translate-x-0",
+          collapsed ? "lg:w-[72px]" : "lg:w-[240px]",
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center border-b border-white/[0.06] shrink-0",
+            isCompact ? "justify-center px-3 py-5" : "justify-between px-5 py-5",
+          )}
+        >
+          {!isCompact && (
+            <img
+              src={opheliaLogo}
+              alt="Ophelia"
+              className="w-[170px] max-w-full object-contain drop-shadow-[0_0_20px_rgba(233,116,95,0.14)]"
+            />
+          )}
+
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="flex lg:hidden items-center justify-center w-8 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10"
+            aria-label="Cerrar menú"
+          >
+            <X size={16} />
+          </button>
+
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className={cn(
+              "hidden lg:flex items-center justify-center w-7 h-7 rounded-lg transition-all",
+              "text-[#E9745F]/60 hover:text-[#E9745F] hover:bg-[#E9745F]/10",
+            )}
+            aria-label="Contraer menú"
+          >
+            {collapsed ? <Menu size={15} /> : <ChevronLeft size={15} />}
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
+          {NAV_GROUPS.map((group) => {
+            const isGroupActive = activeGroup?.label === group.label;
+            const isOpen = group.collapsible ? (openGroups[group.label] ?? isGroupActive) : true;
+
+            return (
+              <div key={group.label} className="mb-1">
+                {!isCompact && (
+                  group.collapsible ? (
+                    <button
+                      onClick={() => toggleGroup(group.label)}
+                      className="w-full flex items-center justify-between px-5 py-1.5 group"
+                    >
+                      <span
+                        className="text-[10px] font-semibold tracking-widest uppercase transition-colors"
+                        style={{ color: isGroupActive ? group.accentColor : `${group.accentColor}50` }}
+                      >
+                        {group.label}
+                      </span>
+                      <ChevronDown
+                        size={11}
+                        className={cn("transition-all duration-200", isOpen ? "rotate-0" : "-rotate-90")}
+                        style={{ color: `${group.accentColor}50` }}
+                      />
+                    </button>
+                  ) : (
+                    <p
+                      className="px-5 py-1.5 text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: `${group.accentColor}50` }}
+                    >
+                      {group.label}
+                    </p>
+                  )
+                )}
+
+                {(isCompact || isOpen) && group.items.map(({ path, label, icon: Icon }) => {
+                  const active = location.pathname === path || location.pathname.startsWith(path + "/");
+                  const accent = group.accentColor;
+                  return (
+                    <Link
+                      key={path}
+                      to={path}
+                      title={isCompact ? label : undefined}
+                      className={cn(
+                        "flex items-center gap-3 mx-2 my-0.5 rounded-xl transition-all duration-200 no-underline group",
+                        isCompact ? "px-0 justify-center py-2.5" : "px-3 py-2.5",
+                        active
+                          ? "border text-white font-semibold"
+                          : "text-white/55 hover:text-white/90 hover:bg-white/[0.04] border border-transparent",
+                      )}
+                      style={active ? {
+                        background: `linear-gradient(to right, ${accent}18, ${accent}08)`,
+                        borderColor: `${accent}30`,
+                        boxShadow: `0 0 12px ${accent}18`,
+                      } : {}}
+                    >
+                      <Icon
+                        size={15}
+                        className="shrink-0 transition-colors"
+                        style={{ color: active ? accent : undefined }}
+                      />
+                      {!isCompact && (
+                        <span className="text-[13px] leading-none truncate">{label}</span>
+                      )}
+                      {active && !isCompact && (
+                        <span
+                          className="ml-auto w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}` }}
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+
+                {isCompact && <div className="mx-3 my-1 h-px bg-white/[0.04]" />}
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className="border-t border-white/[0.06] pb-3 pt-2 shrink-0">
+          <Link
+            to="/"
+            title={isCompact ? "Ver sitio" : undefined}
+            className={cn(
+              "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 no-underline transition-all",
+              "text-white/35 hover:text-[#F58A24] hover:bg-[#F58A24]/5 border border-transparent",
+              isCompact && "justify-center px-0",
+            )}
+          >
+            <Globe size={14} className="shrink-0" />
+            {!isCompact && <span className="text-xs">Ver sitio</span>}
+          </Link>
+          <button
+            onClick={handleLogout}
+            title={isCompact ? "Salir" : undefined}
+            className={cn(
+              "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 w-[calc(100%-16px)] transition-all",
+              "text-white/35 hover:text-[#ff6b6b] hover:bg-[#ff6b6b]/8 border border-transparent",
+              isCompact && "justify-center px-0",
+            )}
+          >
+            <LogOut size={14} className="shrink-0" />
+            {!isCompact && <span className="text-xs">Cerrar sesión</span>}
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col min-w-0 lg:ml-0">
+        <header className="shrink-0 h-14 flex items-center justify-between px-3 sm:px-4 lg:px-6 border-b border-white/[0.06] bg-[#080808]/85 backdrop-blur-sm sticky top-0 z-30">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              className="lg:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10"
+              onClick={() => setMobileOpen(true)}
+              aria-label="Abrir menú"
+            >
+              <Menu size={16} />
+            </button>
+            <span className="text-white/30 text-[11px] sm:text-xs font-medium tracking-wider uppercase">Admin</span>
+            {currentItem && (
+              <>
+                <ChevronRight size={12} className="text-white/20 shrink-0" />
+                <span className="text-white/85 text-xs sm:text-sm font-semibold truncate">{currentItem.label}</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-[#F58A24]/70 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#F58A24] shadow-[0_0_6px_#F58A24] animate-pulse" />
+              En línea
+            </span>
+            <div className="w-px h-4 bg-white/10 hidden sm:block" />
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#76214D] to-[#E9745F] flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_rgba(118,33,77,0.4)]">
+                {user?.displayName?.[0]?.toUpperCase() ?? user?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? "A"}
+              </div>
+              {!isCompact && (
+                <span className="text-xs text-white/55 hidden md:block truncate max-w-[180px]">
+                  {user?.displayName ?? user?.display_name ?? user?.email ?? "Admin"}
+                </span>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <main className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0">{children}</main>
+
+        {isMobile && (
+          <nav className="fixed inset-x-2 bottom-2 z-40 rounded-2xl border border-white/10 bg-[#0b0b0bcc] p-1 pb-safe backdrop-blur-xl lg:hidden">
+            <ul className="grid grid-cols-5 gap-1">
+              {MOBILE_QUICK_NAV.map((item) => {
+                const active = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
+                return (
+                  <li key={item.path}>
+                    <Link
+                      to={item.path}
+                      className={cn(
+                        "flex h-12 min-h-[44px] flex-col items-center justify-center rounded-xl text-[11px] font-semibold transition-colors",
+                        active
+                          ? "bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white shadow-[0_0_14px_rgba(118,33,77,0.28)]"
+                          : "text-white/55 hover:bg-white/5 hover:text-white",
+                      )}
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <item.icon size={14} />
+                      <span className="mt-0.5 leading-none">{item.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </nav>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AdminLayout;
