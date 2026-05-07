@@ -2897,7 +2897,16 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     }
 
     const msg = isWaitlist ? "Añadido a lista de espera" : "Reserva confirmada";
-    triggerWalletPassSync(req.userId, isWaitlist ? "booking_waitlist_created" : "booking_created");
+    if (isWaitlist) {
+      triggerWalletPassSync(req.userId, "booking_waitlist_created");
+    } else {
+      const booking = result.rows[0];
+      const className = booking?.class_type_name;
+      const startStr = booking?.start_time
+        ? new Date(booking.start_time).toLocaleString("es-MX", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+        : null;
+      notifyBookingConfirmed(req.userId, { className, when: startStr }).catch(() => {});
+    }
     return res.status(201).json({ message: msg, booking: result.rows[0] });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
@@ -3740,7 +3749,7 @@ app.post("/api/loyalty/redeem", authMiddleware, async (req, res) => {
     if (reward.stock !== null) {
       await pool.query("UPDATE loyalty_rewards SET stock = stock - 1 WHERE id = $1 AND stock > 0", [rewardId]);
     }
-    triggerWalletPassSync(req.userId, "loyalty_redeem");
+    notifyRewardRedeemed(req.userId, reward.name, reward.points_cost).catch(() => {});
     return res.json({ message: `¡Recompensa canjeada! ${reward.name}` });
   } catch (err) {
     console.error("Loyalty/redeem error:", err);
@@ -5127,6 +5136,176 @@ function triggerWalletPassSync(userId, reason = "wallet_update") {
   walletSyncQueue.set(key, { timer, reasons });
 }
 
+// ─── Domain-level notification helpers ─────────────────────────────────
+// Each event in SISTEMAS_LEALTAD_EVENTOS_WALLETS opens up to 3 channels:
+//   1. Wallet pass update  (via triggerWalletPassSync → Apple APNS + Google object refresh)
+//   2. WhatsApp            (via queueWhatsAppSend, Evolution API)
+//   3. Email               (via emailService imports already present)
+//
+// All helpers are best-effort: never throw upstream, always log on failure.
+
+const phoneE164 = (raw) => {
+  const digits = String(raw ?? "").replace(/\D/g, "");
+  if (!digits) return null;
+  return digits.startsWith("52") ? digits : `52${digits}`;
+};
+
+async function notifyWhatsAppForUser(userId, text) {
+  if (!userId || !text) return { sent: false, reason: "missing_arg" };
+  if (!EVOLUTION_API_URL || !EVOLUTION_INSTANCE) {
+    return { sent: false, reason: "evolution_not_configured" };
+  }
+  try {
+    const res = await pool.query(
+      "SELECT phone, accepts_communications, receive_reminders FROM users WHERE id = $1 LIMIT 1",
+      [userId],
+    );
+    const u = res.rows[0];
+    if (!u) return { sent: false, reason: "user_not_found" };
+    // Respect user opt-out: if accepts_communications=false, skip non-essential.
+    // Reminders we keep even if comms=false (transactional).
+    if (u.accepts_communications === false && u.receive_reminders === false) {
+      return { sent: false, reason: "user_opted_out" };
+    }
+    const number = phoneE164(u.phone);
+    if (!number) return { sent: false, reason: "no_phone" };
+    queueWhatsAppSend(number, text).catch((err) => {
+      console.warn(`[Notify WhatsApp] queue error user=${userId}:`, err?.message);
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error("[Notify WhatsApp] error:", err?.message);
+    return { sent: false, reason: "exception", error: err?.message };
+  }
+}
+
+/**
+ * Class attended (check-in completado).
+ * Effects: refresh wallet pass (rings advance), WhatsApp si configurado.
+ */
+async function notifyClassAttended(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "class_attended");
+  const className = ctx.className ? ` (${ctx.className})` : "";
+  notifyWhatsAppForUser(
+    userId,
+    `Check-in registrado${className}. Tus anillos se actualizan en tu pase Kala. ✨`
+  ).catch(() => {});
+}
+
+/**
+ * Points earned (loyalty change after class or bonus).
+ */
+async function notifyPointsEarned(userId, points, totalPoints) {
+  triggerWalletPassSync(userId, "points_earned");
+  if (Number(points || 0) >= 50) {
+    notifyWhatsAppForUser(
+      userId,
+      `Sumaste ${points} puntos Kala. Total: ${totalPoints} pts. Canjéalos cuando quieras desde la app.`
+    ).catch(() => {});
+  }
+}
+
+/**
+ * 3 anillos cerrados. Recompensa visual + mensaje.
+ */
+async function notifyRingsClosed(userId) {
+  triggerWalletPassSync(userId, "rings_closed");
+  notifyWhatsAppForUser(
+    userId,
+    `Cerraste tus 3 anillos esta semana en Kala. Tu pase ya muestra la recompensa. 💫`
+  ).catch(() => {});
+}
+
+/**
+ * Membresía activada (orden aprobada o admin marcó como pagada).
+ */
+async function notifyMembershipRenewed(userId, planName) {
+  triggerWalletPassSync(userId, "membership_renewed");
+  const plan = planName ? ` "${planName}"` : "";
+  notifyWhatsAppForUser(
+    userId,
+    `Tu paquete${plan} está activo. Tu pase Kala ya está actualizado, listo para reservar.`
+  ).catch(() => {});
+}
+
+/**
+ * Membresía vence pronto (cron 5 días, 1 día).
+ */
+async function notifyMembershipExpiring(userId, daysRemaining) {
+  triggerWalletPassSync(userId, `membership_expiring_${daysRemaining}d`);
+  const dayWord = daysRemaining === 1 ? "día" : "días";
+  notifyWhatsAppForUser(
+    userId,
+    `Tu paquete Kala vence en ${daysRemaining} ${dayWord}. Renueva desde la app para no perder ritmo.`
+  ).catch(() => {});
+}
+
+/**
+ * Membresía vencida (cron diario después de end_date).
+ */
+async function notifyMembershipExpired(userId) {
+  triggerWalletPassSync(userId, "membership_expired");
+  notifyWhatsAppForUser(
+    userId,
+    `Tu paquete Kala terminó. Cuando quieras volver, renueva desde la app y recuperas tu ritmo.`
+  ).catch(() => {});
+}
+
+/**
+ * Reserva confirmada.
+ */
+async function notifyBookingConfirmed(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "booking_confirmed");
+  const when = ctx.when ? ` el ${ctx.when}` : "";
+  const cls = ctx.className ? ` ${ctx.className}` : " tu clase";
+  notifyWhatsAppForUser(
+    userId,
+    `Reserva confirmada:${cls}${when}. Te esperamos. Tu pase Kala ya muestra tu próxima clase.`
+  ).catch(() => {});
+}
+
+/**
+ * Reserva cancelada.
+ */
+async function notifyBookingCancelled(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "booking_cancelled");
+  const cls = ctx.className ? ` de ${ctx.className}` : "";
+  notifyWhatsAppForUser(
+    userId,
+    `Cancelaste tu reserva${cls}. Cuando quieras volver, reservas desde la app.`
+  ).catch(() => {});
+}
+
+/**
+ * Inscripción a evento.
+ */
+async function notifyEventRegistered(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "event_registered");
+  const evt = ctx.eventTitle ? ` a "${ctx.eventTitle}"` : "";
+  notifyWhatsAppForUser(
+    userId,
+    `Tu lugar${evt} quedó. Te llega un pase de evento en tu Kala Wallet con QR para entrada.`
+  ).catch(() => {});
+}
+
+/**
+ * Recompensa canjeada.
+ */
+async function notifyRewardRedeemed(userId, rewardName, pointsSpent) {
+  triggerWalletPassSync(userId, "reward_redeemed");
+  notifyWhatsAppForUser(
+    userId,
+    `Canjeaste "${rewardName}" por ${pointsSpent} pts. Pasa por recepción para reclamarlo.`
+  ).catch(() => {});
+}
+
+/**
+ * Reset semanal (cron lunes 00:00). Solo refresca pase, no manda WhatsApp.
+ */
+async function notifyWeekReset(userId) {
+  triggerWalletPassSync(userId, "week_reset");
+}
+
 console.log("[Apple Wallet] Config check:",
   isAppleWalletConfigured() ? "✅ All certs configured — .pkpass mode" : "⚠️ Missing certs — web pass fallback mode");
 console.log("[Apple Wallet]",
@@ -5169,118 +5348,6 @@ function isAppleWebPassAvailable() {
  * Generate a .pkpass file as a Buffer for a given user.
  * Apple .pkpass = ZIP containing: pass.json, manifest.json, signature, icon.png, logo.png, strip.png
  */
-// ─── APNS push for Apple Wallet pass updates ──────────────────────────
-// When a pass changes (booking confirmed, ring closed, plan renewed), call
-// `pushAppleWalletUpdate(userId)`. Apple Wallet on the device gets the push
-// and refetches the pkpass via the webServiceURL endpoint.
-
-let APNS_AUTH_TOKEN_CACHE = { token: null, issuedAt: 0 };
-
-function buildApnsAuthToken() {
-  // Token valid for ~60 min; cache for 50.
-  const now = Math.floor(Date.now() / 1000);
-  if (APNS_AUTH_TOKEN_CACHE.token && now - APNS_AUTH_TOKEN_CACHE.issuedAt < 50 * 60) {
-    return APNS_AUTH_TOKEN_CACHE.token;
-  }
-  if (!APPLE_APNS_KEY_PEM || !APPLE_KEY_ID || !APPLE_TEAM_ID) return null;
-  const token = jwt.sign(
-    { iss: APPLE_TEAM_ID, iat: now },
-    APPLE_APNS_KEY_PEM,
-    { algorithm: "ES256", header: { alg: "ES256", kid: APPLE_KEY_ID } },
-  );
-  APNS_AUTH_TOKEN_CACHE = { token, issuedAt: now };
-  return token;
-}
-
-async function sendApnsPush(pushToken, passTypeId) {
-  return new Promise((resolve) => {
-    const authToken = buildApnsAuthToken();
-    if (!authToken) {
-      resolve({ ok: false, reason: "apns_not_configured" });
-      return;
-    }
-    const client = http2.connect(APPLE_APNS_HOST);
-    client.on("error", (err) => {
-      resolve({ ok: false, reason: "apns_connect_error", error: err?.message });
-      try { client.close(); } catch (_) {}
-    });
-    const req = client.request({
-      ":method": "POST",
-      ":path": `/3/device/${pushToken}`,
-      "authorization": `bearer ${authToken}`,
-      "apns-topic": passTypeId,
-      "apns-push-type": "background",
-      "content-type": "application/json",
-    });
-    req.setEncoding("utf8");
-    let status = 0;
-    let body = "";
-    req.on("response", (headers) => {
-      status = Number(headers[":status"]);
-    });
-    req.on("data", (chunk) => { body += chunk; });
-    req.on("end", () => {
-      try { client.close(); } catch (_) {}
-      resolve({
-        ok: status >= 200 && status < 300,
-        status,
-        body: body.slice(0, 240),
-      });
-    });
-    req.on("error", (err) => {
-      try { client.close(); } catch (_) {}
-      resolve({ ok: false, reason: "apns_request_error", error: err?.message });
-    });
-    req.end(JSON.stringify({}));
-  });
-}
-
-/**
- * Notify Apple Wallet that the pass for `userId` has changed.
- * Looks up all registered devices for this user's pass serial and pushes APNS to each.
- * Best-effort: never throws; logs failures.
- */
-async function pushAppleWalletUpdate(userId, { reason = "update" } = {}) {
-  if (!isAppleApnsConfigured()) {
-    console.log("[Wallet APNS] Skipped: APNS not configured");
-    return { sent: 0, skipped: true };
-  }
-  const serial = buildAppleWalletSerialFromUserId(userId);
-  if (!serial) return { sent: 0 };
-  try {
-    const result = await pool.query(
-      `SELECT push_token, pass_type_id
-         FROM apple_wallet_devices
-         WHERE serial_number = $1 AND push_token <> ''`,
-      [serial],
-    );
-    const devices = result.rows ?? [];
-    if (devices.length === 0) {
-      console.log(`[Wallet APNS] No registered devices for serial ${serial} (reason=${reason})`);
-      return { sent: 0 };
-    }
-    const outcomes = await Promise.all(
-      devices.map((d) =>
-        sendApnsPush(d.push_token, d.pass_type_id || APPLE_PASS_TYPE_ID).catch((err) => ({
-          ok: false,
-          reason: "exception",
-          error: err?.message,
-        })),
-      ),
-    );
-    const sent = outcomes.filter((o) => o.ok).length;
-    const failed = outcomes.length - sent;
-    console.log(`[Wallet APNS] Push sent to ${sent}/${outcomes.length} devices for serial ${serial} (reason=${reason})`);
-    if (failed > 0) {
-      console.warn("[Wallet APNS] Failures:", outcomes.filter((o) => !o.ok).slice(0, 3));
-    }
-    return { sent, total: outcomes.length };
-  } catch (err) {
-    console.error("[Wallet APNS] pushAppleWalletUpdate error:", err?.message);
-    return { sent: 0, error: err?.message };
-  }
-}
-
 // ─── Dynamic strip renderer (Kala rings → SVG → PNG via sharp) ─────────
 // Builds a 375×123 strip image personalized for each user's ring progress.
 // Three concentric arcs (constancia / esfuerzo / conexion) fill to their
@@ -5342,6 +5409,13 @@ function buildKalaStripSvg(ringState, scale = 1, opts = {}) {
   const pConexion = ring("conexion");
   const ringsClosed = [pConstancia, pEsfuerzo, pConexion].filter((p) => p >= 100).length;
 
+  // Mode detection drives visual treatment:
+  //   welcome  → no ring fills, just track outlines, copy "Reserva tu primera clase"
+  //   complete → all 3 rings filled + halo glow on conexion (recompensa)
+  //   expired  → desaturated tracks + dim arcs, "Renueva para seguir"
+  //   default  → normal arcs at progress %
+  const mode = opts.mode || "default";
+
   // Geometry
   const iconUrl = opts.iconHref || ""; // optional embedded icon (data URI)
   const iconSize = c(70);
@@ -5359,23 +5433,35 @@ function buildKalaStripSvg(ringState, scale = 1, opts = {}) {
   const ringColors = [KALA_PASS_PALETTE.berry, KALA_PASS_PALETTE.olive, KALA_PASS_PALETTE.orange];
   const ringPercents = [pConstancia, pEsfuerzo, pConexion];
 
-  // Tag text (bottom-right): "X/3 cerrados"
-  const closedLabel = `${ringsClosed}/3 cerrados`;
+  // Tag text (bottom-right): contextual per mode
+  let closedLabel;
+  if (mode === "welcome") closedLabel = "Reserva tu primera clase";
+  else if (mode === "expired") closedLabel = "Renueva para seguir";
+  else if (mode === "complete") closedLabel = "3/3 · Recompensa lista";
+  else closedLabel = `${ringsClosed}/3 cerrados`;
   const labelX = c(346);
   const labelY = H - c(14);
 
+  // Per-mode visual params
+  const trackOpacity = mode === "expired" ? 0.08 : 0.18;
+  const arcOpacity = mode === "expired" ? 0.30 : 1;
+  const grayOnExpired = mode === "expired";
+
   const arcs = ringRadii
     .map((r, i) => {
-      const color = ringColors[i];
-      const pct = ringPercents[i];
-      const trackOpacity = 0.18;
+      const baseColor = ringColors[i];
+      const color = grayOnExpired ? "#7B5B52" : baseColor;
+      let pct = ringPercents[i];
+      // Welcome mode: tracks only, no arcs
+      if (mode === "welcome") pct = 0;
       const track = `
         <circle cx="${ringCx}" cy="${ringCy}" r="${r}"
                 fill="none" stroke="${color}" stroke-opacity="${trackOpacity}"
                 stroke-width="${ringStroke}" />`;
       const arc = pct > 0
         ? `<path d="${arcPath(ringCx, ringCy, r, pct)}"
-                  fill="none" stroke="${color}" stroke-width="${ringStroke}"
+                  fill="none" stroke="${color}" stroke-opacity="${arcOpacity}"
+                  stroke-width="${ringStroke}"
                   stroke-linecap="round"
                   transform="rotate(-90 ${ringCx} ${ringCy})"
                   style="filter: drop-shadow(0 ${c(0.6)}px ${c(1)}px rgba(0,0,0,0.04));" />`
@@ -5383,6 +5469,17 @@ function buildKalaStripSvg(ringState, scale = 1, opts = {}) {
       return track + arc;
     })
     .join("");
+
+  // Halo glow exterior cuando los 3 anillos están cerrados (complete mode)
+  const haloRadius = ringRadii[ringRadii.length - 1] + c(8);
+  const halo = mode === "complete"
+    ? `<circle cx="${ringCx}" cy="${ringCy}" r="${haloRadius}"
+                fill="none" stroke="${KALA_PASS_PALETTE.orange}"
+                stroke-opacity="0.32" stroke-width="${c(2.5)}" />
+       <circle cx="${ringCx}" cy="${ringCy}" r="${haloRadius + c(5)}"
+                fill="none" stroke="${KALA_PASS_PALETTE.orange}"
+                stroke-opacity="0.12" stroke-width="${c(2)}" />`
+    : "";
 
   // Soft blush wash in upper-right corner
   const washGrad = `
@@ -5405,6 +5502,7 @@ function buildKalaStripSvg(ringState, scale = 1, opts = {}) {
   <line x1="${dividerX}" y1="${dividerY1}" x2="${dividerX}" y2="${dividerY2}"
         stroke="${KALA_PASS_PALETTE.ink}" stroke-opacity="0.10" stroke-width="1" />
   ${iconBlock}
+  ${halo}
   ${arcs}
   <text x="${labelX}" y="${labelY}" text-anchor="end"
         font-family="-apple-system, system-ui, 'Helvetica Neue', sans-serif"
@@ -5432,9 +5530,19 @@ function getKalaIconDataUri() {
   return null;
 }
 
-async function buildKalaStripPng(ringState, scale = 1) {
+function detectStripMode({ membership, ringState }) {
+  const hasMembership = !!membership;
+  if (!hasMembership) return "welcome";
+  const endDate = membership?.end_date ? new Date(membership.end_date) : null;
+  if (endDate && !Number.isNaN(endDate.getTime()) && endDate < new Date()) return "expired";
+  const closed = Number(ringState?.rings_closed ?? 0);
+  if (closed >= 3) return "complete";
+  return "default";
+}
+
+async function buildKalaStripPng(ringState, scale = 1, opts = {}) {
   const iconHref = getKalaIconDataUri();
-  const svg = buildKalaStripSvg(ringState, scale, { iconHref });
+  const svg = buildKalaStripSvg(ringState, scale, { iconHref, mode: opts.mode || "default" });
   return await sharp(Buffer.from(svg, "utf8")).png({ compressionLevel: 9 }).toBuffer();
 }
 
@@ -5939,14 +6047,14 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     // Apple alerta cuando entras al radio.
     locations: [
       {
-        latitude: 22.1565,
-        longitude: -100.9855,
+        latitude: Number(process.env.BUSINESS_LATITUDE || 22.1565),
+        longitude: Number(process.env.BUSINESS_LONGITUDE || -100.9855),
         relevantText: hasEventPass
           ? "Estás cerca del estudio. Tu pase del evento."
           : "Estás cerca de Kala. Saca tu pase para check-in.",
       },
     ],
-    maxDistance: 150,
+    maxDistance: Number(process.env.BUSINESS_PASS_RADIUS_M || 150),
   };
   if (eventExpirationDate) {
     passJson.expirationDate = eventExpirationDate;
@@ -6077,16 +6185,17 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   let strip3xBuffer = null;
   if (!hasEventPass) {
     try {
+      const stripMode = detectStripMode({ membership, ringState });
       const [s1, s2, s3] = await Promise.all([
-        buildKalaStripPng(ringState, 1),
-        buildKalaStripPng(ringState, 2),
-        buildKalaStripPng(ringState, 3),
+        buildKalaStripPng(ringState, 1, { mode: stripMode }),
+        buildKalaStripPng(ringState, 2, { mode: stripMode }),
+        buildKalaStripPng(ringState, 3, { mode: stripMode }),
       ]);
       stripBuffer = s1;
       strip2xBuffer = s2;
       strip3xBuffer = s3;
-      console.log("[Apple Wallet] ✅ Dynamic strip rendered for rings",
-        `${ringState?.constancia?.progress ?? 0}/${ringState?.constancia?.goal ?? 1}`,
+      console.log(`[Apple Wallet] ✅ Dynamic strip rendered (mode=${stripMode})`,
+        `rings: ${ringState?.constancia?.progress ?? 0}/${ringState?.constancia?.goal ?? 1}`,
         `${ringState?.esfuerzo?.progress ?? 0}/${ringState?.esfuerzo?.goal ?? 1}`,
         `${ringState?.conexion?.progress ?? 0}/${ringState?.conexion?.goal ?? 1}`,
       );
@@ -9599,7 +9708,9 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
         }
       } catch (e) { /* loyalty earn error shouldn't fail check-in */ }
     }
-    triggerWalletPassSync(booking.user_id, "booking_checked_in");
+    if (booking.user_id) {
+      notifyClassAttended(booking.user_id, { className: booking.class_type_name }).catch(() => {});
+    }
     return res.json({ data: r.rows[0] });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
@@ -9917,7 +10028,11 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
     }
 
     if (order.user_id) {
-      triggerWalletPassSync(order.user_id, justApproved ? "order_verified" : "order_verify_retrigger");
+      if (justApproved) {
+        notifyMembershipRenewed(order.user_id, plan?.name).catch(() => {});
+      } else {
+        triggerWalletPassSync(order.user_id, "order_verify_retrigger");
+      }
     }
     return res.json({ data: order });
   } catch (err) {
@@ -11312,6 +11427,10 @@ app.post("/api/events/:id/register", authMiddleware, async (req, res) => {
       await cancelEventPassByRegistration({ registrationId: reg.id }).catch(() => { });
     }
 
+    if (regStatus === "confirmed" && reg.user_id) {
+      notifyEventRegistered(reg.user_id, { eventTitle: ev.title }).catch(() => {});
+    }
+
     let message;
     if (regStatus === "waitlist") message = `Te agregamos a la lista de espera (posición ${waitlistPosition})`;
     else if (amount === 0) message = "¡Registro confirmado! Te esperamos en el evento.";
@@ -11712,7 +11831,7 @@ async function runWeeklyReminderCron() {
 async function runRenewalReminderCron() {
   try {
     const res = await pool.query(`
-      SELECT u.email, COALESCE(u.display_name, 'Alumna') AS name,
+      SELECT u.id AS user_id, u.email, COALESCE(u.display_name, 'Alumna') AS name,
              m.classes_remaining, m.end_date,
              COALESCE(p.name, m.plan_name_override, 'Tu membresía') AS plan_name
       FROM memberships m
@@ -11736,10 +11855,58 @@ async function runRenewalReminderCron() {
         endDate: row.end_date,
         reason,
       }).catch((e) => console.error("[Email] renewal cron:", e.message));
+      // Also push wallet update + WhatsApp for the same membership
+      if (row.user_id && row.end_date) {
+        const days = Math.max(0, Math.ceil((new Date(row.end_date) - new Date()) / 86400000));
+        notifyMembershipExpiring(row.user_id, days).catch(() => {});
+      }
       await new Promise((r) => setTimeout(r, 200));
     }
   } catch (err) {
     console.error("[Cron] Renewal reminder error:", err.message);
+  }
+}
+
+async function runMembershipExpiredCron() {
+  try {
+    // Memberships that just transitioned past their end_date today.
+    const res = await pool.query(`
+      SELECT m.user_id, m.end_date
+      FROM memberships m
+      WHERE m.status = 'active'
+        AND m.end_date IS NOT NULL
+        AND m.end_date < CURRENT_DATE
+        AND m.end_date >= CURRENT_DATE - INTERVAL '1 day'
+    `);
+    console.log(`[Cron] Membership expired — ${res.rows.length} members`);
+    for (const row of res.rows) {
+      if (row.user_id) {
+        notifyMembershipExpired(row.user_id).catch(() => {});
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  } catch (err) {
+    console.error("[Cron] Membership expired error:", err.message);
+  }
+}
+
+async function runWeekResetCron() {
+  // Refresca el pase (estado de anillos) para usuarias con membresía activa al inicio de la semana.
+  // Se corre el lunes 00:00 Mexico → todos los pases muestran rings reseteados.
+  try {
+    const res = await pool.query(`
+      SELECT DISTINCT m.user_id
+      FROM memberships m
+      WHERE m.status = 'active'
+        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+    `);
+    console.log(`[Cron] Week reset — ${res.rows.length} members`);
+    for (const row of res.rows) {
+      if (row.user_id) notifyWeekReset(row.user_id).catch(() => {});
+      await new Promise((r) => setTimeout(r, 60));
+    }
+  } catch (err) {
+    console.error("[Cron] Week reset error:", err.message);
   }
 }
 
@@ -11749,7 +11916,7 @@ function scheduleEmailCrons() {
     const now = new Date();
     // Mexico City = UTC-6 (adjust for daylight saving if needed)
     const mexicoHour = (now.getUTCHours() - 6 + 24) % 24;
-    const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+    const dayOfWeek = now.getUTCDay(); // 0 = Sunday, 1 = Monday
 
     // Weekly reminder: every Sunday at 8:00 AM Mexico time
     if (dayOfWeek === 0 && mexicoHour === 8 && now.getUTCMinutes() < 60) {
@@ -11757,10 +11924,26 @@ function scheduleEmailCrons() {
       runWeeklyReminderCron();
     }
 
-    // Renewal reminder: every day at 9:00 AM Mexico time
+    // Renewal reminder + wallet sync: every day at 9:00 AM Mexico time
     if (mexicoHour === 9 && now.getUTCMinutes() < 60) {
       console.log("[Cron] Triggering renewal reminder...");
       runRenewalReminderCron();
+    }
+
+    // Membership expired check: every day at 9:05 AM Mexico time
+    if (mexicoHour === 9 && now.getUTCMinutes() >= 5 && now.getUTCMinutes() < 60) {
+      // Run once per hour-block; the > 5 min guard avoids same-hour double-fire with renewal cron
+      // (the >= 5 ensures it doesn't collide with renewal at minute 0-4).
+    }
+    if (mexicoHour === 10 && now.getUTCMinutes() < 60) {
+      console.log("[Cron] Triggering membership-expired sweep...");
+      runMembershipExpiredCron();
+    }
+
+    // Week reset: every Monday at 00:00 Mexico time → refresh pase de todas las alumnas activas.
+    if (dayOfWeek === 1 && mexicoHour === 0 && now.getUTCMinutes() < 60) {
+      console.log("[Cron] Triggering week reset (rings semanales)...");
+      runWeekResetCron();
     }
   }, 60 * 60 * 1000); // every 1 hour
 }
