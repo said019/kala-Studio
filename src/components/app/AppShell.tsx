@@ -540,10 +540,10 @@ export const PrimaryButton = ({ children, loading, loadingLabel, size = "md", to
     </>
   );
   if (to) {
-    return <Link to={to} className={className} style={style} onClick={onClick}>{inner}</Link>;
+    return <Link to={to} data-press className={className} style={style} onClick={onClick}>{inner}</Link>;
   }
   return (
-    <button type={type} className={className} style={style} onClick={onClick} disabled={disabled || loading}>
+    <button type={type} data-press className={className} style={style} onClick={onClick} disabled={disabled || loading}>
       {inner}
     </button>
   );
@@ -555,9 +555,9 @@ export const GhostButton = ({ children, to, onClick, disabled, type = "button", 
     `inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-[0.74rem] font-medium uppercase tracking-[0.18em] no-underline transition-colors ${extra ?? ""}`;
   const style = { border: `1px solid ${KALA.border}`, color: KALA.ink } as const;
   if (to) {
-    return <Link to={to} className={className} style={style} onClick={onClick}>{children}</Link>;
+    return <Link to={to} data-press className={className} style={style} onClick={onClick}>{children}</Link>;
   }
-  return <button type={type} className={className} style={style} onClick={onClick} disabled={disabled}>{children}</button>;
+  return <button type={type} data-press className={className} style={style} onClick={onClick} disabled={disabled}>{children}</button>;
 };
 
 /* ── ActionRow ── full-width wide CTA, used in Dashboard "next class" */

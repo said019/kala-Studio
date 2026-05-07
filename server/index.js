@@ -5379,7 +5379,49 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
       });
     }
   } else {
-    secondaryFields.push({ key: "estado", label: "ESTADO", value: "Sin membresía activa" });
+    // Sin membresía activa: pase de bienvenida con CTA + anillos como meta aspiracional.
+    secondaryFields.push({
+      key: "estado",
+      label: "ESTADO",
+      value: "Sin paquete · Bienvenida",
+    });
+    secondaryFields.push({
+      key: "muestra",
+      label: "PRIMERA CLASE",
+      value: "$50 · Clase muestra",
+    });
+    auxiliaryFields.push({
+      key: "ring_constancia_aux",
+      label: "CONSTANCIA",
+      value: `${ringState.constancia.progress}/${ringState.constancia.goal}`,
+    });
+    auxiliaryFields.push({
+      key: "ring_esfuerzo_aux",
+      label: "ESFUERZO",
+      value: `${ringState.esfuerzo.progress}/${ringState.esfuerzo.goal}`,
+    });
+    auxiliaryFields.push({
+      key: "ring_conexion_aux",
+      label: "CONEXIÓN",
+      value: `${ringState.conexion.progress}/${ringState.conexion.goal}`,
+    });
+    backFields.push(
+      {
+        key: "intro_back",
+        label: "Bienvenida a Kala",
+        value: "Te recibimos como te recibe una amiga. Cinco lugares por clase, atención personalizada, una persona que te enseña.",
+      },
+      {
+        key: "muestra_back",
+        label: "Tu primera clase",
+        value: "Reserva tu clase muestra por $50 desde la app o por WhatsApp. Karla te explica la barra y te ajusta cada postura.",
+      },
+      {
+        key: "rings_intro_back",
+        label: "Tres anillos",
+        value: "Constancia (asistencia), Esfuerzo (clases intensas), Conexión (puntos comunidad). Tu pase los va llenando solo conforme vienes.",
+      },
+    );
   }
 
   if (nextBooking) {
@@ -5490,6 +5532,9 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   backFields.push(
     { key: "cliente", label: "CLIENTE", value: userName },
     { key: "puntos", label: "PUNTOS KALA CLUB", value: `${points.toLocaleString("es-MX")} pts` },
+    { key: "studio", label: "ESTUDIO", value: "Av. Nicolás Zapata 845 int. 4, Plaza San Martín, San Luis Potosí" },
+    { key: "horario_studio", label: "HORARIOS", value: "Lun a Vie 7am a 3pm y 5pm a 9pm · Sáb 7am a 9am" },
+    { key: "telefono", label: "WHATSAPP", value: "444 307 3266" },
     { key: "web", label: "RESERVAR EN LÍNEA", value: `${SITE_URL}/app/bookings` },
     {
       key: "terms",

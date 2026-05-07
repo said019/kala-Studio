@@ -299,10 +299,11 @@ const Wallet = () => {
 
                   {/* Right column: anillo bars + cuadricula */}
                   <div className="flex flex-col gap-5 min-w-0">
-                    <ul className="grid grid-cols-1 gap-2.5 list-none m-0 p-0">
+                    <ul className="grid grid-cols-1 gap-2.5 list-none m-0 p-0" data-stagger>
                       {ringsState.rings.map((ring) => (
                         <li
                           key={ring.key}
+                          data-stagger-item
                           className="rounded-2xl px-4 py-3"
                           style={{
                             backgroundColor: `${KALA.cream}10`,
@@ -319,8 +320,12 @@ const Wallet = () => {
                           </div>
                           <div className="mt-2 h-1 rounded-full overflow-hidden" style={{ backgroundColor: `${KALA.cream}1a` }}>
                             <div
-                              className="h-full rounded-full transition-[width] duration-1000 ease-[cubic-bezier(0.32,0.72,0,1)]"
-                              style={{ width: `${ring.progress}%`, backgroundColor: ring.color }}
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${ring.progress}%`,
+                                backgroundColor: ring.color,
+                                transition: "width 1100ms var(--ease-kala-out)",
+                              }}
                             />
                           </div>
                         </li>
