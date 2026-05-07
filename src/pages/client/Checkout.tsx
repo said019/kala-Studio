@@ -15,7 +15,6 @@ import {
 import {
   Stepper,
   StickyCta,
-  SegmentedTabs,
   DataRow,
   InfoBanner,
   formatMoneyMX,
@@ -35,7 +34,6 @@ import {
 
 type Step = "select" | "method" | "bank" | "cash" | "upload" | "done";
 type PaymentMethod = "transfer" | "cash";
-type CategoryTab = "jumping" | "pilates" | "mixto";
 
 const flag = (value: unknown): boolean => {
   if (typeof value === "boolean") return value;
@@ -154,7 +152,6 @@ const Checkout = () => {
 
   const [step, setStep] = useState<Step>("select");
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<CategoryTab>("jumping");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
   const [discountCode, setDiscountCode] = useState("");
   const [discountResult, setDiscountResult] = useState<any>(null);
@@ -170,33 +167,23 @@ const Checkout = () => {
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const activePlans = rawPlans.filter((p) => (p.isActive ?? p.is_active) !== false);
 
-  // Merge ilimitados into one
-  const ilimitados = activePlans.filter((p) => String(p.name ?? "").toLowerCase().includes("ilimitado"));
-  const nonIlimitados = activePlans.filter((p) => !String(p.name ?? "").toLowerCase().includes("ilimitado"));
-  const mergedIlimitado = ilimitados.length > 0
-    ? [{
-        ...ilimitados[0],
-        id: ilimitados[0].id,
-        name: "Ilimitado",
-        classCategory: "mixto",
-        class_category: "mixto",
-        price: 1000,
-        classLimit: 9999,
-        class_limit: 9999,
-        durationDays: 30,
-        duration_days: 30,
-      }]
-    : [];
+  // Para Kala (barre boutique de una disciplina): no se usan tabs jumping/pilates/mixto.
+  // Sólo se separan las clases sueltas (1 clase) de los paquetes mensuales (>1 clase).
+  // El plan "Clase muestra" del trial ($50) NO aparece aquí, va en el landing como hook.
+  const allMonthlyPackages = useMemo(() => {
+    return activePlans
+      .filter((p) => Number(p.classLimit ?? p.class_limit ?? 0) > 1)
+      .filter((p) => !String(p.name ?? "").toLowerCase().includes("muestra"))
+      .sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plansData]);
 
-  const plans = [...nonIlimitados, ...mergedIlimitado];
-
-  const grouped = useMemo(() => {
-    return plans.reduce((acc: Record<string, any[]>, p) => {
-      const cat = String(p.classCategory ?? p.class_category ?? "all").toLowerCase();
-      if (!acc[cat]) acc[cat] = [];
-      acc[cat].push(p);
-      return acc;
-    }, {} as Record<string, any[]>);
+  const singleClassPlan = useMemo(() => {
+    return activePlans.find((p) => {
+      const limit = Number(p.classLimit ?? p.class_limit ?? 0);
+      const name = String(p.name ?? "").toLowerCase();
+      return limit === 1 && !name.includes("muestra");
+    }) ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plansData]);
 
@@ -280,11 +267,11 @@ const Checkout = () => {
             <Section title="Clase suelta">
               {loadingPlans ? (
                 <SkeletonRow height={88} />
-              ) : grouped["all"]?.length > 0 ? (
+              ) : singleClassPlan ? (
                 <PlanRow
-                  plan={grouped["all"][0]}
-                  selected={selectedPlan?.id === grouped["all"][0].id}
-                  onSelect={() => setSelectedPlan(grouped["all"][0])}
+                  plan={singleClassPlan}
+                  selected={selectedPlan?.id === singleClassPlan.id}
+                  onSelect={() => setSelectedPlan(singleClassPlan)}
                 />
               ) : (
                 <p className="text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
@@ -294,25 +281,17 @@ const Checkout = () => {
             </Section>
 
             <Section title="Paquetes mensuales">
-              <div className="mb-4">
-                <SegmentedTabs<CategoryTab>
-                  value={activeTab}
-                  onChange={setActiveTab}
-                  options={[
-                    { value: "jumping", label: "Jumping" },
-                    { value: "pilates", label: "Pilates" },
-                    { value: "mixto", label: "Mixto" },
-                  ]}
-                />
-              </div>
-
               {loadingPlans ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => <SkeletonRow key={i} height={88} />)}
                 </div>
+              ) : allMonthlyPackages.length === 0 ? (
+                <p className="text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                  Aún no hay paquetes activos. Si esto persiste, escríbenos por WhatsApp.
+                </p>
               ) : (
                 <div className="space-y-3">
-                  {(grouped[activeTab] ?? []).map((plan: any) => (
+                  {allMonthlyPackages.map((plan: any) => (
                     <PlanRow
                       key={plan.id}
                       plan={plan}
@@ -320,11 +299,6 @@ const Checkout = () => {
                       onSelect={() => setSelectedPlan(plan)}
                     />
                   ))}
-                  {(grouped[activeTab] ?? []).length === 0 && (
-                    <p className="text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
-                      Sin paquetes disponibles en esta categoría.
-                    </p>
-                  )}
                 </div>
               )}
             </Section>
