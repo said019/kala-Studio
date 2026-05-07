@@ -5172,6 +5172,9 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const baseSerialNumber = buildAppleWalletSerialFromUserId(userId);
   const hasMembership = !!membership;
   const hasEventPass = !!activeEventPass;
+  // Ring state computed here so todos los field builders abajo pueden referenciarlo
+  // (con o sin membresía). Antes esto vivía solo en el route handler y daba ReferenceError.
+  const ringState = getKalaWeeklyRingState(membership, Number(points || 0));
   const eventSerialHash = hasEventPass
     ? crypto.createHash("sha1").update(String(activeEventPass?.eventId || activeEventPass?.passCode || "")).digest("hex").slice(0, 12)
     : "";
