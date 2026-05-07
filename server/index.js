@@ -11163,12 +11163,51 @@ app.get("/api/health", async (_req, res) => {
 });
 
 // ─── Serve React SPA (static) ────────────────────────────────────────────────
-const distDir = path.join(__dirname, "../dist");
-app.use(express.static(distDir));
+const distDir = path.resolve(__dirname, "..", "dist");
+const distExists = fs.existsSync(distDir);
+const indexHtmlExists = fs.existsSync(path.join(distDir, "index.html"));
+console.log("[Static] distDir:", distDir, "exists:", distExists, "index.html:", indexHtmlExists);
+if (distExists) {
+  try {
+    const assetsDir = path.join(distDir, "assets");
+    if (fs.existsSync(assetsDir)) {
+      const files = fs.readdirSync(assetsDir).slice(0, 6);
+      console.log("[Static] dist/assets sample:", files.join(", "));
+    } else {
+      console.warn("[Static] WARNING: dist/assets/ does not exist");
+    }
+  } catch (err) {
+    console.warn("[Static] Could not list dist/assets:", err.message);
+  }
+}
+
+app.use(express.static(distDir, {
+  index: false,
+  maxAge: "1h",
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".css")) res.setHeader("Content-Type", "text/css; charset=utf-8");
+    else if (filePath.endsWith(".js") || filePath.endsWith(".mjs")) res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+    else if (filePath.endsWith(".webmanifest")) res.setHeader("Content-Type", "application/manifest+json");
+    else if (filePath.endsWith(".svg")) res.setHeader("Content-Type", "image/svg+xml");
+  },
+}));
+
 app.get("*", (req, res) => {
-  // If the request looks like a static asset that doesn't exist, return 404
-  if (/\.(js|css|map|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot)$/i.test(req.path)) {
-    return res.status(404).end();
+  // Any unresolved API call: JSON 404, never HTML.
+  if (req.path.startsWith("/api/")) {
+    return res.status(404).json({ message: "API route not found", path: req.path });
+  }
+  // Any path under /assets/ that wasn't served by static = real 404, never SPA fallback.
+  if (req.path.startsWith("/assets/")) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  // Any other file-like request (.css, .js, .png, .map, etc.) = real 404.
+  if (/\.[a-z0-9]+$/i.test(req.path)) {
+    return res.status(404).type("text/plain").send("Not found");
+  }
+  // SPA fallback: send index.html (only for actual page navigations).
+  if (!indexHtmlExists) {
+    return res.status(503).type("text/plain").send("Frontend build missing. Check Railway build logs.");
   }
   res.sendFile(path.join(distDir, "index.html"));
 });
