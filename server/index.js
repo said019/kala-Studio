@@ -8090,6 +8090,34 @@ app.delete("/api/schedules/:id", adminMiddleware, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
+// POST /api/schedules/reset-kala — wipes schedule_slots and seeds the 23 canonical Kala slots
+// Lun-Vie 7:00am, 8:00am, 7:00pm, 8:00pm  +  Sáb 7:00am, 8:00am, 9:00am
+app.post("/api/schedules/reset-kala", adminMiddleware, async (_req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM schedule_slots");
+    await client.query(`
+      INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, is_active) VALUES
+        ('7:00 am', 1, 'Barre', true), ('8:00 am', 1, 'Barre', true), ('7:00 pm', 1, 'Barre', true), ('8:00 pm', 1, 'Barre', true),
+        ('7:00 am', 2, 'Barre', true), ('8:00 am', 2, 'Barre', true), ('7:00 pm', 2, 'Barre', true), ('8:00 pm', 2, 'Barre', true),
+        ('7:00 am', 3, 'Barre', true), ('8:00 am', 3, 'Barre', true), ('7:00 pm', 3, 'Barre', true), ('8:00 pm', 3, 'Barre', true),
+        ('7:00 am', 4, 'Barre', true), ('8:00 am', 4, 'Barre', true), ('7:00 pm', 4, 'Barre', true), ('8:00 pm', 4, 'Barre', true),
+        ('7:00 am', 5, 'Barre', true), ('8:00 am', 5, 'Barre', true), ('7:00 pm', 5, 'Barre', true), ('8:00 pm', 5, 'Barre', true),
+        ('7:00 am', 6, 'Barre', true), ('8:00 am', 6, 'Barre', true), ('9:00 am', 6, 'Barre', true)
+    `);
+    await client.query("COMMIT");
+    const r = await pool.query("SELECT * FROM schedule_slots ORDER BY day_of_week, time_slot");
+    return res.json({ data: r.rows, message: "Horario Kala restablecido (23 slots)" });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("reset-kala error:", err);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/pos/checkout — alias for /pos/sale
 app.post("/api/pos/checkout", adminMiddleware, async (req, res) => {
   try {

@@ -18,7 +18,7 @@ import { TimePicker } from "@/components/ui/time-picker";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus, Sparkles } from "lucide-react";
 
 const scheduleSchema = z.object({
   dayOfWeek: z.coerce.number().min(0).max(6),
@@ -76,6 +76,15 @@ const WeeklySchedule = () => {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); toast({ title: "Horario eliminado" }); },
   });
 
+  const resetKalaMutation = useMutation({
+    mutationFn: () => api.post("/schedules/reset-kala"),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      toast({ title: "Horario Kala restablecido", description: res.data?.message || "23 slots cargados" });
+    },
+    onError: () => toast({ title: "Error", description: "No se pudo restablecer", variant: "destructive" }),
+  });
+
   const openEdit = (s: Schedule) => { form.reset(s); setEditing(s); setOpen(true); };
   const openCreate = (dayOfWeek = mobileDay) => {
     form.reset({ dayOfWeek, maxCapacity: 20, isActive: true });
@@ -121,12 +130,25 @@ const WeeklySchedule = () => {
               <h1 className="admin-title font-bold text-white">Horarios semanales</h1>
               <p className="text-sm text-white/35">Plantilla semanal para crear clases más rápido.</p>
             </div>
-            <button
-              onClick={() => openCreate(isMobile ? mobileDay : new Date().getDay())}
-              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#76214D] to-[#E9745F] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-            >
-              <Plus size={14} /> Nuevo horario
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  if (window.confirm("Esto borrará TODOS los horarios actuales y dejará el horario Kala oficial:\n\nLun–Vie: 7am, 8am, 7pm, 8pm\nSábado: 7am, 8am, 9am\n\n¿Continuar?")) {
+                    resetKalaMutation.mutate();
+                  }
+                }}
+                disabled={resetKalaMutation.isPending}
+                className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.08] disabled:opacity-60"
+              >
+                <Sparkles size={14} /> {resetKalaMutation.isPending ? "Aplicando…" : "Horario Kala oficial"}
+              </button>
+              <button
+                onClick={() => openCreate(isMobile ? mobileDay : new Date().getDay())}
+                className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#76214D] to-[#E9745F] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                <Plus size={14} /> Nuevo horario
+              </button>
+            </div>
           </div>
 
           {isMobile ? (
