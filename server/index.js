@@ -5143,6 +5143,8 @@ function triggerWalletPassSync(userId, reason = "wallet_update") {
 //   3. Email               (via emailService imports already present)
 //
 // All helpers are best-effort: never throw upstream, always log on failure.
+// Voz Kala: cercana, casual, te recibe una amiga. Sin em dashes, sin marketing,
+// sin emojis decorativos masivos (uno o dos cuando aplica). Con primer nombre.
 
 const phoneE164 = (raw) => {
   const digits = String(raw ?? "").replace(/\D/g, "");
@@ -5150,25 +5152,36 @@ const phoneE164 = (raw) => {
   return digits.startsWith("52") ? digits : `52${digits}`;
 };
 
-async function notifyWhatsAppForUser(userId, text) {
-  if (!userId || !text) return { sent: false, reason: "missing_arg" };
+const firstNameOf = (displayName, fallback = "") => {
+  const raw = String(displayName ?? "").trim();
+  if (!raw) return fallback;
+  return raw.split(/\s+/)[0];
+};
+
+/**
+ * Send WhatsApp to a user. `textOrFn` is either a string or a function
+ * (user) => string that builds a personalized message from the user record.
+ */
+async function notifyWhatsAppForUser(userId, textOrFn) {
+  if (!userId || !textOrFn) return { sent: false, reason: "missing_arg" };
   if (!EVOLUTION_API_URL || !EVOLUTION_INSTANCE) {
     return { sent: false, reason: "evolution_not_configured" };
   }
   try {
     const res = await pool.query(
-      "SELECT phone, accepts_communications, receive_reminders FROM users WHERE id = $1 LIMIT 1",
+      "SELECT phone, display_name, accepts_communications, receive_reminders FROM users WHERE id = $1 LIMIT 1",
       [userId],
     );
     const u = res.rows[0];
     if (!u) return { sent: false, reason: "user_not_found" };
-    // Respect user opt-out: if accepts_communications=false, skip non-essential.
-    // Reminders we keep even if comms=false (transactional).
     if (u.accepts_communications === false && u.receive_reminders === false) {
       return { sent: false, reason: "user_opted_out" };
     }
     const number = phoneE164(u.phone);
     if (!number) return { sent: false, reason: "no_phone" };
+    const ctx = { firstName: firstNameOf(u.display_name, "alumna") };
+    const text = typeof textOrFn === "function" ? textOrFn(ctx) : String(textOrFn);
+    if (!text || !text.trim()) return { sent: false, reason: "empty_text" };
     queueWhatsAppSend(number, text).catch((err) => {
       console.warn(`[Notify WhatsApp] queue error user=${userId}:`, err?.message);
     });
@@ -5180,74 +5193,73 @@ async function notifyWhatsAppForUser(userId, text) {
 }
 
 /**
- * Class attended (check-in completado).
- * Effects: refresh wallet pass (rings advance), WhatsApp si configurado.
+ * Class attended (check-in completado en estudio).
  */
 async function notifyClassAttended(userId, ctx = {}) {
   triggerWalletPassSync(userId, "class_attended");
-  const className = ctx.className ? ` (${ctx.className})` : "";
-  notifyWhatsAppForUser(
-    userId,
-    `Check-in registrado${className}. Tus anillos se actualizan en tu pase Kala. ✨`
+  const cls = ctx.className ? ` de ${ctx.className}` : "";
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `Listo, ${firstName}. Tenemos tu check-in${cls}. Tus anillos en el pase ya se movieron. Buena clase. ✨`
   ).catch(() => {});
 }
 
 /**
- * Points earned (loyalty change after class or bonus).
+ * Points earned (loyalty change). Solo manda WA si el delta vale la pena (≥50 pts).
  */
 async function notifyPointsEarned(userId, points, totalPoints) {
   triggerWalletPassSync(userId, "points_earned");
   if (Number(points || 0) >= 50) {
-    notifyWhatsAppForUser(
-      userId,
-      `Sumaste ${points} puntos Kala. Total: ${totalPoints} pts. Canjéalos cuando quieras desde la app.`
+    notifyWhatsAppForUser(userId, ({ firstName }) =>
+      `${firstName}, sumaste ${points} puntos Kala. Total: ${totalPoints}. Canjéalos cuando se te antoje desde la app.`
     ).catch(() => {});
   }
 }
 
 /**
- * 3 anillos cerrados. Recompensa visual + mensaje.
+ * 3 anillos cerrados → recompensa visual + mensaje cálido.
  */
 async function notifyRingsClosed(userId) {
   triggerWalletPassSync(userId, "rings_closed");
-  notifyWhatsAppForUser(
-    userId,
-    `Cerraste tus 3 anillos esta semana en Kala. Tu pase ya muestra la recompensa. 💫`
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `${firstName}, cerraste tus 3 anillos esta semana. 💫 Tu pase Kala ya muestra la recompensa. Pasa por ella en recepción cuando vengas.`
   ).catch(() => {});
 }
 
 /**
- * Membresía activada (orden aprobada o admin marcó como pagada).
+ * Membresía activada (orden aprobada o admin la marcó como pagada).
  */
 async function notifyMembershipRenewed(userId, planName) {
   triggerWalletPassSync(userId, "membership_renewed");
   const plan = planName ? ` "${planName}"` : "";
-  notifyWhatsAppForUser(
-    userId,
-    `Tu paquete${plan} está activo. Tu pase Kala ya está actualizado, listo para reservar.`
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `${firstName}, tu paquete${plan} ya quedó activo. Tu pase Kala está al día. Cuando quieras, reservas tu primera clase desde la app.`
   ).catch(() => {});
 }
 
 /**
- * Membresía vence pronto (cron 5 días, 1 día).
+ * Membresía vence pronto. Cron 9am diario corre esto para los que están a 1d/5d/etc.
  */
 async function notifyMembershipExpiring(userId, daysRemaining) {
   triggerWalletPassSync(userId, `membership_expiring_${daysRemaining}d`);
-  const dayWord = daysRemaining === 1 ? "día" : "días";
-  notifyWhatsAppForUser(
-    userId,
-    `Tu paquete Kala vence en ${daysRemaining} ${dayWord}. Renueva desde la app para no perder ritmo.`
-  ).catch(() => {});
+  const days = Number(daysRemaining);
+  notifyWhatsAppForUser(userId, ({ firstName }) => {
+    if (days <= 0) {
+      return `${firstName}, hoy vence tu paquete Kala. Si quieres seguir, renueva desde la app y no perdemos el ritmo.`;
+    }
+    if (days === 1) {
+      return `${firstName}, mañana vence tu paquete Kala. Renueva desde la app para no parar.`;
+    }
+    return `${firstName}, te quedan ${days} días en tu paquete Kala. Renueva desde la app cuando quieras y seguimos sin pausa.`;
+  }).catch(() => {});
 }
 
 /**
- * Membresía vencida (cron diario después de end_date).
+ * Membresía vencida (cron 10am sweep diario).
  */
 async function notifyMembershipExpired(userId) {
   triggerWalletPassSync(userId, "membership_expired");
-  notifyWhatsAppForUser(
-    userId,
-    `Tu paquete Kala terminó. Cuando quieras volver, renueva desde la app y recuperas tu ritmo.`
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `${firstName}, tu paquete terminó. Aquí seguimos cuando quieras volver. Te recibimos como siempre, como una amiga en su casa.`
   ).catch(() => {});
 }
 
@@ -5256,51 +5268,47 @@ async function notifyMembershipExpired(userId) {
  */
 async function notifyBookingConfirmed(userId, ctx = {}) {
   triggerWalletPassSync(userId, "booking_confirmed");
-  const when = ctx.when ? ` el ${ctx.when}` : "";
-  const cls = ctx.className ? ` ${ctx.className}` : " tu clase";
-  notifyWhatsAppForUser(
-    userId,
-    `Reserva confirmada:${cls}${when}. Te esperamos. Tu pase Kala ya muestra tu próxima clase.`
-  ).catch(() => {});
+  notifyWhatsAppForUser(userId, ({ firstName }) => {
+    const cls = ctx.className ? ` de ${ctx.className}` : "";
+    const when = ctx.when ? ` el ${ctx.when}` : "";
+    return `${firstName}, te apartamos lugar${cls}${when}. Tu pase Kala ya lo trae cargado. Te esperamos.`;
+  }).catch(() => {});
 }
 
 /**
- * Reserva cancelada.
+ * Reserva cancelada (kept for completeness; live flow usa template DB).
  */
 async function notifyBookingCancelled(userId, ctx = {}) {
   triggerWalletPassSync(userId, "booking_cancelled");
   const cls = ctx.className ? ` de ${ctx.className}` : "";
-  notifyWhatsAppForUser(
-    userId,
-    `Cancelaste tu reserva${cls}. Cuando quieras volver, reservas desde la app.`
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `${firstName}, cancelaste tu reserva${cls}. Cuando quieras volver, reservas desde la app y aquí estamos.`
   ).catch(() => {});
 }
 
 /**
- * Inscripción a evento.
+ * Inscripción a evento (masterclass / workshop / etc).
  */
 async function notifyEventRegistered(userId, ctx = {}) {
   triggerWalletPassSync(userId, "event_registered");
-  const evt = ctx.eventTitle ? ` a "${ctx.eventTitle}"` : "";
-  notifyWhatsAppForUser(
-    userId,
-    `Tu lugar${evt} quedó. Te llega un pase de evento en tu Kala Wallet con QR para entrada.`
-  ).catch(() => {});
+  notifyWhatsAppForUser(userId, ({ firstName }) => {
+    const evt = ctx.eventTitle ? ` a "${ctx.eventTitle}"` : "";
+    return `${firstName}, quedaste inscrita${evt}. En tu Kala Wallet ya tienes el pase del evento con tu QR para entrar.`;
+  }).catch(() => {});
 }
 
 /**
- * Recompensa canjeada.
+ * Recompensa canjeada (puntos → reward).
  */
 async function notifyRewardRedeemed(userId, rewardName, pointsSpent) {
   triggerWalletPassSync(userId, "reward_redeemed");
-  notifyWhatsAppForUser(
-    userId,
-    `Canjeaste "${rewardName}" por ${pointsSpent} pts. Pasa por recepción para reclamarlo.`
+  notifyWhatsAppForUser(userId, ({ firstName }) =>
+    `${firstName}, canjeaste "${rewardName}" por ${pointsSpent} pts. Pasa por recepción a reclamarlo. Disfrútalo. ✨`
   ).catch(() => {});
 }
 
 /**
- * Reset semanal (cron lunes 00:00). Solo refresca pase, no manda WhatsApp.
+ * Reset semanal (cron lunes 00:00). Solo refresca el pase, no manda WhatsApp.
  */
 async function notifyWeekReset(userId) {
   triggerWalletPassSync(userId, "week_reset");
@@ -6047,10 +6055,11 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     // Apple alerta cuando entras al radio.
     locations: [
       {
-        latitude: Number(process.env.BUSINESS_LATITUDE || 22.1565),
-        longitude: Number(process.env.BUSINESS_LONGITUDE || -100.9855),
+        // Plaza San Martín, San Luis Potosí (Av. Nicolás Zapata 845).
+        latitude: Number(process.env.BUSINESS_LATITUDE || 22.1536775),
+        longitude: Number(process.env.BUSINESS_LONGITUDE || -100.9970307),
         relevantText: hasEventPass
-          ? "Estás cerca del estudio. Tu pase del evento."
+          ? "Estás cerca del estudio. Saca tu pase del evento."
           : "Estás cerca de Kala. Saca tu pase para check-in.",
       },
     ],
