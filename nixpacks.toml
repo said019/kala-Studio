@@ -1,14 +1,19 @@
 # nixpacks.toml — Configuración de build para Railway
-# Railway detecta automáticamente Node.js; esto lo hace explícito.
+# Vite vive en devDependencies; con NODE_ENV=production npm los salta.
+# --include=dev fuerza la instalación para que `npm run build` encuentre vite.
 
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = [
+  "npm ci --include=dev"
+]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = [
+  "npm run build"
+]
 
 [start]
 cmd = "npm start"
