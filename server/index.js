@@ -2378,13 +2378,17 @@ app.post("/api/auth/register", async (req, res) => {
       [displayName.trim(), email.toLowerCase().trim(), phone || null, gender || null, normalizedDob, passwordHash, acceptsTerms ?? false, acceptsCommunications ?? false]
     );
     const user = result.rows[0];
-    // Auto-create referral code
-    const code = "OPH" + Math.random().toString(36).slice(2, 8).toUpperCase();
-    await pool.query(
-      "INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-      [user.id, code]
-    );
-    // Award welcome bonus loyalty points
+    // Auto-create referral code (best-effort: nunca debe tirar el registro).
+    try {
+      const code = "KALA" + Math.random().toString(36).slice(2, 7).toUpperCase();
+      await pool.query(
+        "INSERT INTO referral_codes (user_id, code) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        [user.id, code]
+      );
+    } catch (e) {
+      console.warn("[register] referral_codes insert skipped:", e.message);
+    }
+    // Award welcome bonus loyalty points (best-effort).
     try {
       const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
       const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
@@ -2395,12 +2399,25 @@ app.post("/api/auth/register", async (req, res) => {
           [user.id, pts]
         );
       }
-    } catch (e) { /* loyalty earn error shouldn't fail register */ }
+    } catch (e) {
+      console.warn("[register] loyalty bonus skipped:", e.message);
+    }
     const token = signToken(user.id);
     return res.status(201).json({ user: mapUser(user), token });
   } catch (err) {
-    console.error("Register error:", err);
-    return res.status(500).json({ message: "Error interno del servidor" });
+    console.error("[register] FAILED:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      column: err?.column,
+      constraint: err?.constraint,
+      table: err?.table,
+      stack: String(err?.stack || "").split("\n").slice(0, 4).join("\n"),
+    });
+    return res.status(500).json({
+      message: "No pudimos crear tu cuenta",
+      detail: process.env.NODE_ENV === "production" ? undefined : err?.message,
+    });
   }
 });
 
