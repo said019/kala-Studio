@@ -19,6 +19,8 @@ import {
 import { Check } from "lucide-react";
 import kalaRegister from "@/assets/kala/kala-class-energy.jpg";
 
+const todayISO = new Date().toISOString().slice(0, 10);
+
 const schema = z.object({
   displayName: z.string().min(2, "Mínimo 2 caracteres"),
   email: z.string().email("Email inválido"),
@@ -27,6 +29,14 @@ const schema = z.object({
     .transform((v) => v.replace(/\D/g, ""))
     .refine((v) => v.length === 10, "Debe tener 10 dígitos"),
   gender: z.enum(["female", "male", "other"], { required_error: "Selecciona una opción" }),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Selecciona una fecha válida")
+    .refine((v) => {
+      const d = new Date(v + "T00:00:00Z");
+      const y = Number(v.slice(0, 4));
+      return !Number.isNaN(d.getTime()) && y >= 1900 && d <= new Date();
+    }, "Fecha fuera de rango"),
   password: z
     .string()
     .min(8, "Mínimo 8 caracteres")
@@ -45,6 +55,7 @@ type FormValues = {
   email: string;
   phone: string;
   gender: "female" | "male" | "other";
+  dateOfBirth: string;
   password: string;
   confirmPassword: string;
   acceptsTerms: boolean;
@@ -80,6 +91,7 @@ const Register = () => {
         displayName: data.displayName,
         phone,
         gender: data.gender,
+        dateOfBirth: data.dateOfBirth,
         acceptsTerms: data.acceptsTerms,
         acceptsCommunications: data.acceptsCommunications,
         ...(refCode ? { referralCode: refCode } : {}),
@@ -147,39 +159,51 @@ const Register = () => {
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label
-            htmlFor="f-genero"
-            className="text-[0.64rem] font-medium uppercase tracking-[0.22em]"
-            style={{ color: KALA.ink, opacity: 0.62 }}
-          >
-            Sexo
-          </label>
-          <select
-            id="f-genero"
-            {...register("gender")}
-            defaultValue=""
-            className="w-full rounded-2xl px-4 py-3.5 text-[0.95rem] outline-none transition-all duration-200 focus-visible:ring-2 appearance-none bg-no-repeat"
-            style={{
-              backgroundColor: KALA.cream,
-              color: KALA.ink,
-              border: `1px solid ${errors.gender ? KALA.destructive : KALA.border}`,
-              boxShadow: errors.gender ? `0 0 0 2px ${KALA.destructive}1a` : undefined,
-              backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%2376214D' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-              backgroundPosition: "right 1rem center",
-              paddingRight: "2.6rem",
-            }}
-          >
-            <option value="" disabled>Selecciona</option>
-            <option value="female">Femenino</option>
-            <option value="male">Masculino</option>
-            <option value="other">Prefiero no decir</option>
-          </select>
-          {errors.gender && (
-            <p className="text-[0.78rem] mt-0.5" style={{ color: KALA.destructive }}>
-              {errors.gender.message}
-            </p>
-          )}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div className="flex flex-col gap-1.5">
+            <label
+              htmlFor="f-genero"
+              className="text-[0.64rem] font-medium uppercase tracking-[0.22em]"
+              style={{ color: KALA.ink, opacity: 0.62 }}
+            >
+              Sexo
+            </label>
+            <select
+              id="f-genero"
+              {...register("gender")}
+              defaultValue=""
+              className="w-full rounded-2xl px-4 py-3.5 text-[0.95rem] outline-none transition-all duration-200 focus-visible:ring-2 appearance-none bg-no-repeat"
+              style={{
+                backgroundColor: KALA.cream,
+                color: KALA.ink,
+                border: `1px solid ${errors.gender ? KALA.destructive : KALA.border}`,
+                boxShadow: errors.gender ? `0 0 0 2px ${KALA.destructive}1a` : undefined,
+                backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%2376214D' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+                backgroundPosition: "right 1rem center",
+                paddingRight: "2.6rem",
+              }}
+            >
+              <option value="" disabled>Selecciona</option>
+              <option value="female">Femenino</option>
+              <option value="male">Masculino</option>
+              <option value="other">Prefiero no decir</option>
+            </select>
+            {errors.gender && (
+              <p className="text-[0.78rem] mt-0.5" style={{ color: KALA.destructive }}>
+                {errors.gender.message}
+              </p>
+            )}
+          </div>
+
+          <AuthField
+            label="Fecha de nacimiento"
+            type="date"
+            max={todayISO}
+            min="1900-01-01"
+            hint="Para felicitarte el día"
+            error={errors.dateOfBirth?.message}
+            {...register("dateOfBirth")}
+          />
         </div>
 
         <AuthField

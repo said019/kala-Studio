@@ -6,7 +6,21 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarDays, Users, DollarSign, AlertCircle } from "lucide-react";
+import { CalendarDays, Users, DollarSign, AlertCircle, Cake } from "lucide-react";
+
+const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+interface Birthday {
+  id: string;
+  displayName: string;
+  email: string | null;
+  phone: string | null;
+  photoUrl: string | null;
+  dateOfBirth: string;
+  day: number;
+  month: number;
+  isToday: boolean;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   pending_payment: "Esperando pago",
@@ -55,6 +69,16 @@ const Dashboard = () => {
     },
   });
 
+  const currentMonth = new Date().getMonth() + 1;
+  const { data: birthdaysData, isLoading: loadingBirthdays } = useQuery<{
+    month: number; total: number; todayCount: number; data: Birthday[];
+  }>({
+    queryKey: ["admin-birthdays", currentMonth],
+    queryFn: async () => (await api.get(`/admin/birthdays?month=${currentMonth}`)).data,
+  });
+  const birthdays: Birthday[] = Array.isArray(birthdaysData?.data) ? birthdaysData.data : [];
+  const todayBirthdays = birthdays.filter((b) => b.isToday);
+
   const metric = (label: string, value: number | undefined, icon: React.ReactNode, prefix = "", accent = "#E9745F") => (
     <Card className="border-t-2" style={{ borderTopColor: accent }}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -86,6 +110,82 @@ const Dashboard = () => {
             {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#F58A24")}
             {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#F97316")}
           </div>
+
+          {/* Birthdays of the month — full width card */}
+          <Card
+            className="mb-6 cursor-pointer hover:border-primary/50 transition-colors"
+            onClick={() => navigate("/admin/clients?birthday=month")}
+            style={todayBirthdays.length > 0 ? { borderColor: "#F58A24", borderTopWidth: 2 } : undefined}
+          >
+            <CardHeader>
+              <CardTitle className="text-base flex items-center justify-between gap-3">
+                <span className="flex items-center gap-2">
+                  <Cake size={17} className="text-[#F58A24]" />
+                  Cumpleaños de {MONTHS[currentMonth - 1]}
+                  <span className="text-xs text-muted-foreground font-normal ml-1">
+                    ({birthdays.length})
+                  </span>
+                </span>
+                {todayBirthdays.length > 0 && (
+                  <Badge style={{ backgroundColor: "#F58A24", color: "#FFF7F2" }} className="text-xs">
+                    {todayBirthdays.length} {todayBirthdays.length === 1 ? "es hoy" : "son hoy"}
+                  </Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingBirthdays ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full" />)}
+                </div>
+              ) : birthdays.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Ninguna alumna cumple años en {MONTHS[currentMonth - 1]}.
+                </p>
+              ) : (
+                <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 list-none m-0 p-0">
+                  {birthdays.map((b) => {
+                    const initials = b.displayName.split(" ").filter(Boolean).map((n) => n[0]).slice(0, 2).join("").toUpperCase();
+                    return (
+                      <li
+                        key={b.id}
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors"
+                        style={{
+                          backgroundColor: b.isToday ? "#F58A2418" : "transparent",
+                          border: `1px solid ${b.isToday ? "#F58A2455" : "#E8CAC1"}`,
+                        }}
+                      >
+                        <span
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-full overflow-hidden text-[0.7rem] font-bold text-white"
+                          style={{ backgroundColor: b.isToday ? "#F58A24" : "#76214D" }}
+                        >
+                          {b.photoUrl ? (
+                            <img src={b.photoUrl} alt="" className="h-full w-full object-cover" />
+                          ) : initials || "·"}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">{b.displayName}</p>
+                          {b.phone && (
+                            <p className="text-[0.72rem] text-muted-foreground truncate">{b.phone}</p>
+                          )}
+                        </div>
+                        <span
+                          className="text-[0.7rem] font-bold tabular-nums px-2 py-0.5 rounded-full"
+                          style={{
+                            backgroundColor: b.isToday ? "#F58A24" : "transparent",
+                            color: b.isToday ? "#FFF7F2" : "#76214D",
+                            border: b.isToday ? "0" : "1px solid #76214D33",
+                          }}
+                        >
+                          {b.isToday ? "HOY" : `${b.day} ${MONTHS[b.month - 1].slice(0, 3)}`}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Recent memberships */}

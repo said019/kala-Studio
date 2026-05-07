@@ -2348,9 +2348,22 @@ function mapUser(u) {
 
 // POST /api/auth/register
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, displayName, phone, gender, acceptsTerms, acceptsCommunications } = req.body;
+  const { email, password, displayName, phone, gender, dateOfBirth, acceptsTerms, acceptsCommunications } = req.body;
   if (!email || !password || !displayName) {
     return res.status(400).json({ message: "Nombre, email y contraseña son requeridos" });
+  }
+  // Normalize/validate dateOfBirth: YYYY-MM-DD or null. Reject impossible dates.
+  let normalizedDob = null;
+  if (dateOfBirth) {
+    const m = String(dateOfBirth).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return res.status(400).json({ message: "Fecha de nacimiento inválida (YYYY-MM-DD)" });
+    const year = Number(m[1]);
+    const dt = new Date(dateOfBirth + "T00:00:00Z");
+    const now = new Date();
+    if (Number.isNaN(dt.getTime()) || year < 1900 || dt > now) {
+      return res.status(400).json({ message: "Fecha de nacimiento inválida" });
+    }
+    normalizedDob = dateOfBirth;
   }
   try {
     const exists = await pool.query("SELECT id FROM users WHERE email = $1", [email.toLowerCase()]);
@@ -2359,10 +2372,10 @@ app.post("/api/auth/register", async (req, res) => {
     }
     const passwordHash = await bcrypt.hash(password, 12);
     const result = await pool.query(
-      `INSERT INTO users (display_name, email, phone, gender, password_hash, accepts_terms, accepts_communications, role)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'client')
+      `INSERT INTO users (display_name, email, phone, gender, date_of_birth, password_hash, accepts_terms, accepts_communications, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'client')
        RETURNING *`,
-      [displayName.trim(), email.toLowerCase().trim(), phone || null, gender || null, passwordHash, acceptsTerms ?? false, acceptsCommunications ?? false]
+      [displayName.trim(), email.toLowerCase().trim(), phone || null, gender || null, normalizedDob, passwordHash, acceptsTerms ?? false, acceptsCommunications ?? false]
     );
     const user = result.rows[0];
     // Auto-create referral code
@@ -8484,6 +8497,50 @@ app.delete("/api/homepage-video-cards/:id/video", adminMiddleware, async (req, r
 });
 
 // GET /api/admin/stats
+// GET /api/admin/birthdays?month=N (1-12, default current month)
+// Returns clients with date_of_birth in the requested month, sorted by day.
+app.get("/api/admin/birthdays", adminMiddleware, async (req, res) => {
+  try {
+    const now = new Date();
+    const monthRaw = Number(req.query.month);
+    const month = Number.isInteger(monthRaw) && monthRaw >= 1 && monthRaw <= 12
+      ? monthRaw
+      : now.getMonth() + 1;
+    const result = await pool.query(
+      `SELECT id, display_name, email, phone, photo_url, date_of_birth,
+              EXTRACT(DAY FROM date_of_birth)::int   AS day,
+              EXTRACT(MONTH FROM date_of_birth)::int AS month
+       FROM users
+       WHERE role = 'client'
+         AND date_of_birth IS NOT NULL
+         AND EXTRACT(MONTH FROM date_of_birth) = $1
+       ORDER BY EXTRACT(DAY FROM date_of_birth) ASC, display_name ASC`,
+      [month]
+    );
+    const today = { day: now.getDate(), month: now.getMonth() + 1 };
+    const data = result.rows.map((row) => ({
+      id: row.id,
+      displayName: row.display_name,
+      email: row.email,
+      phone: row.phone,
+      photoUrl: row.photo_url,
+      dateOfBirth: row.date_of_birth,
+      day: row.day,
+      month: row.month,
+      isToday: row.month === today.month && row.day === today.day,
+    }));
+    return res.json({
+      month,
+      total: data.length,
+      todayCount: data.filter((u) => u.isToday).length,
+      data,
+    });
+  } catch (err) {
+    console.error("admin/birthdays error:", err.message);
+    return res.status(500).json({ message: "Error obteniendo cumpleaños" });
+  }
+});
+
 app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);

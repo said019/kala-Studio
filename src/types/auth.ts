@@ -52,6 +52,7 @@ export interface RegisterData {
   displayName: string;
   phone: string;
   gender?: "female" | "male" | "other";
+  dateOfBirth?: string;
   acceptsTerms: boolean;
   acceptsCommunications: boolean;
 }
