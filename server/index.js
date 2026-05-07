@@ -13,6 +13,7 @@ import axios from "axios";
 import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
+import sharp from "sharp";
 import { execSync } from "child_process";
 import {
   sendMembershipActivated,
@@ -5168,6 +5169,275 @@ function isAppleWebPassAvailable() {
  * Generate a .pkpass file as a Buffer for a given user.
  * Apple .pkpass = ZIP containing: pass.json, manifest.json, signature, icon.png, logo.png, strip.png
  */
+// ─── APNS push for Apple Wallet pass updates ──────────────────────────
+// When a pass changes (booking confirmed, ring closed, plan renewed), call
+// `pushAppleWalletUpdate(userId)`. Apple Wallet on the device gets the push
+// and refetches the pkpass via the webServiceURL endpoint.
+
+let APNS_AUTH_TOKEN_CACHE = { token: null, issuedAt: 0 };
+
+function buildApnsAuthToken() {
+  // Token valid for ~60 min; cache for 50.
+  const now = Math.floor(Date.now() / 1000);
+  if (APNS_AUTH_TOKEN_CACHE.token && now - APNS_AUTH_TOKEN_CACHE.issuedAt < 50 * 60) {
+    return APNS_AUTH_TOKEN_CACHE.token;
+  }
+  if (!APPLE_APNS_KEY_PEM || !APPLE_KEY_ID || !APPLE_TEAM_ID) return null;
+  const token = jwt.sign(
+    { iss: APPLE_TEAM_ID, iat: now },
+    APPLE_APNS_KEY_PEM,
+    { algorithm: "ES256", header: { alg: "ES256", kid: APPLE_KEY_ID } },
+  );
+  APNS_AUTH_TOKEN_CACHE = { token, issuedAt: now };
+  return token;
+}
+
+async function sendApnsPush(pushToken, passTypeId) {
+  return new Promise((resolve) => {
+    const authToken = buildApnsAuthToken();
+    if (!authToken) {
+      resolve({ ok: false, reason: "apns_not_configured" });
+      return;
+    }
+    const client = http2.connect(APPLE_APNS_HOST);
+    client.on("error", (err) => {
+      resolve({ ok: false, reason: "apns_connect_error", error: err?.message });
+      try { client.close(); } catch (_) {}
+    });
+    const req = client.request({
+      ":method": "POST",
+      ":path": `/3/device/${pushToken}`,
+      "authorization": `bearer ${authToken}`,
+      "apns-topic": passTypeId,
+      "apns-push-type": "background",
+      "content-type": "application/json",
+    });
+    req.setEncoding("utf8");
+    let status = 0;
+    let body = "";
+    req.on("response", (headers) => {
+      status = Number(headers[":status"]);
+    });
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try { client.close(); } catch (_) {}
+      resolve({
+        ok: status >= 200 && status < 300,
+        status,
+        body: body.slice(0, 240),
+      });
+    });
+    req.on("error", (err) => {
+      try { client.close(); } catch (_) {}
+      resolve({ ok: false, reason: "apns_request_error", error: err?.message });
+    });
+    req.end(JSON.stringify({}));
+  });
+}
+
+/**
+ * Notify Apple Wallet that the pass for `userId` has changed.
+ * Looks up all registered devices for this user's pass serial and pushes APNS to each.
+ * Best-effort: never throws; logs failures.
+ */
+async function pushAppleWalletUpdate(userId, { reason = "update" } = {}) {
+  if (!isAppleApnsConfigured()) {
+    console.log("[Wallet APNS] Skipped: APNS not configured");
+    return { sent: 0, skipped: true };
+  }
+  const serial = buildAppleWalletSerialFromUserId(userId);
+  if (!serial) return { sent: 0 };
+  try {
+    const result = await pool.query(
+      `SELECT push_token, pass_type_id
+         FROM apple_wallet_devices
+         WHERE serial_number = $1 AND push_token <> ''`,
+      [serial],
+    );
+    const devices = result.rows ?? [];
+    if (devices.length === 0) {
+      console.log(`[Wallet APNS] No registered devices for serial ${serial} (reason=${reason})`);
+      return { sent: 0 };
+    }
+    const outcomes = await Promise.all(
+      devices.map((d) =>
+        sendApnsPush(d.push_token, d.pass_type_id || APPLE_PASS_TYPE_ID).catch((err) => ({
+          ok: false,
+          reason: "exception",
+          error: err?.message,
+        })),
+      ),
+    );
+    const sent = outcomes.filter((o) => o.ok).length;
+    const failed = outcomes.length - sent;
+    console.log(`[Wallet APNS] Push sent to ${sent}/${outcomes.length} devices for serial ${serial} (reason=${reason})`);
+    if (failed > 0) {
+      console.warn("[Wallet APNS] Failures:", outcomes.filter((o) => !o.ok).slice(0, 3));
+    }
+    return { sent, total: outcomes.length };
+  } catch (err) {
+    console.error("[Wallet APNS] pushAppleWalletUpdate error:", err?.message);
+    return { sent: 0, error: err?.message };
+  }
+}
+
+// ─── Dynamic strip renderer (Kala rings → SVG → PNG via sharp) ─────────
+// Builds a 375×123 strip image personalized for each user's ring progress.
+// Three concentric arcs (constancia / esfuerzo / conexion) fill to their
+// real progress %. The K mark sits on the left as the brand anchor.
+
+const KALA_PASS_PALETTE = {
+  cream: "#FFF7F2",
+  ink: "#2E201C",
+  berry: "#76214D",
+  olive: "#778455",
+  orange: "#F58A24",
+  blush: "#FCE6E1",
+  border: "rgba(46,32,28,0.10)",
+};
+
+function escapeXml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function arcPath(cx, cy, radius, percent) {
+  // Build an SVG arc starting from 12 o'clock, going clockwise.
+  // For very small percents we still want a visible nub; for 100% we close the circle.
+  const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+  if (pct >= 99.9) {
+    // Full circle as two semicircle arcs
+    return `M ${cx} ${cy - radius}
+            A ${radius} ${radius} 0 1 1 ${cx} ${cy + radius}
+            A ${radius} ${radius} 0 1 1 ${cx} ${cy - radius} Z`;
+  }
+  if (pct <= 0) return "";
+  const angle = (pct / 100) * 2 * Math.PI;
+  const startX = cx;
+  const startY = cy - radius;
+  const endX = cx + radius * Math.sin(angle);
+  const endY = cy - radius * Math.cos(angle);
+  const largeArc = pct > 50 ? 1 : 0;
+  return `M ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY}`;
+}
+
+function buildKalaStripSvg(ringState, scale = 1, opts = {}) {
+  const W = Math.round(375 * scale);
+  const H = Math.round(123 * scale);
+  const c = (n) => Math.round(n * scale);
+
+  // Pull progress percents (0-100) defensively.
+  const ring = (k) => {
+    const r = ringState?.[k] ?? {};
+    const p = Number(r.progress ?? 0);
+    const g = Number(r.goal ?? 1);
+    if (!Number.isFinite(p) || !Number.isFinite(g) || g <= 0) return 0;
+    return Math.min(100, Math.max(0, (p / g) * 100));
+  };
+  const pConstancia = ring("constancia");
+  const pEsfuerzo = ring("esfuerzo");
+  const pConexion = ring("conexion");
+  const ringsClosed = [pConstancia, pEsfuerzo, pConexion].filter((p) => p >= 100).length;
+
+  // Geometry
+  const iconUrl = opts.iconHref || ""; // optional embedded icon (data URI)
+  const iconSize = c(70);
+  const iconX = c(28);
+  const iconY = (H - iconSize) / 2;
+
+  const dividerX = c(132);
+  const dividerY1 = c(22);
+  const dividerY2 = H - c(22);
+
+  const ringCx = c(280);
+  const ringCy = Math.round(H / 2);
+  const ringStroke = c(7);
+  const ringRadii = [c(20), c(33), c(46)];
+  const ringColors = [KALA_PASS_PALETTE.berry, KALA_PASS_PALETTE.olive, KALA_PASS_PALETTE.orange];
+  const ringPercents = [pConstancia, pEsfuerzo, pConexion];
+
+  // Tag text (bottom-right): "X/3 cerrados"
+  const closedLabel = `${ringsClosed}/3 cerrados`;
+  const labelX = c(346);
+  const labelY = H - c(14);
+
+  const arcs = ringRadii
+    .map((r, i) => {
+      const color = ringColors[i];
+      const pct = ringPercents[i];
+      const trackOpacity = 0.18;
+      const track = `
+        <circle cx="${ringCx}" cy="${ringCy}" r="${r}"
+                fill="none" stroke="${color}" stroke-opacity="${trackOpacity}"
+                stroke-width="${ringStroke}" />`;
+      const arc = pct > 0
+        ? `<path d="${arcPath(ringCx, ringCy, r, pct)}"
+                  fill="none" stroke="${color}" stroke-width="${ringStroke}"
+                  stroke-linecap="round"
+                  transform="rotate(-90 ${ringCx} ${ringCy})"
+                  style="filter: drop-shadow(0 ${c(0.6)}px ${c(1)}px rgba(0,0,0,0.04));" />`
+        : "";
+      return track + arc;
+    })
+    .join("");
+
+  // Soft blush wash in upper-right corner
+  const washGrad = `
+    <radialGradient id="wash" cx="86%" cy="14%" r="80%">
+      <stop offset="0%" stop-color="${KALA_PASS_PALETTE.blush}" stop-opacity="0.55" />
+      <stop offset="60%" stop-color="${KALA_PASS_PALETTE.blush}" stop-opacity="0.10" />
+      <stop offset="100%" stop-color="${KALA_PASS_PALETTE.cream}" stop-opacity="0" />
+    </radialGradient>`;
+
+  const iconBlock = iconUrl
+    ? `<image href="${iconUrl}" x="${iconX}" y="${iconY}" width="${iconSize}" height="${iconSize}" />`
+    : "";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  <defs>${washGrad}</defs>
+  <rect width="${W}" height="${H}" fill="${KALA_PASS_PALETTE.cream}" />
+  <rect width="${W}" height="${H}" fill="url(#wash)" />
+  <line x1="${dividerX}" y1="${dividerY1}" x2="${dividerX}" y2="${dividerY2}"
+        stroke="${KALA_PASS_PALETTE.ink}" stroke-opacity="0.10" stroke-width="1" />
+  ${iconBlock}
+  ${arcs}
+  <text x="${labelX}" y="${labelY}" text-anchor="end"
+        font-family="-apple-system, system-ui, 'Helvetica Neue', sans-serif"
+        font-size="${c(8.5)}" font-weight="600"
+        letter-spacing="${c(1.6)}"
+        fill="${KALA_PASS_PALETTE.ink}" fill-opacity="0.55">${escapeXml(closedLabel.toUpperCase())}</text>
+</svg>`;
+}
+
+const KALA_ICON_PNG_PATH_CACHE = { path: null, dataUri: null };
+function getKalaIconDataUri() {
+  if (KALA_ICON_PNG_PATH_CACHE.dataUri) return KALA_ICON_PNG_PATH_CACHE.dataUri;
+  const candidates = [
+    findAssetFile(["wallet-icon-mixto@3x.png", "wallet-icon-mixto@2x.png", "wallet-icon-mixto.png"]),
+  ].filter(Boolean);
+  for (const p of candidates) {
+    try {
+      const buf = fs.readFileSync(p);
+      const uri = `data:image/png;base64,${buf.toString("base64")}`;
+      KALA_ICON_PNG_PATH_CACHE.path = p;
+      KALA_ICON_PNG_PATH_CACHE.dataUri = uri;
+      return uri;
+    } catch (_) { /* try next */ }
+  }
+  return null;
+}
+
+async function buildKalaStripPng(ringState, scale = 1) {
+  const iconHref = getKalaIconDataUri();
+  const svg = buildKalaStripSvg(ringState, scale, { iconHref });
+  return await sharp(Buffer.from(svg, "utf8")).png({ compressionLevel: 9 }).toBuffer();
+}
+
 async function generateApplePkpass({ userId, userName, points, qrCode, membership, nextBooking, activeEventPass }) {
   const baseSerialNumber = buildAppleWalletSerialFromUserId(userId);
   const hasMembership = !!membership;
@@ -5200,6 +5470,27 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const eventLocationShort = truncateWalletField(activeEventPass?.eventLocation || "Kala Barre Studio", 24);
   const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Kala Barre Studio", 38);
   const eventCodeLabel = truncateWalletField(activeEventPass?.passCode || "—", 18);
+  // Kala lockscreen relevance:
+  // - Para membership pass: 30 min antes de la próxima clase (si existe).
+  //   Apple muestra el pase en la lockscreen automáticamente alrededor de esta hora.
+  // - Geofence: usar `locations` (configurada abajo) para que también aparezca
+  //   cuando la alumna esté cerca del estudio.
+  const kalaRelevantDate = (() => {
+    if (hasEventPass) return null;
+    if (!nextBooking?.date) return null;
+    try {
+      const day = String(nextBooking.date).slice(0, 10);
+      const time = String(nextBooking.start_time || "07:00:00").slice(0, 8);
+      const start = new Date(`${day}T${time}`);
+      if (Number.isNaN(start.getTime())) return null;
+      // 30 min before to give the alumna time to walk in
+      start.setMinutes(start.getMinutes() - 30);
+      return start.toISOString();
+    } catch (_) {
+      return null;
+    }
+  })();
+
   const eventRelevantDate = (() => {
     if (!hasEventPass || !hasValidEventDate) return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
     const startDate = new Date(eventDateObj);
@@ -5642,7 +5933,20 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     ],
     webServiceURL: `${SITE_URL}/api/wallet`,
     authenticationToken: APPLE_AUTH_TOKEN,
-    relevantDate: eventRelevantDate,
+    relevantDate: kalaRelevantDate || eventRelevantDate,
+    // Geofence: pase aparece en lockscreen cuando la alumna está cerca del estudio.
+    // Coords aproximadas de Plaza San Martín, San Luis Potosí (Av. Nicolás Zapata 845).
+    // Apple alerta cuando entras al radio.
+    locations: [
+      {
+        latitude: 22.1565,
+        longitude: -100.9855,
+        relevantText: hasEventPass
+          ? "Estás cerca del estudio. Tu pase del evento."
+          : "Estás cerca de Kala. Saca tu pase para check-in.",
+      },
+    ],
+    maxDistance: 150,
   };
   if (eventExpirationDate) {
     passJson.expirationDate = eventExpirationDate;
@@ -5766,9 +6070,38 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const logo3xBuffer = readAssetBuffer(logo3xPath) || logo2xBuffer || logoBuffer;
   const thumbBuffer = readAssetBuffer(thumbPath);
   const thumb2xBuffer = readAssetBuffer(thumb2xPath) || thumbBuffer;
-  const stripBuffer = readAssetBuffer(stripPath);
-  const strip2xBuffer = readAssetBuffer(strip2xPath) || stripBuffer;
-  const strip3xBuffer = readAssetBuffer(strip3xPath) || strip2xBuffer || stripBuffer;
+  // Strip: prefer dynamically rendered SVG with current ring progress.
+  // Falls back to disk-based strip if rendering fails (e.g., sharp missing).
+  let stripBuffer = null;
+  let strip2xBuffer = null;
+  let strip3xBuffer = null;
+  if (!hasEventPass) {
+    try {
+      const [s1, s2, s3] = await Promise.all([
+        buildKalaStripPng(ringState, 1),
+        buildKalaStripPng(ringState, 2),
+        buildKalaStripPng(ringState, 3),
+      ]);
+      stripBuffer = s1;
+      strip2xBuffer = s2;
+      strip3xBuffer = s3;
+      console.log("[Apple Wallet] ✅ Dynamic strip rendered for rings",
+        `${ringState?.constancia?.progress ?? 0}/${ringState?.constancia?.goal ?? 1}`,
+        `${ringState?.esfuerzo?.progress ?? 0}/${ringState?.esfuerzo?.goal ?? 1}`,
+        `${ringState?.conexion?.progress ?? 0}/${ringState?.conexion?.goal ?? 1}`,
+      );
+    } catch (err) {
+      console.warn("[Apple Wallet] Dynamic strip render failed, falling back to disk:", err?.message);
+      stripBuffer = readAssetBuffer(stripPath);
+      strip2xBuffer = readAssetBuffer(strip2xPath) || stripBuffer;
+      strip3xBuffer = readAssetBuffer(strip3xPath) || strip2xBuffer || stripBuffer;
+    }
+  } else {
+    // Event passes keep disk-based strip art (event-specific)
+    stripBuffer = readAssetBuffer(stripPath);
+    strip2xBuffer = readAssetBuffer(strip2xPath) || stripBuffer;
+    strip3xBuffer = readAssetBuffer(strip3xPath) || strip2xBuffer || stripBuffer;
+  }
 
   console.log(
     "[Apple Wallet] Assets found — icon:", !!iconBuffer,
