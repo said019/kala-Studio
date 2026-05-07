@@ -144,38 +144,84 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   reminder_hours_before: 2,
 };
 
+// Templates en voz Kala (cercana, casual, con primer nombre).
+// Editables vía system_settings.notification_templates (admin UI).
+// Variables disponibles per-template documentadas en cada body.
 const DEFAULT_NOTIFICATION_TEMPLATES = {
-  booking_confirmed: {
-    subject: "Reserva confirmada",
-    body: "Hola {name}, tu reserva para {class} el {date} a las {time} está confirmada.",
-  },
-  booking_cancelled: {
-    subject: "Reserva cancelada",
-    body: "Hola {name}, tu reserva de {class} del {date} fue cancelada. Crédito devuelto: {creditRestored}.",
-  },
-  membership_activated: {
-    subject: "Membresía activada",
-    body: "Hola {name}, tu membresía {plan} ya está activa. Vigencia: {startDate} al {endDate}.",
-  },
-  transfer_rejected: {
-    subject: "Transferencia rechazada",
-    body: "Hola {name}, no pudimos aprobar tu comprobante. Motivo: {reason}.",
-  },
-  class_reminder: {
-    subject: "Recordatorio de clase",
-    body: "Hola {name}, te recordamos tu clase {class} a las {time}.",
-  },
-  renewal_reminder: {
-    subject: "Recordatorio de renovación",
-    body: "Hola {name}, tu plan {plan} está por vencer el {expiresAt}.",
-  },
+  // ── Onboarding y cuenta ─────────────────────────────────────────
   welcome: {
     subject: "Bienvenida a Kala",
-    body: "Hola {name}, bienvenida a Kala Barre Studio. Este es un paso mas hacia tus objetivos.",
+    body: "{firstName}, bienvenida a Kala Barre Studio. Este es un paso más hacia tus objetivos. Cuando quieras, reserva tu clase muestra desde la app.",
   },
   password_reset: {
     subject: "Recuperación de contraseña",
-    body: "Hola {name}, usa este enlace para restablecer tu contraseña: {link}",
+    body: "{firstName}, usa este enlace para restablecer tu contraseña: {link}",
+  },
+
+  // ── Reservas ────────────────────────────────────────────────────
+  booking_confirmed: {
+    subject: "Reserva confirmada",
+    body: "{firstName}, te apartamos lugar de {class} el {date} a las {time}. Tu pase Kala ya lo trae cargado. Te esperamos.",
+  },
+  booking_cancelled: {
+    subject: "Reserva cancelada",
+    body: "{firstName}, cancelaste tu reserva de {class} del {date}. Crédito devuelto: {creditRestored}. Cuando quieras volver, reservas desde la app.",
+  },
+  class_reminder: {
+    subject: "Recordatorio de clase",
+    body: "{firstName}, te recordamos tu clase de {class} a las {time}. Llega 10 minutos antes para acomodarte.",
+  },
+  class_attended: {
+    subject: "Check-in registrado",
+    body: "Listo, {firstName}. Tenemos tu check-in de {class}. Tus anillos en el pase ya se movieron. Buena clase. ✨",
+  },
+
+  // ── Membresía y pagos ───────────────────────────────────────────
+  membership_activated: {
+    subject: "Tu paquete está activo",
+    body: "{firstName}, tu paquete {plan} ya quedó activo. Vigencia: {startDate} al {endDate}. Tu pase Kala está al día. Cuando quieras, reservas tu primera clase desde la app.",
+  },
+  membership_expiring_today: {
+    subject: "Tu paquete vence hoy",
+    body: "{firstName}, hoy vence tu paquete Kala. Si quieres seguir, renueva desde la app y no perdemos el ritmo.",
+  },
+  membership_expiring_tomorrow: {
+    subject: "Tu paquete vence mañana",
+    body: "{firstName}, mañana vence tu paquete Kala. Renueva desde la app para no parar.",
+  },
+  membership_expiring_n_days: {
+    subject: "Tu paquete vence pronto",
+    body: "{firstName}, te quedan {days} días en tu paquete Kala. Renueva desde la app cuando quieras y seguimos sin pausa.",
+  },
+  membership_expired: {
+    subject: "Tu paquete terminó",
+    body: "{firstName}, tu paquete terminó. Aquí seguimos cuando quieras volver. Te recibimos como siempre, como una amiga en su casa.",
+  },
+  renewal_reminder: {
+    subject: "Recordatorio de renovación",
+    body: "{firstName}, tu plan {plan} está por vencer el {expiresAt}. Renueva desde la app para no parar.",
+  },
+  transfer_rejected: {
+    subject: "Comprobante rechazado",
+    body: "{firstName}, no pudimos aprobar tu comprobante. Motivo: {reason}. Mándanos uno nuevo desde la app o por WhatsApp.",
+  },
+
+  // ── Lealtad y eventos ──────────────────────────────────────────
+  rings_closed: {
+    subject: "3 anillos cerrados",
+    body: "{firstName}, cerraste tus 3 anillos esta semana. 💫 Tu pase Kala ya muestra la recompensa. Pasa por ella en recepción cuando vengas.",
+  },
+  points_earned: {
+    subject: "Sumaste puntos",
+    body: "{firstName}, sumaste {points} puntos Kala. Total: {totalPoints}. Canjéalos cuando se te antoje desde la app.",
+  },
+  reward_redeemed: {
+    subject: "Recompensa canjeada",
+    body: "{firstName}, canjeaste \"{rewardName}\" por {points} pts. Pasa por recepción a reclamarlo. Disfrútalo. ✨",
+  },
+  event_registered: {
+    subject: "Inscrita al evento",
+    body: "{firstName}, quedaste inscrita a \"{eventTitle}\". En tu Kala Wallet ya tienes el pase del evento con tu QR para entrar.",
   },
 };
 
@@ -5159,11 +5205,17 @@ const firstNameOf = (displayName, fallback = "") => {
 };
 
 /**
- * Send WhatsApp to a user. `textOrFn` is either a string or a function
- * (user) => string that builds a personalized message from the user record.
+ * Send a configured WhatsApp template to a user.
+ * Reads template body from system_settings.notification_templates (admin-editable).
+ * Falls back to inline message if template empty/missing.
+ *
+ * @param {string} userId
+ * @param {string} templateKey  Key into DEFAULT_NOTIFICATION_TEMPLATES
+ * @param {object} extraVars    Variables besides firstName/name (auto-filled from user)
+ * @param {string|((ctx:object)=>string)} fallback  Backup message if template is empty.
  */
-async function notifyWhatsAppForUser(userId, textOrFn) {
-  if (!userId || !textOrFn) return { sent: false, reason: "missing_arg" };
+async function notifyByTemplate(userId, templateKey, extraVars = {}, fallback = "") {
+  if (!userId || !templateKey) return { sent: false, reason: "missing_arg" };
   if (!EVOLUTION_API_URL || !EVOLUTION_INSTANCE) {
     return { sent: false, reason: "evolution_not_configured" };
   }
@@ -5179,131 +5231,177 @@ async function notifyWhatsAppForUser(userId, textOrFn) {
     }
     const number = phoneE164(u.phone);
     if (!number) return { sent: false, reason: "no_phone" };
-    const ctx = { firstName: firstNameOf(u.display_name, "alumna") };
-    const text = typeof textOrFn === "function" ? textOrFn(ctx) : String(textOrFn);
-    if (!text || !text.trim()) return { sent: false, reason: "empty_text" };
-    queueWhatsAppSend(number, text).catch((err) => {
-      console.warn(`[Notify WhatsApp] queue error user=${userId}:`, err?.message);
+    const firstName = firstNameOf(u.display_name, "alumna");
+    const vars = { firstName, name: u.display_name || firstName, ...extraVars };
+    const fallbackMessage = typeof fallback === "function" ? fallback(vars) : String(fallback || "");
+    return await sendConfiguredWhatsAppTemplate({
+      templateKey,
+      phone: number,
+      vars,
+      fallbackMessage,
     });
-    return { sent: true };
   } catch (err) {
-    console.error("[Notify WhatsApp] error:", err?.message);
+    console.error(`[Notify WhatsApp] error key=${templateKey}:`, err?.message);
     return { sent: false, reason: "exception", error: err?.message };
   }
 }
 
 /**
  * Class attended (check-in completado en estudio).
+ * Template: class_attended · vars: firstName, class
  */
 async function notifyClassAttended(userId, ctx = {}) {
   triggerWalletPassSync(userId, "class_attended");
-  const cls = ctx.className ? ` de ${ctx.className}` : "";
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `Listo, ${firstName}. Tenemos tu check-in${cls}. Tus anillos en el pase ya se movieron. Buena clase. ✨`
+  notifyByTemplate(
+    userId,
+    "class_attended",
+    { class: ctx.className || "tu clase" },
+    ({ firstName, class: cls }) => `Listo, ${firstName}. Tenemos tu check-in de ${cls}. Tus anillos se movieron. Buena clase. ✨`,
   ).catch(() => {});
 }
 
 /**
- * Points earned (loyalty change). Solo manda WA si el delta vale la pena (≥50 pts).
+ * Points earned. Manda WA solo si delta ≥ 50 pts (evita ruido por +10 por clase).
+ * Template: points_earned · vars: firstName, points, totalPoints
  */
 async function notifyPointsEarned(userId, points, totalPoints) {
   triggerWalletPassSync(userId, "points_earned");
   if (Number(points || 0) >= 50) {
-    notifyWhatsAppForUser(userId, ({ firstName }) =>
-      `${firstName}, sumaste ${points} puntos Kala. Total: ${totalPoints}. Canjéalos cuando se te antoje desde la app.`
+    notifyByTemplate(
+      userId,
+      "points_earned",
+      { points, totalPoints },
+      ({ firstName }) => `${firstName}, sumaste ${points} puntos Kala. Total: ${totalPoints}.`,
     ).catch(() => {});
   }
 }
 
 /**
- * 3 anillos cerrados → recompensa visual + mensaje cálido.
+ * 3 anillos cerrados → recompensa lista.
+ * Template: rings_closed · vars: firstName
  */
 async function notifyRingsClosed(userId) {
   triggerWalletPassSync(userId, "rings_closed");
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `${firstName}, cerraste tus 3 anillos esta semana. 💫 Tu pase Kala ya muestra la recompensa. Pasa por ella en recepción cuando vengas.`
+  notifyByTemplate(
+    userId,
+    "rings_closed",
+    {},
+    ({ firstName }) => `${firstName}, cerraste tus 3 anillos esta semana. Tu pase Kala ya muestra la recompensa.`,
   ).catch(() => {});
 }
 
 /**
- * Membresía activada (orden aprobada o admin la marcó como pagada).
+ * Membresía activada / renovada.
+ * Template: membership_activated · vars: firstName, plan, startDate, endDate
  */
-async function notifyMembershipRenewed(userId, planName) {
+async function notifyMembershipRenewed(userId, planName, ctx = {}) {
   triggerWalletPassSync(userId, "membership_renewed");
-  const plan = planName ? ` "${planName}"` : "";
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `${firstName}, tu paquete${plan} ya quedó activo. Tu pase Kala está al día. Cuando quieras, reservas tu primera clase desde la app.`
+  notifyByTemplate(
+    userId,
+    "membership_activated",
+    {
+      plan: planName || "tu paquete",
+      startDate: ctx.startDate || "",
+      endDate: ctx.endDate || "",
+    },
+    ({ firstName, plan }) => `${firstName}, tu paquete ${plan} ya quedó activo. Tu pase Kala está al día.`,
   ).catch(() => {});
 }
 
 /**
- * Membresía vence pronto. Cron 9am diario corre esto para los que están a 1d/5d/etc.
+ * Membresía vence pronto. Despacha al template más específico según urgencia.
+ * Templates: membership_expiring_today / _tomorrow / _n_days · vars: firstName, days
  */
 async function notifyMembershipExpiring(userId, daysRemaining) {
-  triggerWalletPassSync(userId, `membership_expiring_${daysRemaining}d`);
   const days = Number(daysRemaining);
-  notifyWhatsAppForUser(userId, ({ firstName }) => {
-    if (days <= 0) {
-      return `${firstName}, hoy vence tu paquete Kala. Si quieres seguir, renueva desde la app y no perdemos el ritmo.`;
-    }
-    if (days === 1) {
-      return `${firstName}, mañana vence tu paquete Kala. Renueva desde la app para no parar.`;
-    }
-    return `${firstName}, te quedan ${days} días en tu paquete Kala. Renueva desde la app cuando quieras y seguimos sin pausa.`;
-  }).catch(() => {});
+  triggerWalletPassSync(userId, `membership_expiring_${days}d`);
+  const key =
+    days <= 0 ? "membership_expiring_today"
+    : days === 1 ? "membership_expiring_tomorrow"
+    : "membership_expiring_n_days";
+  const fallback = ({ firstName }) => {
+    if (days <= 0) return `${firstName}, hoy vence tu paquete Kala. Renueva desde la app.`;
+    if (days === 1) return `${firstName}, mañana vence tu paquete Kala. Renueva desde la app.`;
+    return `${firstName}, te quedan ${days} días en tu paquete Kala.`;
+  };
+  notifyByTemplate(userId, key, { days }, fallback).catch(() => {});
 }
 
 /**
- * Membresía vencida (cron 10am sweep diario).
+ * Membresía vencida.
+ * Template: membership_expired · vars: firstName
  */
 async function notifyMembershipExpired(userId) {
   triggerWalletPassSync(userId, "membership_expired");
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `${firstName}, tu paquete terminó. Aquí seguimos cuando quieras volver. Te recibimos como siempre, como una amiga en su casa.`
+  notifyByTemplate(
+    userId,
+    "membership_expired",
+    {},
+    ({ firstName }) => `${firstName}, tu paquete terminó. Aquí seguimos cuando quieras volver.`,
   ).catch(() => {});
 }
 
 /**
  * Reserva confirmada.
+ * Template: booking_confirmed · vars: firstName, class, date, time
  */
 async function notifyBookingConfirmed(userId, ctx = {}) {
   triggerWalletPassSync(userId, "booking_confirmed");
-  notifyWhatsAppForUser(userId, ({ firstName }) => {
-    const cls = ctx.className ? ` de ${ctx.className}` : "";
-    const when = ctx.when ? ` el ${ctx.when}` : "";
-    return `${firstName}, te apartamos lugar${cls}${when}. Tu pase Kala ya lo trae cargado. Te esperamos.`;
-  }).catch(() => {});
-}
-
-/**
- * Reserva cancelada (kept for completeness; live flow usa template DB).
- */
-async function notifyBookingCancelled(userId, ctx = {}) {
-  triggerWalletPassSync(userId, "booking_cancelled");
-  const cls = ctx.className ? ` de ${ctx.className}` : "";
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `${firstName}, cancelaste tu reserva${cls}. Cuando quieras volver, reservas desde la app y aquí estamos.`
+  notifyByTemplate(
+    userId,
+    "booking_confirmed",
+    {
+      class: ctx.className || "tu clase",
+      date: ctx.date || ctx.when || "",
+      time: ctx.time || "",
+    },
+    ({ firstName, class: cls }) => `${firstName}, te apartamos lugar de ${cls}. Tu pase Kala ya lo trae cargado.`,
   ).catch(() => {});
 }
 
 /**
- * Inscripción a evento (masterclass / workshop / etc).
+ * Reserva cancelada (live flow usa el template DB en el endpoint mismo).
+ * Template: booking_cancelled · vars: firstName, class, date, creditRestored
  */
-async function notifyEventRegistered(userId, ctx = {}) {
-  triggerWalletPassSync(userId, "event_registered");
-  notifyWhatsAppForUser(userId, ({ firstName }) => {
-    const evt = ctx.eventTitle ? ` a "${ctx.eventTitle}"` : "";
-    return `${firstName}, quedaste inscrita${evt}. En tu Kala Wallet ya tienes el pase del evento con tu QR para entrar.`;
-  }).catch(() => {});
+async function notifyBookingCancelled(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "booking_cancelled");
+  notifyByTemplate(
+    userId,
+    "booking_cancelled",
+    {
+      class: ctx.className || "tu clase",
+      date: ctx.date || "",
+      creditRestored: ctx.creditRestored ? "Sí" : "No",
+    },
+    ({ firstName, class: cls }) => `${firstName}, cancelaste tu reserva de ${cls}.`,
+  ).catch(() => {});
 }
 
 /**
- * Recompensa canjeada (puntos → reward).
+ * Inscripción a evento.
+ * Template: event_registered · vars: firstName, eventTitle
+ */
+async function notifyEventRegistered(userId, ctx = {}) {
+  triggerWalletPassSync(userId, "event_registered");
+  notifyByTemplate(
+    userId,
+    "event_registered",
+    { eventTitle: ctx.eventTitle || "tu evento" },
+    ({ firstName, eventTitle }) => `${firstName}, quedaste inscrita a ${eventTitle}. En tu Kala Wallet ya tienes el pase con QR.`,
+  ).catch(() => {});
+}
+
+/**
+ * Recompensa canjeada.
+ * Template: reward_redeemed · vars: firstName, rewardName, points
  */
 async function notifyRewardRedeemed(userId, rewardName, pointsSpent) {
   triggerWalletPassSync(userId, "reward_redeemed");
-  notifyWhatsAppForUser(userId, ({ firstName }) =>
-    `${firstName}, canjeaste "${rewardName}" por ${pointsSpent} pts. Pasa por recepción a reclamarlo. Disfrútalo. ✨`
+  notifyByTemplate(
+    userId,
+    "reward_redeemed",
+    { rewardName: rewardName || "tu recompensa", points: pointsSpent },
+    ({ firstName, rewardName: rn }) => `${firstName}, canjeaste "${rn}". Pasa por recepción a reclamarlo. ✨`,
   ).catch(() => {});
 }
 
@@ -8145,6 +8243,93 @@ app.put("/api/settings/:key", adminMiddleware, async (req, res) => {
     );
     return res.json({ data: { key: req.params.key, value: merged } });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// ── WhatsApp templates (admin-friendly wrapper around notification_templates) ──
+// Variables disponibles por template — usado por admin UI para mostrar chips
+// de placeholders y validar al guardar.
+const TEMPLATE_VARIABLES = {
+  welcome: ["firstName"],
+  password_reset: ["firstName", "link"],
+  booking_confirmed: ["firstName", "class", "date", "time"],
+  booking_cancelled: ["firstName", "class", "date", "creditRestored"],
+  class_reminder: ["firstName", "class", "time"],
+  class_attended: ["firstName", "class"],
+  membership_activated: ["firstName", "plan", "startDate", "endDate"],
+  membership_expiring_today: ["firstName"],
+  membership_expiring_tomorrow: ["firstName"],
+  membership_expiring_n_days: ["firstName", "days"],
+  membership_expired: ["firstName"],
+  renewal_reminder: ["firstName", "plan", "expiresAt"],
+  transfer_rejected: ["firstName", "reason"],
+  rings_closed: ["firstName"],
+  points_earned: ["firstName", "points", "totalPoints"],
+  reward_redeemed: ["firstName", "rewardName", "points"],
+  event_registered: ["firstName", "eventTitle"],
+};
+
+app.get("/api/admin/whatsapp-templates", adminMiddleware, async (_req, res) => {
+  try {
+    const current = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+    return res.json({
+      data: {
+        templates: current,
+        defaults: DEFAULT_NOTIFICATION_TEMPLATES,
+        variables: TEMPLATE_VARIABLES,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.put("/api/admin/whatsapp-templates", adminMiddleware, async (req, res) => {
+  try {
+    const { templates } = req.body || {};
+    if (!templates || typeof templates !== "object") {
+      return res.status(400).json({ message: "Falta `templates` en el body" });
+    }
+    const merged = mergeSettingsWithDefaults("notification_templates", templates);
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()",
+      ["notification_templates", JSON.stringify(merged)]
+    );
+    return res.json({ data: { templates: merged } });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.post("/api/admin/whatsapp-templates/reset", adminMiddleware, async (_req, res) => {
+  try {
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()",
+      ["notification_templates", JSON.stringify(DEFAULT_NOTIFICATION_TEMPLATES)]
+    );
+    return res.json({ data: { templates: DEFAULT_NOTIFICATION_TEMPLATES } });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.post("/api/admin/whatsapp-templates/preview", adminMiddleware, async (req, res) => {
+  try {
+    const { templateKey, vars } = req.body || {};
+    if (!templateKey) {
+      return res.status(400).json({ message: "Falta `templateKey`" });
+    }
+    const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+    const tpl = templates?.[templateKey];
+    if (!tpl) return res.status(404).json({ message: "Template no encontrado" });
+    return res.json({
+      data: {
+        subject: renderTemplateVars(tpl.subject || "", vars || {}),
+        body: renderTemplateVars(tpl.body || "", vars || {}),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 // ─── Evolution API (WhatsApp) ─────────────────────────────────────────────────
