@@ -1,7 +1,7 @@
 import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ArrowRight, Check, AlertCircle } from "lucide-react";
-import kalaIconUrl from "@/assets/kala/kala-icon.png";
+import kalaLogoUrl from "@/assets/kala/kala-logo.png";
 
 /* ── Brand color roles, mirror landing ── */
 export const KALA = {
@@ -98,23 +98,15 @@ export const AuthShell = ({
         <div className="relative z-10 flex h-full min-h-[30vh] lg:min-h-screen flex-col justify-between p-6 sm:p-9 lg:p-12">
           <Link
             to="/"
-            className="inline-flex items-center gap-3 no-underline"
+            className="inline-flex items-center no-underline"
             aria-label="Inicio Kala Barre Studio"
           >
-            <span
-              className="grid h-10 w-10 place-items-center rounded-2xl"
-              style={{ backgroundColor: `${KALA.cream}1f`, border: `1px solid ${KALA.cream}33` }}
-            >
-              <img src={kalaIconUrl} alt="" className="h-7 w-7 object-contain" style={{ filter: "brightness(0) invert(1)" }} />
-            </span>
-            <div className="flex items-baseline gap-2">
-              <span className="font-bebas text-[1.7rem] sm:text-[2rem] leading-none tracking-tight" style={{ color: KALA.cream }}>
-                kala
-              </span>
-              <span className="hidden sm:inline-block text-[0.62rem] uppercase tracking-[0.32em]" style={{ color: KALA.cream, opacity: 0.7 }}>
-                SLP
-              </span>
-            </div>
+            <img
+              src={kalaLogoUrl}
+              alt="Kala Barre Studio"
+              className="h-10 sm:h-12 w-auto object-contain"
+              style={{ filter: "brightness(0) invert(1)" }}
+            />
           </Link>
 
           <div className="max-w-[440px]">
