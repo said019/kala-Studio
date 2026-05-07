@@ -223,6 +223,48 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Inscrita al evento",
     body: "{firstName}, quedaste inscrita a \"{eventTitle}\". En tu Kala Wallet ya tienes el pase del evento con tu QR para entrar.",
   },
+
+  // ── Motivación por asistencia (auto, max 1/día por user) ────────
+  motivation_first_class_week: {
+    subject: "Arrancando la semana",
+    body: "{firstName}, arrancas la semana 💪. {classesThisWeek} de {weekGoal} para cerrar tus anillos.",
+  },
+  motivation_almost_ringed: {
+    subject: "Te falta una",
+    body: "{firstName}, te falta 1 clase para cerrar tus anillos esta semana. Reserva la siguiente desde la app.",
+  },
+  motivation_streak_2_weeks: {
+    subject: "Dos semanas seguidas",
+    body: "{firstName}, 2 semanas seguidas con anillos cerrados. Vas con todo. ✨",
+  },
+  motivation_streak_4_weeks: {
+    subject: "Un mes completo",
+    body: "{firstName}, 1 mes completo cerrando anillos. Eso es disciplina real.",
+  },
+  motivation_streak_8_weeks: {
+    subject: "Imparable",
+    body: "{firstName}, 2 meses sin saltarte una semana. Imparable. ✨",
+  },
+  motivation_milestone_10_classes: {
+    subject: "10 clases",
+    body: "{firstName}, ya van 10 clases en Kala. Esto ya es hábito.",
+  },
+  motivation_milestone_25_classes: {
+    subject: "25 clases",
+    body: "{firstName}, 25 clases. Tu cuerpo ya nota el cambio.",
+  },
+  motivation_milestone_50_classes: {
+    subject: "50 clases",
+    body: "{firstName}, 50 clases. Eres parte de la familia Kala.",
+  },
+  motivation_milestone_100_classes: {
+    subject: "100 clases",
+    body: "{firstName}, 100 clases. 🌟 Eres leyenda Kala.",
+  },
+  motivation_comeback: {
+    subject: "Qué bueno tenerte de regreso",
+    body: "{firstName}, qué bueno tenerte de regreso. {daysAway} días sin verte fueron muchos.",
+  },
 };
 
 const DEFAULT_SETTINGS_BY_KEY = {
@@ -1406,6 +1448,18 @@ async function ensureSchema() {
     `).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_wallet_notification_logs_user ON wallet_notification_logs(user_id)`).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_wallet_notification_logs_created_at ON wallet_notification_logs(created_at DESC)`).catch(() => { });
+    // ── Motivation sends (dedupe ≤1/día y registro de qué milestone ya disparó) ──
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS motivation_sends (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        template_key VARCHAR(80) NOT NULL,
+        sent_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+        sent_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, sent_date)
+      );
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_motivation_sends_user_template ON motivation_sends(user_id, template_key)`).catch(() => { });
     // ── Review tags table ──────────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS review_tags (
@@ -5247,17 +5301,156 @@ async function notifyByTemplate(userId, templateKey, extraVars = {}, fallback = 
 }
 
 /**
+ * Pick the most relevant motivation template after a check-in.
+ * Returns null when no special context applies (caller will fall back to class_attended).
+ *
+ * Priority (envía solo UNA por check-in):
+ *   1. milestone (10/25/50/100 clases lifetime) — más impactante, one-shot
+ *   2. comeback (≥14 días sin venir desde el check-in previo)
+ *   3. streak_N (cerró el anillo HOY y entra a 2/4/8 semanas consecutivas)
+ *   4. almost_ringed (le falta exactamente 1 clase para cerrar la semana)
+ *   5. first_class_week (primera clase de la semana)
+ */
+async function pickMotivationTemplate(userId) {
+  // Lifetime attended count (incluye el check-in que acabamos de marcar).
+  const lifetimeRes = await pool.query(
+    "SELECT COUNT(*)::int AS total FROM bookings WHERE user_id = $1 AND status = 'checked_in'",
+    [userId],
+  );
+  const lifetime = lifetimeRes.rows[0]?.total || 0;
+
+  // Milestones lifetime — disparan exactamente al hit del número, no antes ni después.
+  const milestoneMap = {
+    10: "motivation_milestone_10_classes",
+    25: "motivation_milestone_25_classes",
+    50: "motivation_milestone_50_classes",
+    100: "motivation_milestone_100_classes",
+  };
+  if (milestoneMap[lifetime]) {
+    return { templateKey: milestoneMap[lifetime], vars: { lifetime } };
+  }
+
+  // Comeback: gap entre el check-in actual (más reciente) y el penúltimo.
+  const prevRes = await pool.query(
+    `SELECT checked_in_at
+       FROM bookings
+      WHERE user_id = $1 AND status = 'checked_in' AND checked_in_at IS NOT NULL
+      ORDER BY checked_in_at DESC
+      OFFSET 1 LIMIT 1`,
+    [userId],
+  );
+  const prevCheckin = prevRes.rows[0]?.checked_in_at;
+  if (prevCheckin) {
+    const daysAway = Math.floor((Date.now() - new Date(prevCheckin).getTime()) / 86400000);
+    if (daysAway >= 14) {
+      return { templateKey: "motivation_comeback", vars: { daysAway } };
+    }
+  }
+
+  // Ring state de la semana actual (ya actualizado por el trigger sincrono).
+  const weekRes = await pool.query(
+    `SELECT constancia_progress, constancia_goal, reward_unlocked
+       FROM ring_states
+      WHERE user_id = $1
+        AND week_start = date_trunc('week', NOW() AT TIME ZONE 'America/Mexico_City')::date
+      LIMIT 1`,
+    [userId],
+  );
+  const week = weekRes.rows[0];
+
+  // Streak: cuenta semanas consecutivas (incluyendo la actual si reward_unlocked) hacia atrás.
+  if (week?.reward_unlocked) {
+    const streakRes = await pool.query(
+      `SELECT week_start, reward_unlocked
+         FROM ring_states
+        WHERE user_id = $1
+        ORDER BY week_start DESC
+        LIMIT 12`,
+      [userId],
+    );
+    let streak = 0;
+    for (const row of streakRes.rows) {
+      if (row.reward_unlocked) streak++;
+      else break;
+    }
+    const streakMap = {
+      2: "motivation_streak_2_weeks",
+      4: "motivation_streak_4_weeks",
+      8: "motivation_streak_8_weeks",
+    };
+    if (streakMap[streak]) {
+      return { templateKey: streakMap[streak], vars: { streak } };
+    }
+  }
+
+  if (week) {
+    const goal = Number(week.constancia_goal || 1);
+    const progress = Number(week.constancia_progress || 0);
+    if (goal >= 2 && progress === goal - 1) {
+      return { templateKey: "motivation_almost_ringed", vars: {} };
+    }
+    if (progress === 1) {
+      return {
+        templateKey: "motivation_first_class_week",
+        vars: { classesThisWeek: 1, weekGoal: goal },
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve and send a motivation message for the user, deduped to ≤1/día.
+ * Milestones (one-shot) además se dedupan globalmente para que no se repitan.
+ * Returns the templateKey sent, or null if nothing fired.
+ */
+async function sendMotivationIfDue(userId) {
+  const pick = await pickMotivationTemplate(userId);
+  if (!pick) return null;
+  const { templateKey, vars } = pick;
+  // Milestones son one-shot: si ya se mandó alguna vez, no repetir.
+  if (templateKey.startsWith("motivation_milestone_")) {
+    const dup = await pool.query(
+      "SELECT 1 FROM motivation_sends WHERE user_id = $1 AND template_key = $2 LIMIT 1",
+      [userId, templateKey],
+    );
+    if (dup.rows.length) return null;
+  }
+  // Dedupe diario (UNIQUE(user_id, sent_date)). Si ya hay registro hoy, no mandar.
+  const insert = await pool.query(
+    `INSERT INTO motivation_sends (user_id, template_key, sent_date)
+     VALUES ($1, $2, CURRENT_DATE)
+     ON CONFLICT (user_id, sent_date) DO NOTHING
+     RETURNING id`,
+    [userId, templateKey],
+  );
+  if (!insert.rows.length) return null;
+  await notifyByTemplate(userId, templateKey, vars, "");
+  return templateKey;
+}
+
+/**
  * Class attended (check-in completado en estudio).
- * Template: class_attended · vars: firstName, class
+ * Si hay contexto motivacional (milestone/comeback/streak/almost/first), manda ese
+ * mensaje en lugar del genérico — un solo WhatsApp por check-in.
+ * Templates: class_attended (default) · motivation_* (cuando aplique)
  */
 async function notifyClassAttended(userId, ctx = {}) {
   triggerWalletPassSync(userId, "class_attended");
-  notifyByTemplate(
-    userId,
-    "class_attended",
-    { class: ctx.className || "tu clase" },
-    ({ firstName, class: cls }) => `Listo, ${firstName}. Tenemos tu check-in de ${cls}. Tus anillos se movieron. Buena clase. ✨`,
-  ).catch(() => {});
+  let motivated = null;
+  try {
+    motivated = await sendMotivationIfDue(userId);
+  } catch (err) {
+    console.warn("[Motivation] error:", err?.message);
+  }
+  if (!motivated) {
+    notifyByTemplate(
+      userId,
+      "class_attended",
+      { class: ctx.className || "tu clase" },
+      ({ firstName, class: cls }) => `Listo, ${firstName}. Tenemos tu check-in de ${cls}. Tus anillos se movieron. Buena clase. ✨`,
+    ).catch(() => {});
+  }
 }
 
 /**
@@ -8266,6 +8459,16 @@ const TEMPLATE_VARIABLES = {
   points_earned: ["firstName", "points", "totalPoints"],
   reward_redeemed: ["firstName", "rewardName", "points"],
   event_registered: ["firstName", "eventTitle"],
+  motivation_first_class_week: ["firstName", "classesThisWeek", "weekGoal"],
+  motivation_almost_ringed: ["firstName"],
+  motivation_streak_2_weeks: ["firstName"],
+  motivation_streak_4_weeks: ["firstName"],
+  motivation_streak_8_weeks: ["firstName"],
+  motivation_milestone_10_classes: ["firstName"],
+  motivation_milestone_25_classes: ["firstName"],
+  motivation_milestone_50_classes: ["firstName"],
+  motivation_milestone_100_classes: ["firstName"],
+  motivation_comeback: ["firstName", "daysAway"],
 };
 
 app.get("/api/admin/whatsapp-templates", adminMiddleware, async (_req, res) => {
@@ -8307,6 +8510,24 @@ app.post("/api/admin/whatsapp-templates/reset", adminMiddleware, async (_req, re
       ["notification_templates", JSON.stringify(DEFAULT_NOTIFICATION_TEMPLATES)]
     );
     return res.json({ data: { templates: DEFAULT_NOTIFICATION_TEMPLATES } });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.get("/api/admin/motivation/log", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const r = await pool.query(
+      `SELECT m.id, m.user_id, m.template_key, m.sent_date, m.sent_at,
+              u.display_name, u.phone
+         FROM motivation_sends m
+         LEFT JOIN users u ON u.id = m.user_id
+        ORDER BY m.sent_at DESC
+        LIMIT $1`,
+      [limit],
+    );
+    return res.json({ data: r.rows });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
   }
