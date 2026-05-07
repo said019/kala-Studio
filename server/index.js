@@ -5896,12 +5896,18 @@ app.get("/api/wallet/apple/pkpass", authMiddleware, async (req, res) => {
         res.setHeader("Content-Length", pkpassBuffer.length);
         return res.send(pkpassBuffer);
       } catch (pkpassErr) {
-        console.error("[Apple Wallet] ❌ .pkpass generation failed:", pkpassErr.message);
-        console.error("[Apple Wallet] ❌ Full error:", pkpassErr.stack || pkpassErr);
-        // Return JSON error so frontend knows what happened
+        console.error("[Apple Wallet] ❌ .pkpass generation failed:", {
+          message: pkpassErr?.message,
+          name: pkpassErr?.name,
+          code: pkpassErr?.code,
+          stack: String(pkpassErr?.stack || "").split("\n").slice(0, 8).join("\n"),
+          assetDir: typeof findAssetDir === "function" ? findAssetDir() : null,
+          userId: req.userId,
+          hasMembership: Boolean(membership),
+        });
         return res.status(500).json({
           message: "Error generando pase .pkpass",
-          error: pkpassErr.message,
+          error: pkpassErr?.message ?? String(pkpassErr),
           fallback: "webpass",
         });
       }
