@@ -265,6 +265,30 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Qué bueno tenerte de regreso",
     body: "{firstName}, qué bueno tenerte de regreso. {daysAway} días sin verte fueron muchos.",
   },
+
+  // ── Recompensas por asistencia (loyalty_milestones) ─────────────
+  // Disparan cuando el usuario alcanza N clases lifetime/mes/año.
+  // Acompañan al award (points/reward) auto-otorgado.
+  milestone_classes_5: {
+    subject: "Primera meta",
+    body: "{firstName}, llegaste a tu primera meta: {classes} clases. +{points} puntos en tu cuenta. Esto está prendiendo. ✨",
+  },
+  milestone_classes_10: {
+    subject: "10 clases",
+    body: "{firstName}, 10 clases. Esto ya es hábito. +{points} puntos a tu cuenta como reconocimiento.",
+  },
+  milestone_classes_25: {
+    subject: "25 clases",
+    body: "{firstName}, 25 clases en Kala. Tu cuerpo ya nota el cambio. +{points} puntos.",
+  },
+  milestone_classes_50: {
+    subject: "50 clases",
+    body: "{firstName}, 50 clases. Eres parte de la familia Kala. +{points} puntos.",
+  },
+  milestone_classes_100: {
+    subject: "100 clases",
+    body: "{firstName}, 100 clases. 🌟 Leyenda Kala. +{points} puntos para canjear como tú quieras.",
+  },
 };
 
 const DEFAULT_SETTINGS_BY_KEY = {
@@ -1460,6 +1484,51 @@ async function ensureSchema() {
       );
     `).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_motivation_sends_user_template ON motivation_sends(user_id, template_key)`).catch(() => { });
+    // ── Loyalty milestones (recompensas auto al hit de N clases) ─────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS loyalty_milestones (
+        id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name                 VARCHAR(120) NOT NULL,
+        description          TEXT,
+        classes_required     INTEGER NOT NULL CHECK (classes_required > 0),
+        period               VARCHAR(20) NOT NULL DEFAULT 'lifetime'
+                             CHECK (period IN ('lifetime', 'month', 'year')),
+        award_type           VARCHAR(20) NOT NULL DEFAULT 'points'
+                             CHECK (award_type IN ('points', 'reward')),
+        award_points         INTEGER DEFAULT 0,
+        award_reward_id      UUID REFERENCES loyalty_rewards(id) ON DELETE SET NULL,
+        message_template_key VARCHAR(80),
+        is_active            BOOLEAN DEFAULT true,
+        sort_order           INTEGER DEFAULT 0,
+        created_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(classes_required, period)
+      );
+    `).catch(() => { });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS loyalty_milestone_awards (
+        id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        milestone_id      UUID NOT NULL REFERENCES loyalty_milestones(id) ON DELETE CASCADE,
+        classes_at_award  INTEGER NOT NULL,
+        awarded_at        TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, milestone_id)
+      );
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_loyalty_milestone_awards_user ON loyalty_milestone_awards(user_id)`).catch(() => { });
+    // Seed default Kala milestones si la tabla está vacía
+    const lmCount = await pool.query("SELECT COUNT(*)::int AS n FROM loyalty_milestones");
+    if (lmCount.rows[0].n === 0) {
+      await pool.query(`
+        INSERT INTO loyalty_milestones (name, description, classes_required, period, award_type, award_points, message_template_key, sort_order) VALUES
+          ('Primera meta',          'Primer logro: 5 clases asistidas',   5,   'lifetime', 'points', 50,  'milestone_classes_5',   10),
+          ('Hábito en marcha',      '10 clases. Esto ya es hábito.',       10,  'lifetime', 'points', 100, 'milestone_classes_10',  20),
+          ('Cuerpo en cambio',      '25 clases. El cuerpo lo nota.',       25,  'lifetime', 'points', 250, 'milestone_classes_25',  30),
+          ('Familia Kala',          '50 clases. Eres parte del estudio.',  50,  'lifetime', 'points', 500, 'milestone_classes_50',  40),
+          ('Leyenda Kala',          '100 clases. Imparable.',              100, 'lifetime', 'points', 1000,'milestone_classes_100', 50)
+        ON CONFLICT DO NOTHING;
+      `).catch(() => { });
+    }
     // ── Review tags table ──────────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS review_tags (
@@ -5319,16 +5388,8 @@ async function pickMotivationTemplate(userId) {
   );
   const lifetime = lifetimeRes.rows[0]?.total || 0;
 
-  // Milestones lifetime — disparan exactamente al hit del número, no antes ni después.
-  const milestoneMap = {
-    10: "motivation_milestone_10_classes",
-    25: "motivation_milestone_25_classes",
-    50: "motivation_milestone_50_classes",
-    100: "motivation_milestone_100_classes",
-  };
-  if (milestoneMap[lifetime]) {
-    return { templateKey: milestoneMap[lifetime], vars: { lifetime } };
-  }
+  // Milestones lifetime ahora los maneja loyalty_milestones (recompensas + WA).
+  // Esta función se enfoca solo en streak/comeback/almost/first.
 
   // Comeback: gap entre el check-in actual (más reciente) y el penúltimo.
   const prevRes = await pool.query(
@@ -5430,20 +5491,126 @@ async function sendMotivationIfDue(userId) {
 }
 
 /**
+ * Check loyalty milestones (recompensas auto al hit de N clases).
+ * Otorga puntos/recompensa, manda WA con template configurable, y registra en
+ * motivation_sends para que el resto del pipeline (motivation/class_attended)
+ * no mande otro mensaje el mismo día.
+ *
+ * Returns array of awarded milestones (vacío si ninguno disparó).
+ */
+async function checkLoyaltyMilestones(userId) {
+  // Milestones activos NO otorgados todavía a este usuario.
+  const milestonesRes = await pool.query(
+    `SELECT m.id, m.name, m.classes_required, m.period, m.award_type, m.award_points,
+            m.award_reward_id, m.message_template_key
+       FROM loyalty_milestones m
+      WHERE m.is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM loyalty_milestone_awards a
+           WHERE a.user_id = $1 AND a.milestone_id = m.id
+        )
+      ORDER BY m.classes_required ASC`,
+    [userId],
+  );
+  if (!milestonesRes.rows.length) return [];
+
+  // Conteos por período (lifetime/month/year). Calculamos solo los que se necesiten.
+  const counts = {};
+  const ensureCount = async (period) => {
+    if (counts[period] !== undefined) return counts[period];
+    let q;
+    if (period === "month") {
+      q = `SELECT COUNT(*)::int AS n FROM bookings
+            WHERE user_id = $1 AND status = 'checked_in'
+              AND date_trunc('month', checked_in_at AT TIME ZONE 'America/Mexico_City')
+                = date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City')`;
+    } else if (period === "year") {
+      q = `SELECT COUNT(*)::int AS n FROM bookings
+            WHERE user_id = $1 AND status = 'checked_in'
+              AND date_trunc('year', checked_in_at AT TIME ZONE 'America/Mexico_City')
+                = date_trunc('year', NOW() AT TIME ZONE 'America/Mexico_City')`;
+    } else {
+      q = "SELECT COUNT(*)::int AS n FROM bookings WHERE user_id = $1 AND status = 'checked_in'";
+    }
+    const r = await pool.query(q, [userId]);
+    counts[period] = r.rows[0]?.n || 0;
+    return counts[period];
+  };
+
+  const awarded = [];
+  for (const m of milestonesRes.rows) {
+    const count = await ensureCount(m.period);
+    if (count < m.classes_required) continue;
+
+    // Insert award (idempotente por UNIQUE(user_id, milestone_id)).
+    const ins = await pool.query(
+      `INSERT INTO loyalty_milestone_awards (user_id, milestone_id, classes_at_award)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, milestone_id) DO NOTHING
+       RETURNING id`,
+      [userId, m.id, count],
+    );
+    if (!ins.rows.length) continue; // race: ya estaba.
+
+    // Aplicar el award.
+    if (m.award_type === "points" && Number(m.award_points) > 0) {
+      await pool.query(
+        "INSERT INTO loyalty_transactions (user_id, type, points, description) VALUES ($1, 'earn', $2, $3)",
+        [userId, m.award_points, `Milestone: ${m.name}`],
+      ).catch((err) => console.warn("[Milestone] points insert error:", err?.message));
+    } else if (m.award_type === "reward" && m.award_reward_id) {
+      // Auto-grant: log como transacción 0pts y opcionalmente decrementa stock.
+      await pool.query(
+        `INSERT INTO loyalty_transactions (user_id, type, points, description)
+         VALUES ($1, 'earn', 0, $2)`,
+        [userId, `Milestone reward: ${m.name}`],
+      ).catch(() => {});
+    }
+
+    // Reservar el slot del día en motivation_sends para evitar duplicados.
+    if (m.message_template_key) {
+      const reserved = await pool.query(
+        `INSERT INTO motivation_sends (user_id, template_key, sent_date)
+         VALUES ($1, $2, CURRENT_DATE)
+         ON CONFLICT (user_id, sent_date) DO NOTHING
+         RETURNING id`,
+        [userId, m.message_template_key],
+      );
+      if (reserved.rows.length) {
+        notifyByTemplate(
+          userId,
+          m.message_template_key,
+          { classes: count, points: m.award_points || 0, milestoneName: m.name },
+          ({ firstName }) => `${firstName}, alcanzaste un nuevo logro: ${m.name}.`,
+        ).catch(() => {});
+      }
+    }
+    triggerWalletPassSync(userId, `milestone_${m.classes_required}_${m.period}`);
+    awarded.push(m);
+  }
+  return awarded;
+}
+
+/**
  * Class attended (check-in completado en estudio).
- * Si hay contexto motivacional (milestone/comeback/streak/almost/first), manda ese
- * mensaje en lugar del genérico — un solo WhatsApp por check-in.
- * Templates: class_attended (default) · motivation_* (cuando aplique)
+ * Pipeline: loyalty milestone → motivation → fallback class_attended.
+ * Solo UN WhatsApp por check-in (motivation_sends UNIQUE(user_id, sent_date)).
  */
 async function notifyClassAttended(userId, ctx = {}) {
   triggerWalletPassSync(userId, "class_attended");
+  let milestonesAwarded = [];
+  try {
+    milestonesAwarded = await checkLoyaltyMilestones(userId);
+  } catch (err) {
+    console.warn("[Milestones] error:", err?.message);
+  }
   let motivated = null;
   try {
     motivated = await sendMotivationIfDue(userId);
   } catch (err) {
     console.warn("[Motivation] error:", err?.message);
   }
-  if (!motivated) {
+  if (!milestonesAwarded.length && !motivated) {
     notifyByTemplate(
       userId,
       "class_attended",
@@ -8190,6 +8357,130 @@ app.delete("/api/loyalty/rewards/:id", adminMiddleware, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
+// ─── Loyalty milestones (recompensas auto al hit de N clases) ────────────
+// GET /api/admin/loyalty-milestones — admin list with how many users have claimed each.
+app.get("/api/admin/loyalty-milestones", adminMiddleware, async (_req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT m.*,
+             (SELECT COUNT(*) FROM loyalty_milestone_awards a WHERE a.milestone_id = m.id)::int AS awarded_count
+        FROM loyalty_milestones m
+       ORDER BY m.sort_order ASC, m.classes_required ASC
+    `);
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// POST /api/admin/loyalty-milestones
+app.post("/api/admin/loyalty-milestones", adminMiddleware, async (req, res) => {
+  try {
+    const {
+      name, description, classes_required, period = "lifetime",
+      award_type = "points", award_points = 0, award_reward_id,
+      message_template_key, is_active = true, sort_order = 0,
+    } = req.body || {};
+    if (!name || !Number.isFinite(Number(classes_required)) || Number(classes_required) < 1) {
+      return res.status(400).json({ message: "name y classes_required (>=1) son requeridos" });
+    }
+    const r = await pool.query(
+      `INSERT INTO loyalty_milestones (name, description, classes_required, period, award_type, award_points, award_reward_id, message_template_key, is_active, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [name, description || null, Number(classes_required), period, award_type, Number(award_points) || 0,
+       award_reward_id || null, message_template_key || null, is_active, Number(sort_order) || 0],
+    );
+    return res.status(201).json({ data: r.rows[0] });
+  } catch (err) { return res.status(500).json({ message: "Error interno", error: err.message }); }
+});
+
+// PUT /api/admin/loyalty-milestones/:id
+app.put("/api/admin/loyalty-milestones/:id", adminMiddleware, async (req, res) => {
+  try {
+    const {
+      name, description, classes_required, period, award_type,
+      award_points, award_reward_id, message_template_key, is_active, sort_order,
+    } = req.body || {};
+    const r = await pool.query(
+      `UPDATE loyalty_milestones SET
+         name = COALESCE($1, name),
+         description = COALESCE($2, description),
+         classes_required = COALESCE($3, classes_required),
+         period = COALESCE($4, period),
+         award_type = COALESCE($5, award_type),
+         award_points = COALESCE($6, award_points),
+         award_reward_id = COALESCE($7, award_reward_id),
+         message_template_key = COALESCE($8, message_template_key),
+         is_active = COALESCE($9, is_active),
+         sort_order = COALESCE($10, sort_order),
+         updated_at = NOW()
+       WHERE id = $11 RETURNING *`,
+      [name ?? null, description ?? null, classes_required ?? null, period ?? null,
+       award_type ?? null, award_points ?? null, award_reward_id ?? null,
+       message_template_key ?? null, is_active ?? null, sort_order ?? null, req.params.id],
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Milestone no encontrado" });
+    return res.json({ data: r.rows[0] });
+  } catch (err) { return res.status(500).json({ message: "Error interno", error: err.message }); }
+});
+
+// DELETE /api/admin/loyalty-milestones/:id
+app.delete("/api/admin/loyalty-milestones/:id", adminMiddleware, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM loyalty_milestones WHERE id = $1", [req.params.id]);
+    return res.json({ message: "Milestone eliminado" });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// GET /api/admin/loyalty-milestones/awards — feed de quién ganó qué (auditoría)
+app.get("/api/admin/loyalty-milestones/awards", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const r = await pool.query(`
+      SELECT a.id, a.user_id, a.classes_at_award, a.awarded_at,
+             u.display_name, u.phone,
+             m.name AS milestone_name, m.classes_required, m.award_type, m.award_points
+        FROM loyalty_milestone_awards a
+        LEFT JOIN users u ON u.id = a.user_id
+        LEFT JOIN loyalty_milestones m ON m.id = a.milestone_id
+       ORDER BY a.awarded_at DESC
+       LIMIT $1
+    `, [limit]);
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// GET /api/loyalty/milestones/me — progreso del usuario logueado (próximo milestone)
+app.get("/api/loyalty/milestones/me", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const lifetimeRes = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM bookings WHERE user_id = $1 AND status = 'checked_in'",
+      [userId],
+    );
+    const lifetime = lifetimeRes.rows[0]?.n || 0;
+    const milestonesRes = await pool.query(
+      `SELECT m.id, m.name, m.description, m.classes_required, m.period, m.award_type, m.award_points,
+              CASE WHEN a.id IS NOT NULL THEN true ELSE false END AS achieved,
+              a.awarded_at
+         FROM loyalty_milestones m
+         LEFT JOIN loyalty_milestone_awards a
+           ON a.milestone_id = m.id AND a.user_id = $1
+        WHERE m.is_active = true
+        ORDER BY m.sort_order ASC, m.classes_required ASC`,
+      [userId],
+    );
+    const next = milestonesRes.rows.find((m) => !m.achieved && m.period === "lifetime");
+    return res.json({
+      data: {
+        lifetime_classes: lifetime,
+        next_milestone: next || null,
+        next_progress: next ? Math.min(lifetime, next.classes_required) : null,
+        next_remaining: next ? Math.max(0, next.classes_required - lifetime) : null,
+        milestones: milestonesRes.rows,
+      },
+    });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
 // GET /api/loyalty/points/:userId
 app.get("/api/loyalty/points/:userId", adminMiddleware, async (req, res) => {
   try {
@@ -8497,6 +8788,11 @@ const TEMPLATE_VARIABLES = {
   motivation_milestone_50_classes: ["firstName"],
   motivation_milestone_100_classes: ["firstName"],
   motivation_comeback: ["firstName", "daysAway"],
+  milestone_classes_5: ["firstName", "classes", "points"],
+  milestone_classes_10: ["firstName", "classes", "points"],
+  milestone_classes_25: ["firstName", "classes", "points"],
+  milestone_classes_50: ["firstName", "classes", "points"],
+  milestone_classes_100: ["firstName", "classes", "points"],
 };
 
 app.get("/api/admin/whatsapp-templates", adminMiddleware, async (_req, res) => {
