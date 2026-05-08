@@ -1057,6 +1057,16 @@ function GenerateTab({
             Solo plantilla
           </Button>
         </div>
+        {!presetInstructorId && instructors.length === 0 && (
+          <p className="text-xs text-[#F58A24] flex items-center gap-1.5 mt-2">
+            <Sparkles size={12} /> Crea una instructora primero en la tab "Instructoras".
+          </p>
+        )}
+        {!presetInstructorId && instructors.length > 0 && (
+          <p className="text-xs text-white/45 mt-2">
+            Selecciona una instructora arriba para activar el botón.
+          </p>
+        )}
       </div>
 
       {/* ── Step 1: Class type + Instructor ── */}
