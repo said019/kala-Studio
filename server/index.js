@@ -100,8 +100,7 @@ function normalizeBankInfo(rawValue) {
     clabeDigits === "012180012345678901" ||
     clabeDigits === "710180000068980" ||
     holderLower.includes("balance studio") ||
-    holderLower.includes("ophelia jump studio sa de cv") ||
-    holderLower.includes("balance studio");
+    holderLower.includes("kala barre studio");
 
   const base = shouldUseDefault ? DEFAULT_BANK_INFO : candidate;
   const formattedAccount = formatAccountNumber(base.account_number || DEFAULT_BANK_INFO.account_number);
@@ -363,7 +362,7 @@ const VIDEO_MAX_MB = 500;
 const uploadVideo = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, os.tmpdir()),
-    filename: (req, file, cb) => cb(null, `ophelia_vid_${Date.now()}_${file.originalname}`),
+    filename: (req, file, cb) => cb(null, `kala_vid_${Date.now()}_${file.originalname}`),
   }),
   limits: { fileSize: VIDEO_MAX_MB * 1024 * 1024 },
 });
@@ -392,7 +391,7 @@ async function uploadBufferToDrive(buffer, fileName, mimeType, accessToken) {
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
   const metadata = { name: fileName, ...(folderId ? { parents: [folderId] } : {}) };
   // Build multipart body manually
-  const boundary = "ophelia_boundary_" + Date.now();
+  const boundary = "kala_boundary_" + Date.now();
   const metaPart = Buffer.from(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`
   );
@@ -4743,7 +4742,7 @@ function buildAppleWalletSerialFromUserId(userId) {
 }
 
 function parseUserIdFromAppleWalletSerial(serial) {
-  const raw = String(serial || "").replace(/^(kala_|ophelia_)/, "").trim();
+  const raw = String(serial || "").replace(/^kala_/, "").trim();
   if (!/^[0-9a-fA-F]{32}$/.test(raw)) return null;
   return raw.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5").toLowerCase();
 }
@@ -4912,7 +4911,7 @@ function findAssetDir() {
     path.join(process.cwd(), "dist"),
   ];
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "ophelia-logo.png"))) {
+    if (fs.existsSync(path.join(dir, "wallet-logo.png"))) {
       return dir;
     }
   }
@@ -6597,7 +6596,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     `wallet-icon-${assetCategory}.png`,
     "wallet-icon-event.png",
     "wallet-icon-mixto.png",
-    "ophelia-logo.png",
   ]);
   const icon2xPath = findAssetFile([
     `wallet-icon-${assetCategory}@2x.png`,
@@ -6606,7 +6604,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     `wallet-icon-${assetCategory}.png`,
     "wallet-icon-event.png",
     "wallet-icon-mixto.png",
-    "ophelia-logo.png",
   ]);
   const icon3xPath = findAssetFile([
     `wallet-icon-${assetCategory}@3x.png`,
@@ -6618,20 +6615,15 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     `wallet-icon-${assetCategory}.png`,
     "wallet-icon-event.png",
     "wallet-icon-mixto.png",
-    "ophelia-logo.png",
   ]);
 
   const logoPath = findAssetFile([
     "wallet-logo.png",
-    "ophelia-logo-full.png",
-    "ophelia-logo.png",
     "wallet-logo-black.png",
   ]);
   const logo2xPath = findAssetFile([
     "wallet-logo@2x.png",
     "wallet-logo.png",
-    "ophelia-logo-full.png",
-    "ophelia-logo.png",
     "wallet-logo-black@2x.png",
     "wallet-logo-black.png",
   ]);
@@ -6639,8 +6631,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     "wallet-logo@3x.png",
     "wallet-logo@2x.png",
     "wallet-logo.png",
-    "ophelia-logo-full.png",
-    "ophelia-logo.png",
     "wallet-logo-black@3x.png",
     "wallet-logo-black@2x.png",
     "wallet-logo-black.png",
@@ -6651,7 +6641,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     "wallet-thumb-event.png",
     `wallet-icon-${assetCategory}.png`,
     "wallet-icon-event.png",
-    "ophelia-logo.png",
   ]);
   const thumb2xPath = findAssetFile([
     `wallet-thumb-${assetCategory}@2x.png`,
@@ -6662,7 +6651,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     "wallet-icon-event@2x.png",
     `wallet-icon-${assetCategory}.png`,
     "wallet-icon-event.png",
-    "ophelia-logo.png",
   ]);
 
   let dynamicStripName = "none";
@@ -7142,8 +7130,8 @@ app.get("/api/wallet/apple/debug", authMiddleware, async (req, res) => {
     },
     assetDir: findAssetDir(),
     assetsFound: {
-      "ophelia-logo.png": fs.existsSync(path.join(findAssetDir(), "ophelia-logo.png")),
-      "ophelia-logo-full.png": fs.existsSync(path.join(findAssetDir(), "ophelia-logo-full.png")),
+      "wallet-logo.png": fs.existsSync(path.join(findAssetDir(), "wallet-logo.png")),
+      "wallet-logo@2x.png": fs.existsSync(path.join(findAssetDir(), "wallet-logo@2x.png")),
     },
     opensslVersion: "unknown",
     keyValidation: "not tested",
@@ -9445,7 +9433,7 @@ app.post("/api/evolution/connect", adminMiddleware, async (req, res) => {
 
       if (createAlreadyInUse) {
         return res.status(409).json({
-          message: `No se pudo obtener QR para la instancia "${EVOLUTION_INSTANCE}". Ese nombre ya está en uso. Cambia EVOLUTION_INSTANCE_NAME en Railway por un nombre único (ej. ophelia-jump-studio-2026).`,
+          message: `No se pudo obtener QR para la instancia "${EVOLUTION_INSTANCE}". Ese nombre ya está en uso. Cambia EVOLUTION_INSTANCE_NAME en Railway por un nombre único (ej. kala-barre-studio-2026).`,
         });
       }
       return res.status(502).json({ message: "Evolution respondió sin QR. Intenta nuevamente en unos segundos." });

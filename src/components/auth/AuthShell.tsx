@@ -1,7 +1,6 @@
 import { forwardRef, useState, type InputHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff, Loader2, ArrowRight, Check, AlertCircle } from "lucide-react";
-import kalaLogoUrl from "@/assets/kala/kala-logo.png";
 
 /* ── Brand color roles, mirror landing ── */
 export const KALA = {
@@ -102,7 +101,7 @@ export const AuthShell = ({
             aria-label="Inicio Kala Barre Studio"
           >
             <img
-              src={kalaLogoUrl}
+              src="/wallet-logo@2x.png"
               alt="Kala Barre Studio"
               className="h-10 sm:h-12 w-auto object-contain"
               style={{ filter: "brightness(0) invert(1)" }}

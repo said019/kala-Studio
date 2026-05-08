@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
-import kalaLogo from "@/assets/kala/kala-logo.png";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, ShoppingBag,
@@ -129,7 +128,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           {!isCompact && (
             <div className="flex flex-col">
               <img
-                src={kalaLogo}
+                src="/wallet-logo@2x.png"
                 alt="Kala Barre Studio"
                 className="h-9 w-auto object-contain drop-shadow-[0_0_20px_rgba(233,116,95,0.18)]"
                 style={{ filter: "brightness(0) invert(1)" }}
