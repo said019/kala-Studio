@@ -1813,14 +1813,14 @@ async function ensureSchema() {
 
 
   try {
-    const adminHash = await bcrypt.hash("Ophelia2026!", 12);
+    const adminHash = await bcrypt.hash("KalaBarre2026!", 12);
     await pool.query(
       `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications)
-       VALUES ('Admin Ophelia', 'admin@kalabarre.mx', '0000000000', $1, 'admin', true, false)
-       ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $1`,
+       VALUES ('Admin Kala', 'admin@kalabarre.mx', '0000000000', $1, 'admin', true, false)
+       ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $1, display_name = 'Admin Kala'`,
       [adminHash]
     );
-    console.log("✅ Admin user ready: admin@kalabarre.mx / Ophelia2026!");
+    console.log("✅ Admin user ready: admin@kalabarre.mx / KalaBarre2026!");
   } catch (err) {
     console.error("Admin seed warning:", err.message);
   }
@@ -13068,7 +13068,7 @@ async function bootServer() {
   // Initialize Google Wallet loyalty class if configured
   ensureGoogleWalletClass().catch(() => { });
   app.listen(PORT, () => {
-    console.log(`🚀 Ophelia API + Frontend → http://localhost:${PORT}`);
+    console.log(`🚀 Kala API + Frontend → http://localhost:${PORT}`);
   });
 }
 
