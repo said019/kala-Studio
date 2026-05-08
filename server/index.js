@@ -289,6 +289,25 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "100 clases",
     body: "{firstName}, 100 clases. 🌟 Leyenda Kala. +{points} puntos para canjear como tú quieras.",
   },
+
+  // ── Promociones (broadcast manual por segmento) ─────────────────
+  // Editables. {message} es el cuerpo que la dueña escribe en el admin.
+  promo_custom: {
+    subject: "Promo Kala",
+    body: "{firstName}, {message}",
+  },
+  promo_dormant_invite: {
+    subject: "Te extrañamos en el estudio",
+    body: "{firstName}, llevamos {days} días sin verte. Te queremos de regreso. {message}",
+  },
+  promo_expiring_offer: {
+    subject: "Renueva con beneficio",
+    body: "{firstName}, tu paquete vence pronto. {message}",
+  },
+  promo_birthday_month: {
+    subject: "Feliz mes",
+    body: "{firstName}, este mes cumples años y te tenemos algo. {message}",
+  },
 };
 
 const DEFAULT_SETTINGS_BY_KEY = {
@@ -1516,6 +1535,43 @@ async function ensureSchema() {
       );
     `).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_loyalty_milestone_awards_user ON loyalty_milestone_awards(user_id)`).catch(() => { });
+    // ── Campaigns (broadcast manual de promos por segmento) ──────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        name            VARCHAR(160) NOT NULL,
+        segment         VARCHAR(60) NOT NULL,
+        message         TEXT,
+        template_key    VARCHAR(80),
+        template_vars   JSONB DEFAULT '{}'::jsonb,
+        total_targets   INTEGER NOT NULL DEFAULT 0,
+        total_sent      INTEGER NOT NULL DEFAULT 0,
+        total_failed    INTEGER NOT NULL DEFAULT 0,
+        total_skipped   INTEGER NOT NULL DEFAULT 0,
+        status          VARCHAR(20) NOT NULL DEFAULT 'queued'
+                        CHECK (status IN ('queued', 'sending', 'completed', 'failed')),
+        created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+        created_at      TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        completed_at    TIMESTAMP WITH TIME ZONE
+      );
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns(created_at DESC)`).catch(() => { });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS campaign_logs (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        campaign_id  UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+        phone        VARCHAR(40),
+        status       VARCHAR(20) NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'sent', 'skipped', 'failed')),
+        reason       VARCHAR(80),
+        rendered     TEXT,
+        sent_at      TIMESTAMP WITH TIME ZONE,
+        created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_logs_campaign ON campaign_logs(campaign_id, status)`).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_campaign_logs_user ON campaign_logs(user_id)`).catch(() => { });
     // Seed default Kala milestones si la tabla está vacía
     const lmCount = await pool.query("SELECT COUNT(*)::int AS n FROM loyalty_milestones");
     if (lmCount.rows[0].n === 0) {
@@ -8481,6 +8537,320 @@ app.get("/api/loyalty/milestones/me", authMiddleware, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
+// ─── Campañas (broadcast manual de promociones por segmento) ────────────────
+// Segmentos pre-armados via SQL. Cada query devuelve users con phone + display_name
+// + accepts_communications/receive_reminders + extra context (days_inactive, etc).
+const CAMPAIGN_SEGMENTS = {
+  all_active: {
+    label: "Todas las alumnas activas",
+    sql: `
+      SELECT u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             NULL::int AS days_inactive, NULL::date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+        JOIN memberships m ON m.user_id = u.id
+       WHERE u.is_active = true
+         AND m.status = 'active'
+         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+       GROUP BY u.id`,
+  },
+  dormant_14d: {
+    label: "Alumnas sin venir 14+ días",
+    sql: `
+      SELECT u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             COALESCE((CURRENT_DATE - MAX(b.checked_in_at)::date)::int, 999) AS days_inactive,
+             NULL::date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+        LEFT JOIN bookings b ON b.user_id = u.id AND b.status = 'checked_in'
+       WHERE u.is_active = true
+       GROUP BY u.id
+      HAVING COALESCE(MAX(b.checked_in_at), '1970-01-01'::timestamptz)
+             < (NOW() - INTERVAL '14 days')`,
+  },
+  dormant_30d: {
+    label: "Alumnas sin venir 30+ días",
+    sql: `
+      SELECT u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             COALESCE((CURRENT_DATE - MAX(b.checked_in_at)::date)::int, 999) AS days_inactive,
+             NULL::date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+        LEFT JOIN bookings b ON b.user_id = u.id AND b.status = 'checked_in'
+       WHERE u.is_active = true
+       GROUP BY u.id
+      HAVING COALESCE(MAX(b.checked_in_at), '1970-01-01'::timestamptz)
+             < (NOW() - INTERVAL '30 days')`,
+  },
+  expiring_7d: {
+    label: "Membresía vence en 7 días",
+    sql: `
+      SELECT DISTINCT ON (u.id)
+             u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             NULL::int AS days_inactive, m.end_date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+        JOIN memberships m ON m.user_id = u.id
+       WHERE u.is_active = true
+         AND m.status = 'active'
+         AND m.end_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '7 days')
+       ORDER BY u.id, m.end_date ASC`,
+  },
+  expired_recently: {
+    label: "Membresía vencida en últimos 30 días",
+    sql: `
+      SELECT DISTINCT ON (u.id)
+             u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             NULL::int AS days_inactive, m.end_date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+        JOIN memberships m ON m.user_id = u.id
+       WHERE u.is_active = true
+         AND m.end_date BETWEEN (CURRENT_DATE - INTERVAL '30 days') AND (CURRENT_DATE - INTERVAL '1 day')
+         AND NOT EXISTS (
+           SELECT 1 FROM memberships m2
+            WHERE m2.user_id = u.id AND m2.status = 'active'
+              AND (m2.end_date IS NULL OR m2.end_date >= CURRENT_DATE)
+         )
+       ORDER BY u.id, m.end_date DESC`,
+  },
+  birthday_month: {
+    label: "Cumpleaños este mes",
+    sql: `
+      SELECT u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             NULL::int AS days_inactive, NULL::date AS plan_expires_at, u.date_of_birth
+        FROM users u
+       WHERE u.is_active = true
+         AND u.date_of_birth IS NOT NULL
+         AND EXTRACT(MONTH FROM u.date_of_birth) = EXTRACT(MONTH FROM CURRENT_DATE)`,
+  },
+  all: {
+    label: "Todas las alumnas (con cuidado)",
+    sql: `
+      SELECT u.id, u.display_name, u.phone, u.accepts_communications, u.receive_reminders,
+             NULL::int AS days_inactive, NULL::date AS plan_expires_at, NULL::date AS date_of_birth
+        FROM users u
+       WHERE u.is_active = true`,
+  },
+};
+
+async function resolveCampaignTargets(segment) {
+  const cfg = CAMPAIGN_SEGMENTS[segment];
+  if (!cfg) throw new Error(`segment desconocido: ${segment}`);
+  const r = await pool.query(cfg.sql);
+  return r.rows;
+}
+
+/**
+ * Build template vars for a target row, merging campaign-level vars
+ * with row-derived values (firstName, days, etc).
+ */
+function buildCampaignVars(target, baseVars = {}, message = "") {
+  const firstName = firstNameOf(target.display_name, "alumna");
+  return {
+    firstName,
+    name: target.display_name || firstName,
+    message: message || baseVars.message || "",
+    days: target.days_inactive ?? baseVars.days ?? "",
+    ...baseVars,
+  };
+}
+
+/**
+ * Send a campaign in the background. Each target gets its own row in
+ * campaign_logs. Respects opt-out (accepts_communications + receive_reminders).
+ * Uses queueWhatsAppSend (1.2s rate-limited) so 100 sends ≈ 2 min.
+ */
+async function dispatchCampaign(campaignId) {
+  const cRes = await pool.query("SELECT * FROM campaigns WHERE id = $1", [campaignId]);
+  const campaign = cRes.rows[0];
+  if (!campaign) return;
+  await pool.query("UPDATE campaigns SET status = 'sending' WHERE id = $1", [campaignId]);
+
+  let targets;
+  try {
+    targets = await resolveCampaignTargets(campaign.segment);
+  } catch (err) {
+    await pool.query(
+      "UPDATE campaigns SET status = 'failed', completed_at = NOW() WHERE id = $1",
+      [campaignId],
+    );
+    console.error("[Campaign] resolve targets error:", err?.message);
+    return;
+  }
+
+  let sent = 0, failed = 0, skipped = 0;
+  const baseVars = campaign.template_vars || {};
+  const message = campaign.message || "";
+
+  // Pre-create logs (todas pending) — facilita auditoría aún si el server reinicia.
+  for (const t of targets) {
+    await pool.query(
+      `INSERT INTO campaign_logs (campaign_id, user_id, phone, status)
+       VALUES ($1, $2, $3, 'pending')`,
+      [campaignId, t.id, t.phone || null],
+    ).catch(() => {});
+  }
+
+  for (const t of targets) {
+    const vars = buildCampaignVars(t, baseVars, message);
+    let logStatus = "pending";
+    let reason = null;
+    let rendered = "";
+
+    if (t.accepts_communications === false && t.receive_reminders === false) {
+      logStatus = "skipped"; reason = "opted_out"; skipped++;
+    } else if (!t.phone) {
+      logStatus = "skipped"; reason = "no_phone"; skipped++;
+    } else {
+      // Build text: prefer template_key, fallback to {message} substitution.
+      try {
+        if (campaign.template_key) {
+          const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+          const tpl = templates?.[campaign.template_key];
+          rendered = renderTemplateVars(tpl?.body || "", vars).trim();
+        }
+        if (!rendered && message) {
+          rendered = renderTemplateVars(message, vars).trim();
+        }
+        if (!rendered) {
+          logStatus = "skipped"; reason = "empty_message"; skipped++;
+        } else {
+          await queueWhatsAppSend(normalisePhone(t.phone), rendered);
+          logStatus = "sent"; sent++;
+        }
+      } catch (err) {
+        logStatus = "failed"; reason = (err?.message || "send_error").slice(0, 80); failed++;
+      }
+    }
+
+    await pool.query(
+      `UPDATE campaign_logs
+          SET status = $1, reason = $2, rendered = $3, sent_at = CASE WHEN $1 = 'sent' THEN NOW() ELSE NULL END
+        WHERE campaign_id = $4 AND user_id = $5`,
+      [logStatus, reason, rendered || null, campaignId, t.id],
+    ).catch(() => {});
+  }
+
+  await pool.query(
+    `UPDATE campaigns
+        SET total_sent = $1, total_failed = $2, total_skipped = $3,
+            status = 'completed', completed_at = NOW()
+      WHERE id = $4`,
+    [sent, failed, skipped, campaignId],
+  );
+}
+
+// GET /api/admin/campaigns/segments — preview cuántas alumnas hay en cada segmento.
+app.get("/api/admin/campaigns/segments", adminMiddleware, async (_req, res) => {
+  try {
+    const out = {};
+    for (const [key, cfg] of Object.entries(CAMPAIGN_SEGMENTS)) {
+      try {
+        const r = await pool.query(`SELECT COUNT(*)::int AS n FROM (${cfg.sql}) seg`);
+        out[key] = { label: cfg.label, count: r.rows[0]?.n || 0 };
+      } catch (err) {
+        out[key] = { label: cfg.label, count: 0, error: err.message.slice(0, 80) };
+      }
+    }
+    return res.json({ data: out });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// POST /api/admin/campaigns/preview — cuántas alumnas y primeros 5 nombres.
+app.post("/api/admin/campaigns/preview", adminMiddleware, async (req, res) => {
+  try {
+    const { segment } = req.body || {};
+    if (!CAMPAIGN_SEGMENTS[segment]) {
+      return res.status(400).json({ message: "Segmento inválido", available: Object.keys(CAMPAIGN_SEGMENTS) });
+    }
+    const targets = await resolveCampaignTargets(segment);
+    const optedOut = targets.filter((t) => t.accepts_communications === false && t.receive_reminders === false).length;
+    const noPhone = targets.filter((t) => !t.phone).length;
+    return res.json({
+      data: {
+        segment,
+        label: CAMPAIGN_SEGMENTS[segment].label,
+        total: targets.length,
+        sendable: targets.length - optedOut - noPhone,
+        opted_out: optedOut,
+        no_phone: noPhone,
+        first_names: targets.slice(0, 8).map((t) => firstNameOf(t.display_name, "alumna")),
+      },
+    });
+  } catch (err) { return res.status(500).json({ message: "Error interno", error: err.message }); }
+});
+
+// POST /api/admin/campaigns/send — crea campaign + dispara envío en background.
+app.post("/api/admin/campaigns/send", adminMiddleware, async (req, res) => {
+  try {
+    const { name, segment, message, templateKey, vars } = req.body || {};
+    if (!name || !segment) {
+      return res.status(400).json({ message: "name y segment son requeridos" });
+    }
+    if (!CAMPAIGN_SEGMENTS[segment]) {
+      return res.status(400).json({ message: "Segmento inválido", available: Object.keys(CAMPAIGN_SEGMENTS) });
+    }
+    if (!message && !templateKey) {
+      return res.status(400).json({ message: "Define `message` (texto custom) o `templateKey`" });
+    }
+    const targets = await resolveCampaignTargets(segment);
+    const r = await pool.query(
+      `INSERT INTO campaigns (name, segment, message, template_key, template_vars, total_targets, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,'queued',$7) RETURNING *`,
+      [name, segment, message || null, templateKey || null, JSON.stringify(vars || {}), targets.length, req.userId || null],
+    );
+    const campaign = r.rows[0];
+    // Fire-and-forget background dispatch.
+    dispatchCampaign(campaign.id).catch((err) => {
+      console.error("[Campaign] dispatch error:", err?.message);
+    });
+    return res.status(201).json({ data: { campaign, total_targets: targets.length } });
+  } catch (err) { return res.status(500).json({ message: "Error interno", error: err.message }); }
+});
+
+// GET /api/admin/campaigns — listado paginado.
+app.get("/api/admin/campaigns", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const r = await pool.query(
+      `SELECT id, name, segment, status, total_targets, total_sent, total_failed, total_skipped,
+              created_at, completed_at
+         FROM campaigns
+        ORDER BY created_at DESC
+        LIMIT $1`,
+      [limit],
+    );
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// GET /api/admin/campaigns/:id — detalle + stats.
+app.get("/api/admin/campaigns/:id", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT * FROM campaigns WHERE id = $1", [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ message: "Campaña no encontrada" });
+    const stats = await pool.query(
+      `SELECT status, COUNT(*)::int AS n FROM campaign_logs WHERE campaign_id = $1 GROUP BY status`,
+      [req.params.id],
+    );
+    return res.json({ data: { ...r.rows[0], stats: stats.rows } });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// GET /api/admin/campaigns/:id/logs — logs por user (paginado).
+app.get("/api/admin/campaigns/:id/logs", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const r = await pool.query(
+      `SELECT cl.id, cl.user_id, cl.phone, cl.status, cl.reason, cl.rendered, cl.sent_at,
+              u.display_name
+         FROM campaign_logs cl
+         LEFT JOIN users u ON u.id = cl.user_id
+        WHERE cl.campaign_id = $1
+        ORDER BY cl.sent_at DESC NULLS LAST, cl.created_at DESC
+        LIMIT $2`,
+      [req.params.id, limit],
+    );
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
 // GET /api/loyalty/points/:userId
 app.get("/api/loyalty/points/:userId", adminMiddleware, async (req, res) => {
   try {
@@ -8793,6 +9163,10 @@ const TEMPLATE_VARIABLES = {
   milestone_classes_25: ["firstName", "classes", "points"],
   milestone_classes_50: ["firstName", "classes", "points"],
   milestone_classes_100: ["firstName", "classes", "points"],
+  promo_custom: ["firstName", "message"],
+  promo_dormant_invite: ["firstName", "days", "message"],
+  promo_expiring_offer: ["firstName", "message"],
+  promo_birthday_month: ["firstName", "message"],
 };
 
 app.get("/api/admin/whatsapp-templates", adminMiddleware, async (_req, res) => {
