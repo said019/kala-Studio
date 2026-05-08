@@ -359,6 +359,8 @@ input[type="time"]::-webkit-calendar-picker-indicator {
    ────────────────────────────────────────────────────────────── */
 .kala-admin .text-white,
 .kala-admin .text-foreground { color: #2E201C !important; }
+.kala-admin .text-white\/95 { color: rgba(46, 32, 28, 0.95) !important; }
+.kala-admin .text-white\/90 { color: rgba(46, 32, 28, 0.92) !important; }
 .kala-admin .text-white\/85 { color: rgba(46, 32, 28, 0.92) !important; }
 .kala-admin .text-white\/80 { color: rgba(46, 32, 28, 0.88) !important; }
 .kala-admin .text-white\/70 { color: rgba(46, 32, 28, 0.78) !important; }
