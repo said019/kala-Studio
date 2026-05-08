@@ -349,3 +349,106 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     overflow-x: hidden;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────
+   KALA ADMIN — light theme overrides
+   La mayoría de páginas admin usan utilidades dark inline tipo
+   bg-white/[0.0X], text-white, border-white/[0.0X]. En vez de
+   reescribir cada página, sobreescribimos esos patrones dentro
+   del scope .kala-admin para traducirlos a la paleta cream/ink.
+   ────────────────────────────────────────────────────────────── */
+.kala-admin .text-white,
+.kala-admin .text-foreground { color: #2E201C !important; }
+.kala-admin .text-white\/85 { color: rgba(46, 32, 28, 0.92) !important; }
+.kala-admin .text-white\/80 { color: rgba(46, 32, 28, 0.88) !important; }
+.kala-admin .text-white\/70 { color: rgba(46, 32, 28, 0.78) !important; }
+.kala-admin .text-white\/65 { color: rgba(46, 32, 28, 0.72) !important; }
+.kala-admin .text-white\/60 { color: rgba(46, 32, 28, 0.68) !important; }
+.kala-admin .text-white\/55 { color: rgba(46, 32, 28, 0.62) !important; }
+.kala-admin .text-white\/45 { color: rgba(46, 32, 28, 0.55) !important; }
+.kala-admin .text-white\/40 { color: rgba(46, 32, 28, 0.5) !important; }
+.kala-admin .text-white\/35 { color: rgba(46, 32, 28, 0.45) !important; }
+.kala-admin .text-white\/30 { color: rgba(46, 32, 28, 0.42) !important; }
+.kala-admin .text-white\/25 { color: rgba(46, 32, 28, 0.38) !important; }
+.kala-admin .text-white\/20 { color: rgba(46, 32, 28, 0.32) !important; }
+.kala-admin .text-muted-foreground { color: rgba(46, 32, 28, 0.55) !important; }
+
+/* Card / surface overrides — usar blanco con border crema */
+.kala-admin .bg-white\/\[0\.01\],
+.kala-admin .bg-white\/\[0\.02\],
+.kala-admin .bg-white\/\[0\.03\],
+.kala-admin .bg-white\/\[0\.04\],
+.kala-admin .bg-white\/\[0\.05\] {
+  background-color: #FFFFFF !important;
+}
+.kala-admin .bg-white\/\[0\.07\],
+.kala-admin .bg-white\/\[0\.08\] {
+  background-color: #FCE6E1 !important;
+}
+.kala-admin .bg-card { background-color: #FFFFFF !important; }
+.kala-admin .bg-secondary { background-color: #FCE6E1 !important; }
+.kala-admin .bg-background { background-color: #FFF7F2 !important; }
+
+/* Borders */
+.kala-admin .border-white\/\[0\.04\],
+.kala-admin .border-white\/\[0\.05\],
+.kala-admin .border-white\/\[0\.06\],
+.kala-admin .border-white\/\[0\.07\],
+.kala-admin .border-white\/\[0\.08\],
+.kala-admin .border-white\/10,
+.kala-admin .border-white\/15,
+.kala-admin .border-white\/20,
+.kala-admin .border-border {
+  border-color: #E8CAC1 !important;
+}
+
+/* Hover states */
+.kala-admin .hover\:bg-white\/5:hover,
+.kala-admin .hover\:bg-white\/\[0\.04\]:hover,
+.kala-admin .hover\:bg-white\/\[0\.05\]:hover,
+.kala-admin .hover\:bg-white\/\[0\.08\]:hover,
+.kala-admin .hover\:bg-white\/10:hover {
+  background-color: rgba(118, 33, 77, 0.06) !important;
+}
+.kala-admin .hover\:text-white:hover,
+.kala-admin .hover\:text-foreground:hover {
+  color: #76214D !important;
+}
+
+/* Skeleton loaders */
+.kala-admin [class*="bg-white/[0.05]"],
+.kala-admin .bg-muted {
+  background-color: rgba(232, 202, 193, 0.5) !important;
+}
+
+/* Inputs / placeholders */
+.kala-admin input::placeholder,
+.kala-admin textarea::placeholder,
+.kala-admin .placeholder\:text-white\/25::placeholder,
+.kala-admin .placeholder\:text-white\/30::placeholder {
+  color: rgba(46, 32, 28, 0.4) !important;
+}
+
+/* Dialog / dropdown content backgrounds (hardcoded #0f0518 etc) */
+.kala-admin .bg-\[\#0f0518\],
+.kala-admin .bg-\[\#080808\],
+.kala-admin .bg-\[\#0b0b0bcc\] {
+  background-color: #FFFFFF !important;
+}
+
+/* Radix portals for Dialog/Select/Dropdown content render at <body>, fuera
+   del scope .kala-admin. Hacemos las reglas globales — el #0f0518 solo
+   se usa en admin, así que no rompe el resto del app. */
+.bg-\[\#0f0518\] { background-color: #FFFFFF !important; color: #2E201C !important; }
+.bg-\[\#0f0518\] .text-white,
+.bg-\[\#0f0518\] [class*="text-white"] { color: #2E201C !important; }
+.bg-\[\#0f0518\] .border-white\/10 { border-color: #E8CAC1 !important; }
+
+/* Table rows */
+.kala-admin table tbody tr {
+  border-color: #E8CAC1 !important;
+}
+.kala-admin .border-t.border-white\/\[0\.04\],
+.kala-admin .border-b.border-white\/\[0\.04\] {
+  border-color: #F1DFD8 !important;
+}

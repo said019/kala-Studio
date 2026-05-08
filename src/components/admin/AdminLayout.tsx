@@ -100,11 +100,11 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
   const isCompact = collapsed && !mobileOpen;
 
   return (
-    <div className="flex min-h-screen bg-[#080808] text-foreground">
+    <div className="kala-admin flex min-h-screen bg-[#FFF7F2] text-[#2E201C]">
       {mobileOpen && (
         <button
           aria-label="Cerrar menú"
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-[#2E201C]/40 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -112,8 +112,8 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 shrink-0",
-          "border-r border-white/[0.06]",
-          "bg-gradient-to-b from-[#1a0d11] via-[#2E201C] to-[#0a0807]",
+          "border-r border-[#E8CAC1]",
+          "bg-gradient-to-b from-[#FCE6E1] via-[#FFF7F2] to-[#FFF7F2]",
           "w-[88vw] max-w-[300px] -translate-x-full lg:translate-x-0 lg:static",
           mobileOpen && "translate-x-0",
           collapsed ? "lg:w-[72px]" : "lg:w-[240px]",
@@ -121,7 +121,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       >
         <div
           className={cn(
-            "flex items-center border-b border-white/[0.06] shrink-0",
+            "flex items-center border-b border-[#E8CAC1] shrink-0",
             isCompact ? "justify-center px-3 py-5" : "justify-between px-5 py-5",
           )}
         >
@@ -130,10 +130,9 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
               <img
                 src="/wallet-logo@2x.png"
                 alt="Kala Barre Studio"
-                className="h-9 w-auto object-contain drop-shadow-[0_0_20px_rgba(233,116,95,0.18)]"
-                style={{ filter: "brightness(0) invert(1)" }}
+                className="h-9 w-auto object-contain"
               />
-              <span className="mt-1 text-[9px] font-medium uppercase tracking-[0.32em] text-white/45">
+              <span className="mt-1 text-[9px] font-medium uppercase tracking-[0.32em] text-[#76214D]/60">
                 Barre Studio
               </span>
             </div>
@@ -141,7 +140,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
 
           <button
             onClick={() => setMobileOpen(false)}
-            className="flex lg:hidden items-center justify-center w-8 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10"
+            className="flex lg:hidden items-center justify-center w-8 h-8 rounded-lg text-[#2E201C]/55 hover:text-[#76214D] hover:bg-[#76214D]/8"
             aria-label="Cerrar menú"
           >
             <X size={16} />
@@ -151,7 +150,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
             onClick={() => setCollapsed((v) => !v)}
             className={cn(
               "hidden lg:flex items-center justify-center w-7 h-7 rounded-lg transition-all",
-              "text-[#E9745F]/60 hover:text-[#E9745F] hover:bg-[#E9745F]/10",
+              "text-[#E9745F]/70 hover:text-[#E9745F] hover:bg-[#E9745F]/10",
             )}
             aria-label="Contraer menú"
           >
@@ -206,19 +205,19 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                         "flex items-center gap-3 mx-2 my-0.5 rounded-xl transition-all duration-200 no-underline group",
                         isCompact ? "px-0 justify-center py-2.5" : "px-3 py-2.5",
                         active
-                          ? "border text-white font-semibold"
-                          : "text-white/55 hover:text-white/90 hover:bg-white/[0.04] border border-transparent",
+                          ? "font-semibold"
+                          : "text-[#2E201C]/65 hover:text-[#2E201C] hover:bg-[#76214D]/6 border border-transparent",
                       )}
                       style={active ? {
-                        background: `linear-gradient(to right, ${accent}18, ${accent}08)`,
-                        borderColor: `${accent}30`,
-                        boxShadow: `0 0 12px ${accent}18`,
+                        background: `linear-gradient(to right, ${accent}1f, ${accent}0a)`,
+                        border: `1px solid ${accent}40`,
+                        color: accent,
                       } : {}}
                     >
                       <Icon
                         size={15}
                         className="shrink-0 transition-colors"
-                        style={{ color: active ? accent : undefined }}
+                        style={{ color: active ? accent : "#2E201C" }}
                       />
                       {!isCompact && (
                         <span className="text-[13px] leading-none truncate">{label}</span>
@@ -226,26 +225,26 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                       {active && !isCompact && (
                         <span
                           className="ml-auto w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}` }}
+                          style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}40` }}
                         />
                       )}
                     </Link>
                   );
                 })}
 
-                {isCompact && <div className="mx-3 my-1 h-px bg-white/[0.04]" />}
+                {isCompact && <div className="mx-3 my-1 h-px bg-[#E8CAC1]/60" />}
               </div>
             );
           })}
         </nav>
 
-        <div className="border-t border-white/[0.06] pb-3 pt-2 shrink-0">
+        <div className="border-t border-[#E8CAC1] pb-3 pt-2 shrink-0">
           <Link
             to="/"
             title={isCompact ? "Ver sitio" : undefined}
             className={cn(
               "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 no-underline transition-all",
-              "text-white/35 hover:text-[#F58A24] hover:bg-[#F58A24]/5 border border-transparent",
+              "text-[#2E201C]/55 hover:text-[#F58A24] hover:bg-[#F58A24]/8 border border-transparent",
               isCompact && "justify-center px-0",
             )}
           >
@@ -257,7 +256,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
             title={isCompact ? "Salir" : undefined}
             className={cn(
               "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 w-[calc(100%-16px)] transition-all",
-              "text-white/35 hover:text-[#ff6b6b] hover:bg-[#ff6b6b]/8 border border-transparent",
+              "text-[#2E201C]/55 hover:text-[#B23A48] hover:bg-[#B23A48]/8 border border-transparent",
               isCompact && "justify-center px-0",
             )}
           >
@@ -268,35 +267,35 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 lg:ml-0">
-        <header className="shrink-0 h-14 flex items-center justify-between px-3 sm:px-4 lg:px-6 border-b border-white/[0.06] bg-[#080808]/85 backdrop-blur-sm sticky top-0 z-30">
+        <header className="shrink-0 h-14 flex items-center justify-between px-3 sm:px-4 lg:px-6 border-b border-[#E8CAC1] bg-[#FFF7F2]/90 backdrop-blur-sm sticky top-0 z-30">
           <div className="flex items-center gap-2 min-w-0">
             <button
-              className="lg:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/10"
+              className="lg:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#2E201C]/60 hover:text-[#76214D] hover:bg-[#76214D]/8"
               onClick={() => setMobileOpen(true)}
               aria-label="Abrir menú"
             >
               <Menu size={16} />
             </button>
-            <span className="text-white/30 text-[11px] sm:text-xs font-medium tracking-wider uppercase">Admin</span>
+            <span className="text-[#2E201C]/45 text-[11px] sm:text-xs font-medium tracking-wider uppercase">Admin</span>
             {currentItem && (
               <>
-                <ChevronRight size={12} className="text-white/20 shrink-0" />
-                <span className="text-white/85 text-xs sm:text-sm font-semibold truncate">{currentItem.label}</span>
+                <ChevronRight size={12} className="text-[#2E201C]/35 shrink-0" />
+                <span className="text-[#2E201C] text-xs sm:text-sm font-semibold truncate">{currentItem.label}</span>
               </>
             )}
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-[#F58A24]/70 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#F58A24] shadow-[0_0_6px_#F58A24] animate-pulse" />
+            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-[#778455] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#778455] shadow-[0_0_6px_rgba(119,132,85,0.4)] animate-pulse" />
               En línea
             </span>
-            <div className="w-px h-4 bg-white/10 hidden sm:block" />
+            <div className="w-px h-4 bg-[#E8CAC1] hidden sm:block" />
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#76214D] to-[#E9745F] flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_rgba(118,33,77,0.4)]">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#76214D] to-[#E9745F] flex items-center justify-center text-[11px] font-bold text-[#FFF7F2] shadow-[0_0_10px_rgba(118,33,77,0.25)]">
                 {user?.displayName?.[0]?.toUpperCase() ?? user?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? "A"}
               </div>
               {!isCompact && (
-                <span className="text-xs text-white/55 hidden md:block truncate max-w-[180px]">
+                <span className="text-xs text-[#2E201C]/65 hidden md:block truncate max-w-[180px]">
                   {user?.displayName ?? user?.display_name ?? user?.email ?? "Admin"}
                 </span>
               )}
@@ -304,10 +303,10 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           </div>
         </header>
 
-        <main className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0">{children}</main>
+        <main className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0 bg-[#FFF7F2]">{children}</main>
 
         {isMobile && (
-          <nav className="fixed inset-x-2 bottom-2 z-40 rounded-2xl border border-white/10 bg-[#0b0b0bcc] p-1 pb-safe backdrop-blur-xl lg:hidden">
+          <nav className="fixed inset-x-2 bottom-2 z-40 rounded-2xl border border-[#E8CAC1] bg-[#FFF7F2]/95 p-1 pb-safe backdrop-blur-xl shadow-lg lg:hidden">
             <ul className="grid grid-cols-5 gap-1">
               {MOBILE_QUICK_NAV.map((item) => {
                 const active = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
@@ -318,8 +317,8 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                       className={cn(
                         "flex h-12 min-h-[44px] flex-col items-center justify-center rounded-xl text-[11px] font-semibold transition-colors",
                         active
-                          ? "bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white shadow-[0_0_14px_rgba(118,33,77,0.28)]"
-                          : "text-white/55 hover:bg-white/5 hover:text-white",
+                          ? "bg-gradient-to-r from-[#76214D] to-[#E9745F] text-[#FFF7F2] shadow-[0_0_14px_rgba(118,33,77,0.20)]"
+                          : "text-[#2E201C]/60 hover:bg-[#76214D]/6 hover:text-[#76214D]",
                       )}
                       aria-current={active ? "page" : undefined}
                     >
