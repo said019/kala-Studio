@@ -687,6 +687,14 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MXN'`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS class_limit INTEGER`).catch(() => { });
+    // weekly_class_limit: tope ISO-semanal (lun–dom hora MX). NULL = sin tope semanal.
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS weekly_class_limit INTEGER`).catch(() => { });
+    await pool.query(`
+      UPDATE plans SET weekly_class_limit = 2 WHERE name = 'Barre — 2 Clases por semana' AND weekly_class_limit IS NULL;
+      UPDATE plans SET weekly_class_limit = 3 WHERE name = 'Barre — 3 Clases por semana' AND weekly_class_limit IS NULL;
+      UPDATE plans SET weekly_class_limit = 4 WHERE name = 'Barre — 4 Clases por semana' AND weekly_class_limit IS NULL;
+      UPDATE plans SET weekly_class_limit = 5 WHERE name = 'Barre — 5 Clases por semana' AND weekly_class_limit IS NULL;
+    `).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS features JSONB DEFAULT '[]'::jsonb`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`).catch(() => { });
@@ -2926,6 +2934,78 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * Verifica el tope semanal del plan ('Barre — N por semana').
+ * Cuenta reservas activas (confirmed/waitlist/checked_in) en la misma ISO-week
+ * de la fecha de la clase, contra el límite del plan.
+ *
+ * Returns { ok: true, count, limit } si pasa, o { ok: false, count, limit, message }
+ * con mensaje listo para devolver al cliente. Para planes sin tope semanal
+ * (weekly_class_limit IS NULL), siempre returns ok=true.
+ */
+async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
+  const planRes = await client.query(
+    `SELECT p.weekly_class_limit
+       FROM memberships m JOIN plans p ON p.id = m.plan_id
+      WHERE m.id = $1`,
+    [membershipId],
+  );
+  const limit = planRes.rows[0]?.weekly_class_limit;
+  if (!limit || limit <= 0) return { ok: true };
+  const countRes = await client.query(
+    `SELECT COUNT(*)::int AS n
+       FROM bookings b
+       JOIN classes c ON c.id = b.class_id
+      WHERE b.user_id = $1
+        AND b.membership_id = $2
+        AND b.status IN ('confirmed', 'waitlist', 'checked_in')
+        AND date_trunc('week', c.date::date) = date_trunc('week', $3::date)`,
+    [userId, membershipId, classDate],
+  );
+  const count = countRes.rows[0]?.n || 0;
+  if (count >= limit) {
+    return {
+      ok: false,
+      limit,
+      count,
+      message: `Tu paquete permite ${limit} clase${limit === 1 ? "" : "s"} por semana. Esta semana ya tienes ${count} reservada${count === 1 ? "" : "s"}. Cancela una si quieres mover el día.`,
+    };
+  }
+  return { ok: true, limit, count };
+}
+
+// GET /api/bookings/weekly-status — alumna ve cuántas le quedan esta semana
+// Devuelve para CADA membresía activa con weekly_class_limit el conteo + remaining.
+app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
+  try {
+    const ref = req.query.date || new Date().toISOString().slice(0, 10);
+    const r = await pool.query(
+      `SELECT m.id AS membership_id, p.name AS plan_name, p.weekly_class_limit AS limit,
+              (SELECT COUNT(*)::int FROM bookings b
+                 JOIN classes c ON c.id = b.class_id
+                WHERE b.user_id = $1 AND b.membership_id = m.id
+                  AND b.status IN ('confirmed','waitlist','checked_in')
+                  AND date_trunc('week', c.date::date) = date_trunc('week', $2::date)
+              ) AS used
+         FROM memberships m
+         JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1
+          AND m.status = 'active'
+          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+          AND p.weekly_class_limit IS NOT NULL`,
+      [req.userId, ref],
+    );
+    const data = r.rows.map((row) => ({
+      membership_id: row.membership_id,
+      plan_name: row.plan_name,
+      limit: row.limit,
+      used: row.used,
+      remaining: Math.max(0, row.limit - row.used),
+    }));
+    return res.json({ data, week_ref: ref });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
 // POST /api/bookings
 app.post("/api/bookings", authMiddleware, async (req, res) => {
   const { classId } = req.body;
@@ -3001,6 +3081,13 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     if (dupRes.rows.length > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({ message: "Ya tienes una reserva para esta clase" });
+    }
+
+    // Tope semanal (planes 'Barre — N Clases por semana').
+    const weeklyCheck = await checkWeeklyClassLimit(client, req.userId, membership.id, cls.date);
+    if (!weeklyCheck.ok) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: weeklyCheck.message });
     }
 
     const isWaitlist = cls.current_bookings >= cls.max_capacity;
@@ -10594,7 +10681,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     await client.query("BEGIN");
 
     const classRes = await client.query(
-      `SELECT c.id, c.max_capacity, c.current_bookings, c.status, ct.category AS class_category
+      `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
        WHERE c.id = $1
@@ -10654,6 +10741,15 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     if (dupRes.rows.length > 0) {
       await client.query("ROLLBACK");
       return res.status(409).json({ message: "La clienta ya tiene una reserva para esta clase" });
+    }
+
+    // Tope semanal (planes 'Barre — N Clases por semana').
+    const adminWeeklyCheck = await checkWeeklyClassLimit(client, userId, membership.id, cls.date);
+    if (!adminWeeklyCheck.ok) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        message: `La clienta llegó a su tope semanal: ${adminWeeklyCheck.limit} clase${adminWeeklyCheck.limit === 1 ? "" : "s"} por semana. Esta semana ya tiene ${adminWeeklyCheck.count} reservada${adminWeeklyCheck.count === 1 ? "" : "s"}.`,
+      });
     }
 
     const isWaitlist = cls.current_bookings >= cls.max_capacity;
