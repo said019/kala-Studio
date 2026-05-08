@@ -100,11 +100,11 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
   const isCompact = collapsed && !mobileOpen;
 
   return (
-    <div className="kala-admin flex min-h-screen">
+    <div className="kala-admin flex min-h-screen bg-[#FFF7F2] text-[#2E201C]">
       {mobileOpen && (
         <button
           aria-label="Cerrar menú"
-          className="fixed inset-0 z-40 bg-[#1e1b19]/40 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-[#2E201C]/40 backdrop-blur-sm lg:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -112,100 +112,81 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 shrink-0",
-          "border-r",
-          "w-[88vw] max-w-[280px] -translate-x-full lg:translate-x-0 lg:static",
+          "border-r border-[#E8CAC1]",
+          "bg-gradient-to-b from-[#FCE6E1] via-[#FFF7F2] to-[#FFF7F2]",
+          "w-[88vw] max-w-[300px] -translate-x-full lg:translate-x-0 lg:static",
           mobileOpen && "translate-x-0",
-          collapsed ? "lg:w-[72px]" : "lg:w-[260px]",
+          collapsed ? "lg:w-[72px]" : "lg:w-[240px]",
         )}
-        style={{
-          backgroundColor: "var(--kal-surface)",
-          borderRightColor: "var(--kal-outline-variant)",
-        }}
       >
-        {/* Brand block — KALA wordmark + tagline (matches mock) */}
         <div
           className={cn(
-            "flex items-center shrink-0",
-            isCompact ? "justify-center px-3 pt-7 pb-6" : "justify-between px-6 pt-8 pb-7",
+            "flex items-center border-b border-[#E8CAC1] shrink-0",
+            isCompact ? "justify-center px-3 py-5" : "justify-between px-5 py-5",
           )}
         >
           {!isCompact && (
-            <div className="flex flex-col items-center w-full">
-              <h1
-                className="font-headline font-bold tracking-[0.18em]"
-                style={{ color: "var(--kal-primary)", fontSize: "1.75rem", lineHeight: "1.1" }}
-              >
-                KALA
-              </h1>
-              <p
-                className="admin-label-caps mt-1"
-                style={{ color: "var(--kal-on-surface-variant)", letterSpacing: "0.2em" }}
-              >
-                BARRE STUDIO
-              </p>
+            <div className="flex flex-col">
+              <img
+                src="/wallet-logo@2x.png"
+                alt="Kala Barre Studio"
+                className="h-9 w-auto object-contain"
+              />
+              <span className="mt-1 text-[9px] font-medium uppercase tracking-[0.32em] text-[#76214D]/60">
+                Barre Studio
+              </span>
             </div>
           )}
 
           <button
             onClick={() => setMobileOpen(false)}
-            className="flex lg:hidden items-center justify-center w-8 h-8 rounded-lg transition-colors"
-            style={{ color: "var(--kal-on-surface-variant)" }}
+            className="flex lg:hidden items-center justify-center w-8 h-8 rounded-lg text-[#2E201C]/55 hover:text-[#76214D] hover:bg-[#76214D]/8"
             aria-label="Cerrar menú"
           >
             <X size={16} />
           </button>
 
-          {!isCompact && (
-            <button
-              onClick={() => setCollapsed((v) => !v)}
-              className="hidden lg:flex absolute top-9 right-3 items-center justify-center w-7 h-7 rounded-lg transition-all"
-              style={{ color: "var(--kal-on-surface-variant)" }}
-              aria-label="Contraer menú"
-            >
-              <ChevronLeft size={15} />
-            </button>
-          )}
-          {isCompact && (
-            <button
-              onClick={() => setCollapsed((v) => !v)}
-              className="hidden lg:flex items-center justify-center w-7 h-7 rounded-lg transition-all"
-              style={{ color: "var(--kal-on-surface-variant)" }}
-              aria-label="Expandir menú"
-            >
-              <Menu size={15} />
-            </button>
-          )}
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className={cn(
+              "hidden lg:flex items-center justify-center w-7 h-7 rounded-lg transition-all",
+              "text-[#E9745F]/70 hover:text-[#E9745F] hover:bg-[#E9745F]/10",
+            )}
+            aria-label="Contraer menú"
+          >
+            {collapsed ? <Menu size={15} /> : <ChevronLeft size={15} />}
+          </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto pr-0 scrollbar-thin">
+        <nav className="flex-1 overflow-y-auto py-3 scrollbar-thin">
           {NAV_GROUPS.map((group) => {
             const isGroupActive = activeGroup?.label === group.label;
             const isOpen = group.collapsible ? (openGroups[group.label] ?? isGroupActive) : true;
 
             return (
-              <div key={group.label} className="mb-5">
+              <div key={group.label} className="mb-1">
                 {!isCompact && (
                   group.collapsible ? (
                     <button
                       onClick={() => toggleGroup(group.label)}
-                      className="w-full flex items-center justify-between pl-8 pr-6 py-1.5"
+                      className="w-full flex items-center justify-between px-5 py-1.5 group"
                     >
                       <span
-                        className="admin-label-caps transition-colors"
-                        style={{ color: "var(--kal-outline)" }}
+                        className="text-[10px] font-semibold tracking-widest uppercase transition-colors"
+                        style={{ color: isGroupActive ? group.accentColor : `${group.accentColor}50` }}
                       >
                         {group.label}
                       </span>
                       <ChevronDown
-                        size={12}
+                        size={11}
                         className={cn("transition-all duration-200", isOpen ? "rotate-0" : "-rotate-90")}
-                        style={{ color: "var(--kal-outline)" }}
+                        style={{ color: `${group.accentColor}50` }}
                       />
                     </button>
                   ) : (
                     <p
-                      className="admin-label-caps pl-8 pr-6 py-1.5"
-                      style={{ color: "var(--kal-outline)" }}
+                      className="px-5 py-1.5 text-[10px] font-semibold tracking-widest uppercase"
+                      style={{ color: `${group.accentColor}50` }}
                     >
                       {group.label}
                     </p>
@@ -214,93 +195,70 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
 
                 {(isCompact || isOpen) && group.items.map(({ path, label, icon: Icon }) => {
                   const active = location.pathname === path || location.pathname.startsWith(path + "/");
+                  const accent = group.accentColor;
                   return (
                     <Link
                       key={path}
                       to={path}
                       title={isCompact ? label : undefined}
                       className={cn(
-                        "flex items-center gap-3 transition-all duration-200 no-underline",
-                        // M3 nav-item shape: rail style — full pill on the right edge
-                        "rounded-r-full mr-4",
-                        isCompact ? "px-0 justify-center py-2.5 mx-2 rounded-full" : "pl-6 pr-4 py-2.5",
+                        "flex items-center gap-3 mx-2 my-0.5 rounded-xl transition-all duration-200 no-underline group",
+                        isCompact ? "px-0 justify-center py-2.5" : "px-3 py-2.5",
+                        active
+                          ? "font-semibold"
+                          : "text-[#2E201C]/65 hover:text-[#2E201C] hover:bg-[#76214D]/6 border border-transparent",
                       )}
                       style={active ? {
-                        backgroundColor: "var(--kal-secondary-fixed)",
-                        color: "var(--kal-primary)",
-                        fontWeight: 600,
-                      } : {
-                        color: "var(--kal-on-surface-variant)",
-                        fontWeight: 500,
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!active) {
-                          e.currentTarget.style.backgroundColor = "var(--kal-surface-container-low)";
-                          e.currentTarget.style.color = "var(--kal-primary)";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!active) {
-                          e.currentTarget.style.backgroundColor = "transparent";
-                          e.currentTarget.style.color = "var(--kal-on-surface-variant)";
-                        }
-                      }}
+                        background: `linear-gradient(to right, ${accent}1f, ${accent}0a)`,
+                        border: `1px solid ${accent}40`,
+                        color: accent,
+                      } : {}}
                     >
                       <Icon
-                        size={20}
+                        size={15}
                         className="shrink-0 transition-colors"
-                        style={{
-                          fontVariationSettings: active ? "'FILL' 1" : undefined,
-                        }}
+                        style={{ color: active ? accent : "#2E201C" }}
                       />
                       {!isCompact && (
-                        <span className="text-[14px] leading-tight truncate">{label}</span>
+                        <span className="text-[13px] leading-none truncate">{label}</span>
+                      )}
+                      {active && !isCompact && (
+                        <span
+                          className="ml-auto w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: accent, boxShadow: `0 0 6px ${accent}40` }}
+                        />
                       )}
                     </Link>
                   );
                 })}
+
+                {isCompact && <div className="mx-3 my-1 h-px bg-[#E8CAC1]/60" />}
               </div>
             );
           })}
         </nav>
 
-        <div className="px-6 pt-2 pb-6 shrink-0">
+        <div className="border-t border-[#E8CAC1] pb-3 pt-2 shrink-0">
           <Link
             to="/"
             title={isCompact ? "Ver sitio" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-r-full px-2 py-2.5 no-underline transition-all -ml-6",
-              isCompact && "justify-center px-0 mx-0 rounded-full",
+              "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 no-underline transition-all",
+              "text-[#2E201C]/55 hover:text-[#F58A24] hover:bg-[#F58A24]/8 border border-transparent",
+              isCompact && "justify-center px-0",
             )}
-            style={{ color: "var(--kal-on-surface-variant)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--kal-surface-container-low)";
-              e.currentTarget.style.color = "var(--kal-primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = "var(--kal-on-surface-variant)";
-            }}
           >
-            <Globe size={18} className="shrink-0 ml-6" />
-            {!isCompact && <span className="text-[13px]">Ver sitio</span>}
+            <Globe size={14} className="shrink-0" />
+            {!isCompact && <span className="text-xs">Ver sitio</span>}
           </Link>
           <button
             onClick={handleLogout}
             title={isCompact ? "Salir" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-r-full px-2 py-2.5 transition-all w-full -ml-6 text-left",
-              isCompact && "justify-center px-0 mx-0 rounded-full",
+              "flex items-center gap-3 mx-2 rounded-xl px-3 py-2 w-[calc(100%-16px)] transition-all",
+              "text-[#2E201C]/55 hover:text-[#B23A48] hover:bg-[#B23A48]/8 border border-transparent",
+              isCompact && "justify-center px-0",
             )}
-            style={{ color: "var(--kal-on-surface-variant)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--kal-error-container)";
-              e.currentTarget.style.color = "var(--kal-error)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = "var(--kal-on-surface-variant)";
-            }}
           >
             <LogOut size={14} className="shrink-0" />
             {!isCompact && <span className="text-xs">Cerrar sesión</span>}
@@ -309,57 +267,35 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 lg:ml-0">
-        <header
-          className="shrink-0 h-20 flex items-center justify-between px-4 sm:px-6 lg:px-10 border-b backdrop-blur-md sticky top-0 z-30"
-          style={{
-            backgroundColor: "color-mix(in srgb, var(--kal-background) 80%, transparent)",
-            borderBottomColor: "color-mix(in srgb, var(--kal-outline-variant) 40%, transparent)",
-          }}
-        >
-          <div className="flex items-center gap-3 min-w-0">
+        <header className="shrink-0 h-14 flex items-center justify-between px-3 sm:px-4 lg:px-6 border-b border-[#E8CAC1] bg-[#FFF7F2]/90 backdrop-blur-sm sticky top-0 z-30">
+          <div className="flex items-center gap-2 min-w-0">
             <button
-              className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-lg transition-colors"
-              style={{ color: "var(--kal-on-surface-variant)" }}
+              className="lg:hidden inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#2E201C]/60 hover:text-[#76214D] hover:bg-[#76214D]/8"
               onClick={() => setMobileOpen(true)}
               aria-label="Abrir menú"
             >
-              <Menu size={18} />
+              <Menu size={16} />
             </button>
-            <span className="text-[14px] font-medium" style={{ color: "var(--kal-on-surface-variant)" }}>
-              ADMIN
-            </span>
+            <span className="text-[#2E201C]/45 text-[11px] sm:text-xs font-medium tracking-wider uppercase">Admin</span>
             {currentItem && (
               <>
-                <ChevronRight size={16} style={{ color: "var(--kal-on-surface-variant)" }} className="shrink-0" />
-                <span className="text-[14px] font-medium truncate" style={{ color: "var(--kal-on-surface)" }}>
-                  {currentItem.label}
-                </span>
+                <ChevronRight size={12} className="text-[#2E201C]/35 shrink-0" />
+                <span className="text-[#2E201C] text-xs sm:text-sm font-semibold truncate">{currentItem.label}</span>
               </>
             )}
           </div>
-          <div className="flex items-center gap-4 sm:gap-6">
-            <span
-              className="hidden sm:flex items-center gap-2 text-[14px]"
-              style={{ color: "var(--kal-on-surface-variant)" }}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: "var(--kal-success, #4a8a4f)" }} />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-[#778455] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#778455] shadow-[0_0_6px_rgba(119,132,85,0.4)] animate-pulse" />
               En línea
             </span>
-            <div className="flex items-center gap-3 min-w-0">
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-[14px] font-bold"
-                style={{
-                  backgroundColor: "var(--kal-surface-tint)",
-                  color: "var(--kal-on-primary)",
-                }}
-              >
+            <div className="w-px h-4 bg-[#E8CAC1] hidden sm:block" />
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#76214D] to-[#E9745F] flex items-center justify-center text-[11px] font-bold text-[#FFF7F2] shadow-[0_0_10px_rgba(118,33,77,0.25)]">
                 {user?.displayName?.[0]?.toUpperCase() ?? user?.display_name?.[0]?.toUpperCase() ?? user?.email?.[0]?.toUpperCase() ?? "A"}
               </div>
               {!isCompact && (
-                <span
-                  className="text-[14px] font-medium hidden md:block truncate max-w-[180px]"
-                  style={{ color: "var(--kal-on-surface)" }}
-                >
+                <span className="text-xs text-[#2E201C]/65 hidden md:block truncate max-w-[180px]">
                   {user?.displayName ?? user?.display_name ?? user?.email ?? "Admin"}
                 </span>
               )}
@@ -367,21 +303,10 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           </div>
         </header>
 
-        <main
-          className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0"
-          style={{ backgroundColor: "var(--kal-background)" }}
-        >
-          {children}
-        </main>
+        <main className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0 bg-[#FFF7F2]">{children}</main>
 
         {isMobile && (
-          <nav
-            className="fixed inset-x-2 bottom-2 z-40 rounded-2xl border p-1 pb-safe backdrop-blur-xl shadow-lg lg:hidden"
-            style={{
-              backgroundColor: "color-mix(in srgb, var(--kal-background) 95%, transparent)",
-              borderColor: "var(--kal-outline-variant)",
-            }}
-          >
+          <nav className="fixed inset-x-2 bottom-2 z-40 rounded-2xl border border-[#E8CAC1] bg-[#FFF7F2]/95 p-1 pb-safe backdrop-blur-xl shadow-lg lg:hidden">
             <ul className="grid grid-cols-5 gap-1">
               {MOBILE_QUICK_NAV.map((item) => {
                 const active = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
@@ -389,13 +314,12 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                   <li key={item.path}>
                     <Link
                       to={item.path}
-                      className="flex h-12 min-h-[44px] flex-col items-center justify-center rounded-xl text-[11px] font-semibold transition-colors"
-                      style={active ? {
-                        backgroundColor: "var(--kal-secondary-fixed)",
-                        color: "var(--kal-primary)",
-                      } : {
-                        color: "var(--kal-on-surface-variant)",
-                      }}
+                      className={cn(
+                        "flex h-12 min-h-[44px] flex-col items-center justify-center rounded-xl text-[11px] font-semibold transition-colors",
+                        active
+                          ? "bg-gradient-to-r from-[#76214D] to-[#E9745F] text-[#FFF7F2] shadow-[0_0_14px_rgba(118,33,77,0.20)]"
+                          : "text-[#2E201C]/60 hover:bg-[#76214D]/6 hover:text-[#76214D]",
+                      )}
                       aria-current={active ? "page" : undefined}
                     >
                       <item.icon size={14} />
