@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import opheliaLogo from "@/assets/ophelia-logo-full.webp";
+import kalaLogo from "@/assets/kala/kala-logo.png";
 import api from "@/lib/api";
 
 const Terminos = () => {
@@ -20,7 +20,7 @@ const Terminos = () => {
       {/* Nav */}
       <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border px-6 lg:px-[60px] py-4 flex items-center justify-between">
         <button onClick={() => navigate("/")} className="flex items-center bg-transparent border-none cursor-pointer">
-          <img src={opheliaLogo} alt="Ophelia Jumping Studio" className="h-14 w-auto object-contain" />
+          <img src={kalaLogo} alt="Kala Barre Studio" className="h-14 w-auto object-contain" />
         </button>
         <button
           onClick={() => navigate(-1)}
@@ -55,12 +55,12 @@ const Terminos = () => {
           </p>
 
           <p>
-            Al utilizar los servicios de <strong className="text-foreground">Ophelia Jumping Studio</strong>, incluyendo nuestra plataforma web, aplicación y clases presenciales, usted acepta los presentes Términos y Condiciones. Le recomendamos leerlos detenidamente.
+            Al utilizar los servicios de <strong className="text-foreground">Kala Barre Studio</strong>, incluyendo nuestra plataforma web, aplicación y clases presenciales, usted acepta los presentes Términos y Condiciones. Le recomendamos leerlos detenidamente.
           </p>
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">1. Definiciones</h2>
           <ul className="list-disc pl-6 space-y-2">
-            <li><strong className="text-foreground">"Estudio"</strong> se refiere a Ophelia Jumping Studio y sus instalaciones en San Juan del Río, Querétaro.</li>
+            <li><strong className="text-foreground">"Estudio"</strong> se refiere a Kala Barre Studio y sus instalaciones en San Luis Potosí.</li>
             <li><strong className="text-foreground">"Alumna/o"</strong> se refiere a cualquier persona registrada en la plataforma que asiste a clases.</li>
             <li><strong className="text-foreground">"Paquete"</strong> se refiere a los planes de clases adquiridos (jumping, pilates o mixtos).</li>
             <li><strong className="text-foreground">"Clase"</strong> se refiere a cada sesión de ejercicio programada en el estudio.</li>
@@ -139,7 +139,7 @@ const Terminos = () => {
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">11. Modificaciones</h2>
           <p>
-            Ophelia Jumping Studio se reserva el derecho de modificar los presentes Términos y Condiciones, así como los horarios, precios y políticas del estudio. Los cambios serán publicados en la plataforma y entrarán en vigor al momento de su publicación.
+            Kala Barre Studio se reserva el derecho de modificar los presentes Términos y Condiciones, así como los horarios, precios y políticas del estudio. Los cambios serán publicados en la plataforma y entrarán en vigor al momento de su publicación.
           </p>
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">12. Contacto</h2>
@@ -149,7 +149,7 @@ const Terminos = () => {
           <ul className="list-none space-y-1">
             <li><strong className="text-foreground">Email:</strong> info@opheliajumping.mx</li>
             <li><strong className="text-foreground">Teléfono:</strong> +52 442 123 4567</li>
-            <li><strong className="text-foreground">Dirección:</strong> San Juan del Río, Querétaro, México</li>
+            <li><strong className="text-foreground">Dirección:</strong> San Luis Potosí, México</li>
           </ul>
           </div>
         )}
@@ -157,7 +157,7 @@ const Terminos = () => {
 
       {/* Footer */}
       <footer className="border-t border-border px-6 lg:px-[60px] py-6 text-center">
-        <p className="text-xs text-muted-foreground/50">© 2026 Ophelia Jumping Studio. Todos los derechos reservados.</p>
+        <p className="text-xs text-muted-foreground/50">© 2026 Kala Barre Studio. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

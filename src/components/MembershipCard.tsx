@@ -1,6 +1,6 @@
 /**
  * MembershipCard v2 -- Premium glassmorphism membership card
- * Ophelia Studio -- Dark, feminine, boutique fitness aesthetic
+ * Kala Studio -- Dark, feminine, boutique fitness aesthetic
  *
  * Design pillars:
  *  - Hero number: remaining classes as the dominant visual

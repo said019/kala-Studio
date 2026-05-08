@@ -1,5 +1,5 @@
 /**
- * Styled time picker for the Ophelia dark palette.
+ * Styled time picker for the Kala dark palette.
  * Renders a clean HH:MM selector with +/- controls.
  * Accepts and emits "HH:MM" strings (same as <input type="time">).
  */

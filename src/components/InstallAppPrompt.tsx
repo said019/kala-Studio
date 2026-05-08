@@ -5,9 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Share, MoreVertical, Plus, Download, Smartphone } from "lucide-react";
-import opheliaLogo from "@/assets/ophelia-logo-full.webp";
-
-const STORAGE_KEY = "ophelia_install_prompt_shown";
+const STORAGE_KEY = "kala_install_prompt_shown";
 
 function isStandalone() {
   return (
@@ -77,7 +75,7 @@ export function InstallAppPrompt({ force, onClose }: InstallAppPromptProps) {
 
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-background border border-border flex items-center justify-center overflow-hidden shadow-lg">
-              <img src="/icon-192.png" alt="Ophelia" className="w-10 h-10 object-contain" />
+              <img src="/icon-192.png" alt="Kala" className="w-10 h-10 object-contain" />
             </div>
             <div>
               <h3 className="font-bebas text-2xl text-foreground leading-none tracking-wide">

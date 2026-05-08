@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
-import opheliaLogo from "@/assets/ophelia-logo-full.webp";
+import kalaLogo from "@/assets/kala/kala-logo.png";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, ShoppingBag,
@@ -114,7 +114,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
         className={cn(
           "fixed inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 shrink-0",
           "border-r border-white/[0.06]",
-          "bg-gradient-to-b from-[#0f0518] via-[#2E201C] to-[#080808]",
+          "bg-gradient-to-b from-[#1a0d11] via-[#2E201C] to-[#0a0807]",
           "w-[88vw] max-w-[300px] -translate-x-full lg:translate-x-0 lg:static",
           mobileOpen && "translate-x-0",
           collapsed ? "lg:w-[72px]" : "lg:w-[240px]",
@@ -127,11 +127,17 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           )}
         >
           {!isCompact && (
-            <img
-              src={opheliaLogo}
-              alt="Ophelia"
-              className="w-[170px] max-w-full object-contain drop-shadow-[0_0_20px_rgba(233,116,95,0.14)]"
-            />
+            <div className="flex flex-col">
+              <img
+                src={kalaLogo}
+                alt="Kala Barre Studio"
+                className="h-9 w-auto object-contain drop-shadow-[0_0_20px_rgba(233,116,95,0.18)]"
+                style={{ filter: "brightness(0) invert(1)" }}
+              />
+              <span className="mt-1 text-[9px] font-medium uppercase tracking-[0.32em] text-white/45">
+                Barre Studio
+              </span>
+            </div>
           )}
 
           <button

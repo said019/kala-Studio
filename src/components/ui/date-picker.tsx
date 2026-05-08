@@ -1,5 +1,5 @@
 /**
- * Styled date picker for the Ophelia dark palette.
+ * Styled date picker for the Kala dark palette.
  * Month-grid calendar styled with magenta/lime/violet.
  * Accepts and emits "YYYY-MM-DD" strings (same as <input type="date">).
  */
