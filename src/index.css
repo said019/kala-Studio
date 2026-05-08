@@ -6,7 +6,8 @@
    Archivos propietarios en public/fonts/
    Fallback vía Google Fonts: Jost
    ────────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Jost:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700;800&family=Jost:wght@300;400;500;600;700&family=Epilogue:wght@500;600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -351,43 +352,120 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   KALA ADMIN — light theme overrides
-   La mayoría de páginas admin usan utilidades dark inline tipo
-   bg-white/[0.0X], text-white, border-white/[0.0X]. En vez de
-   reescribir cada página, sobreescribimos esos patrones dentro
-   del scope .kala-admin para traducirlos a la paleta cream/ink.
+   KALA ADMIN — Material You-inspired warm cream system
+   Tokens nombrados (CSS custom props) escopeados a .kala-admin para
+   que /app y la página pública sigan con su tipografía y paleta
+   propias. Override de utilidades dark inline para que las ~30
+   páginas admin no requieran reescritura.
    ────────────────────────────────────────────────────────────── */
-.kala-admin .text-white,
-.kala-admin .text-foreground { color: #2E201C !important; }
-.kala-admin .text-white\/85 { color: rgba(46, 32, 28, 0.92) !important; }
-.kala-admin .text-white\/80 { color: rgba(46, 32, 28, 0.88) !important; }
-.kala-admin .text-white\/70 { color: rgba(46, 32, 28, 0.78) !important; }
-.kala-admin .text-white\/65 { color: rgba(46, 32, 28, 0.72) !important; }
-.kala-admin .text-white\/60 { color: rgba(46, 32, 28, 0.68) !important; }
-.kala-admin .text-white\/55 { color: rgba(46, 32, 28, 0.62) !important; }
-.kala-admin .text-white\/45 { color: rgba(46, 32, 28, 0.55) !important; }
-.kala-admin .text-white\/40 { color: rgba(46, 32, 28, 0.5) !important; }
-.kala-admin .text-white\/35 { color: rgba(46, 32, 28, 0.45) !important; }
-.kala-admin .text-white\/30 { color: rgba(46, 32, 28, 0.42) !important; }
-.kala-admin .text-white\/25 { color: rgba(46, 32, 28, 0.38) !important; }
-.kala-admin .text-white\/20 { color: rgba(46, 32, 28, 0.32) !important; }
-.kala-admin .text-muted-foreground { color: rgba(46, 32, 28, 0.55) !important; }
+.kala-admin {
+  --kal-background:           #fff8f6;
+  --kal-surface:              #fff8f6;
+  --kal-surface-bright:       #fff8f6;
+  --kal-surface-dim:          #e1d8d5;
+  --kal-surface-low:          #fbf2ef;
+  --kal-surface:              #fff8f6;
+  --kal-surface-container-lowest: #ffffff;
+  --kal-surface-container-low:    #fbf2ef;
+  --kal-surface-container:        #f5ece9;
+  --kal-surface-container-high:   #efe6e3;
+  --kal-surface-container-highest:#e9e1de;
+  --kal-surface-variant:      #e9e1de;
+  --kal-on-surface:           #1e1b19;
+  --kal-on-surface-variant:   #544241;
+  --kal-on-background:        #1e1b19;
+  --kal-primary:              #400408;
+  --kal-primary-container:    #5d1a1a;
+  --kal-on-primary:           #ffffff;
+  --kal-surface-tint:         #964643;
+  --kal-secondary:            #97472e;
+  --kal-secondary-fixed:      #ffdbd0;
+  --kal-secondary-container:  #fe997a;
+  --kal-on-secondary-container: #772f18;
+  --kal-on-secondary-fixed:   #3a0a00;
+  --kal-tertiary:             #1d1d1a;
+  --kal-outline:              #877271;
+  --kal-outline-variant:      #dac1bf;
+  --kal-error:                #ba1a1a;
+  --kal-error-container:      #ffdad6;
+  --kal-success:              #4a8a4f;
+  --kal-success-container:    #d8f0d8;
+  --kal-shadow-card:          0 4px 20px rgba(93,26,26,0.04);
+  font-family: 'Manrope', system-ui, sans-serif;
+  background-color: var(--kal-background);
+  color: var(--kal-on-background);
+}
 
-/* Card / surface overrides — usar blanco con border crema */
+.kala-admin h1, .kala-admin h2, .kala-admin h3,
+.kala-admin h4, .kala-admin h5, .kala-admin h6,
+.kala-admin .font-headline {
+  font-family: 'Epilogue', 'Manrope', sans-serif;
+}
+
+/* Type scale (escopeado al admin, escapa el resto del app) */
+.kala-admin .admin-title {
+  font-family: 'Epilogue', sans-serif;
+  font-size: clamp(1.85rem, 3.4vw, 2.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--kal-primary);
+}
+.kala-admin .admin-headline-lg {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 1.75rem;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--kal-on-surface);
+}
+.kala-admin .admin-headline-md {
+  font-family: 'Epilogue', sans-serif;
+  font-size: 1.25rem;
+  line-height: 1.4;
+  font-weight: 500;
+  color: var(--kal-on-surface);
+}
+.kala-admin .admin-label-caps {
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ── Override de patrones dark legacy → Material You light ────────── */
+.kala-admin .text-white,
+.kala-admin .text-foreground { color: var(--kal-on-surface) !important; }
+.kala-admin .text-white\/85 { color: rgba(30, 27, 25, 0.92) !important; }
+.kala-admin .text-white\/80 { color: rgba(30, 27, 25, 0.88) !important; }
+.kala-admin .text-white\/70 { color: rgba(30, 27, 25, 0.78) !important; }
+.kala-admin .text-white\/65 { color: var(--kal-on-surface-variant) !important; }
+.kala-admin .text-white\/60 { color: var(--kal-on-surface-variant) !important; }
+.kala-admin .text-white\/55 { color: var(--kal-on-surface-variant) !important; }
+.kala-admin .text-white\/45 { color: var(--kal-outline) !important; }
+.kala-admin .text-white\/40 { color: var(--kal-outline) !important; }
+.kala-admin .text-white\/35 { color: var(--kal-outline) !important; }
+.kala-admin .text-white\/30 { color: var(--kal-outline) !important; }
+.kala-admin .text-white\/25 { color: var(--kal-outline) !important; }
+.kala-admin .text-white\/20 { color: var(--kal-outline) !important; }
+.kala-admin .text-muted-foreground { color: var(--kal-on-surface-variant) !important; }
+
+/* Surfaces — los inline 'bg-white/[0.0X]' se vuelven blanco/cream layered */
 .kala-admin .bg-white\/\[0\.01\],
 .kala-admin .bg-white\/\[0\.02\],
 .kala-admin .bg-white\/\[0\.03\],
 .kala-admin .bg-white\/\[0\.04\],
 .kala-admin .bg-white\/\[0\.05\] {
-  background-color: #FFFFFF !important;
+  background-color: var(--kal-surface-container-lowest) !important;
 }
 .kala-admin .bg-white\/\[0\.07\],
 .kala-admin .bg-white\/\[0\.08\] {
-  background-color: #FCE6E1 !important;
+  background-color: var(--kal-surface-container-low) !important;
 }
-.kala-admin .bg-card { background-color: #FFFFFF !important; }
-.kala-admin .bg-secondary { background-color: #FCE6E1 !important; }
-.kala-admin .bg-background { background-color: #FFF7F2 !important; }
+.kala-admin .bg-card { background-color: var(--kal-surface-container-lowest) !important; }
+.kala-admin .bg-secondary { background-color: var(--kal-surface-container) !important; }
+.kala-admin .bg-background { background-color: var(--kal-background) !important; }
 
 /* Borders */
 .kala-admin .border-white\/\[0\.04\],
@@ -399,7 +477,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .kala-admin .border-white\/15,
 .kala-admin .border-white\/20,
 .kala-admin .border-border {
-  border-color: #E8CAC1 !important;
+  border-color: var(--kal-outline-variant) !important;
 }
 
 /* Hover states */
@@ -408,47 +486,51 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .kala-admin .hover\:bg-white\/\[0\.05\]:hover,
 .kala-admin .hover\:bg-white\/\[0\.08\]:hover,
 .kala-admin .hover\:bg-white\/10:hover {
-  background-color: rgba(118, 33, 77, 0.06) !important;
+  background-color: var(--kal-surface-container-low) !important;
 }
 .kala-admin .hover\:text-white:hover,
 .kala-admin .hover\:text-foreground:hover {
-  color: #76214D !important;
+  color: var(--kal-primary) !important;
 }
 
-/* Skeleton loaders */
+/* Skeletons / muted */
 .kala-admin [class*="bg-white/[0.05]"],
 .kala-admin .bg-muted {
-  background-color: rgba(232, 202, 193, 0.5) !important;
+  background-color: var(--kal-surface-variant) !important;
+  opacity: 0.5;
 }
 
-/* Inputs / placeholders */
+/* Inputs */
+.kala-admin input,
+.kala-admin textarea,
+.kala-admin select {
+  background-color: var(--kal-surface-container-lowest) !important;
+  color: var(--kal-on-surface) !important;
+  border-color: var(--kal-outline-variant) !important;
+}
 .kala-admin input::placeholder,
-.kala-admin textarea::placeholder,
-.kala-admin .placeholder\:text-white\/25::placeholder,
-.kala-admin .placeholder\:text-white\/30::placeholder {
-  color: rgba(46, 32, 28, 0.4) !important;
+.kala-admin textarea::placeholder {
+  color: var(--kal-outline) !important;
 }
 
 /* Dialog / dropdown content backgrounds (hardcoded #0f0518 etc) */
 .kala-admin .bg-\[\#0f0518\],
 .kala-admin .bg-\[\#080808\],
 .kala-admin .bg-\[\#0b0b0bcc\] {
-  background-color: #FFFFFF !important;
+  background-color: var(--kal-surface-container-lowest) !important;
 }
 
-/* Radix portals for Dialog/Select/Dropdown content render at <body>, fuera
-   del scope .kala-admin. Hacemos las reglas globales — el #0f0518 solo
-   se usa en admin, así que no rompe el resto del app. */
-.bg-\[\#0f0518\] { background-color: #FFFFFF !important; color: #2E201C !important; }
+/* Radix portals para Dialog/Select/Dropdown se montan en <body>, fuera
+   del scope .kala-admin. Reglas globales — el #0f0518 solo se usa en
+   admin así que no rompe el resto. */
+.bg-\[\#0f0518\] { background-color: #ffffff !important; color: #1e1b19 !important; }
 .bg-\[\#0f0518\] .text-white,
-.bg-\[\#0f0518\] [class*="text-white"] { color: #2E201C !important; }
-.bg-\[\#0f0518\] .border-white\/10 { border-color: #E8CAC1 !important; }
+.bg-\[\#0f0518\] [class*="text-white"] { color: #1e1b19 !important; }
+.bg-\[\#0f0518\] .border-white\/10 { border-color: #dac1bf !important; }
 
 /* Table rows */
-.kala-admin table tbody tr {
-  border-color: #E8CAC1 !important;
-}
+.kala-admin table tbody tr,
 .kala-admin .border-t.border-white\/\[0\.04\],
 .kala-admin .border-b.border-white\/\[0\.04\] {
-  border-color: #F1DFD8 !important;
+  border-color: var(--kal-outline-variant) !important;
 }
