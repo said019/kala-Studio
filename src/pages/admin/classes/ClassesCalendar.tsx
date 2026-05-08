@@ -886,6 +886,7 @@ function GenerateTab({
   instructors: { id: string; displayName: string }[];
   toast: any;
 }) {
+  const qc = useQueryClient();
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -894,6 +895,19 @@ function GenerateTab({
   const [classTypeId, setClassTypeId] = useState("");
   const [instructorId, setInstructorId] = useState("");
   const [maxCapacity, setMaxCapacity] = useState(10);
+
+  const resetKalaMutation = useMutation({
+    mutationFn: () => api.post("/schedules/reset-kala"),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      toast({
+        title: "✨ Horario Kala restablecido",
+        description: res.data?.message || "23 slots cargados",
+      });
+    },
+    onError: () =>
+      toast({ title: "Error", description: "No se pudo restablecer", variant: "destructive" }),
+  });
 
   const selectedType = types.find((t) => t.id === classTypeId);
   const selectedInstructor = instructors.find((i) => i.id === instructorId);
@@ -950,6 +964,43 @@ function GenerateTab({
         </div>
         <h2 className="text-2xl font-bold text-white">Generar clases en bloque</h2>
         <p className="text-sm text-white/40 mt-1">Selecciona tipo, instructor, rango de fechas y días</p>
+      </div>
+
+      {/* ── Preset: Horario Kala oficial ── */}
+      <div className="rounded-2xl border border-[#76214D]/30 bg-gradient-to-br from-[#76214D]/10 to-[#E9745F]/5 p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Sparkles size={14} className="text-[#F58A24]" />
+              <span className="text-xs font-semibold text-[#E9745F] uppercase tracking-wider">Preset Kala</span>
+            </div>
+            <p className="mt-1.5 text-sm font-medium text-white">Horario oficial del estudio</p>
+            <p className="mt-0.5 text-xs text-white/50">
+              Lun–Vie: 7am, 8am, 7pm, 8pm · Sáb: 7am, 8am, 9am · 23 slots semanales
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Esto borrará TODOS los horarios actuales y dejará el horario Kala oficial:\n\nLun–Vie: 7am, 8am, 7pm, 8pm\nSábado: 7am, 8am, 9am\n\n¿Continuar?",
+                )
+              ) {
+                resetKalaMutation.mutate();
+              }
+            }}
+            disabled={resetKalaMutation.isPending}
+            variant="outline"
+            className="border-[#E9745F]/40 bg-white/[0.04] text-white/85 hover:bg-white/[0.08] disabled:opacity-50"
+          >
+            {resetKalaMutation.isPending ? (
+              <Loader2 size={14} className="mr-2 animate-spin" />
+            ) : (
+              <Sparkles size={14} className="mr-2" />
+            )}
+            Aplicar horario Kala
+          </Button>
+        </div>
       </div>
 
       {/* ── Step 1: Class type + Instructor ── */}
