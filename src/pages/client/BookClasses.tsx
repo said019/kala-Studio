@@ -75,6 +75,12 @@ const BookClasses = () => {
     queryFn: async () => (await api.get("/memberships/my")).data,
   });
 
+  const { data: weeklyStatusData } = useQuery({
+    queryKey: ["weekly-status", format(weekStart, "yyyy-MM-dd")],
+    queryFn: async () =>
+      (await api.get(`/bookings/weekly-status?date=${format(weekStart, "yyyy-MM-dd")}`)).data,
+  });
+
   const classes: any[] = Array.isArray(classesData?.data) ? classesData.data : Array.isArray(classesData) ? classesData : [];
   const myBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
   const membership = membershipData?.data ?? null;
@@ -84,6 +90,9 @@ const BookClasses = () => {
     : null;
   const classesRemaining = membership?.classesRemaining ?? membership?.classes_remaining;
   const isUnlimited = classesRemaining === null || classesRemaining === undefined || classesRemaining === 9999;
+  const weeklyStatus: { plan_name: string; limit: number; used: number; remaining: number }[] =
+    Array.isArray(weeklyStatusData?.data) ? weeklyStatusData.data : [];
+  const weeklyCap = weeklyStatus[0] ?? null;
 
   const myBookedClassIds = useMemo(() => new Set(myBookings.map((b) => b.class_id)), [myBookings]);
 
@@ -185,6 +194,33 @@ const BookClasses = () => {
             Tu membresía permite reservar solo clases de{" "}
             <span style={{ color: KALA[CAT_TINT[membershipCat]], fontWeight: 600 }}>{CAT_LABEL[membershipCat]}</span>.
           </p>
+        )}
+
+        {weeklyCap && (
+          <div
+            className="mt-3 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-2"
+            style={{
+              backgroundColor: weeklyCap.remaining === 0 ? `${KALA.coral}14` : `${KALA.olive}14`,
+              border: `1px solid ${weeklyCap.remaining === 0 ? KALA.coral : KALA.olive}30`,
+            }}
+          >
+            <span className="text-[0.62rem] font-medium uppercase tracking-[0.22em]" style={{ color: weeklyCap.remaining === 0 ? KALA.coral : KALA.olive }}>
+              Tope semanal
+            </span>
+            <span className="text-[0.86rem]" style={{ color: KALA.ink }}>
+              {weeklyCap.remaining === 0 ? (
+                <>Ya reservaste tus <strong>{weeklyCap.limit}</strong> clases de esta semana. Cancela una si quieres mover el día.</>
+              ) : (
+                <>
+                  Te quedan{" "}
+                  <strong style={{ color: KALA.berry }}>
+                    {weeklyCap.remaining}
+                  </strong>{" "}
+                  de <strong>{weeklyCap.limit}</strong> esta semana.
+                </>
+              )}
+            </span>
+          </div>
         )}
 
         {/* Week grid */}

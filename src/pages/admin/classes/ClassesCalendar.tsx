@@ -896,17 +896,34 @@ function GenerateTab({
   const [instructorId, setInstructorId] = useState("");
   const [maxCapacity, setMaxCapacity] = useState(10);
 
+  const [presetInstructorId, setPresetInstructorId] = useState("");
+  const [presetWeeks, setPresetWeeks] = useState(4);
+
   const resetKalaMutation = useMutation({
-    mutationFn: () => api.post("/schedules/reset-kala"),
+    mutationFn: (params: { generate: boolean; instructorId?: string; weeks?: number }) =>
+      api.post("/schedules/reset-kala", {
+        generateClasses: params.generate,
+        weeksAhead: params.weeks,
+        instructorId: params.instructorId,
+      }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      const created = res.data?.data?.classesCreated ?? 0;
+      const skipped = res.data?.data?.classesSkipped ?? 0;
       toast({
-        title: "✨ Horario Kala restablecido",
-        description: res.data?.message || "23 slots cargados",
+        title: "✨ Horario Kala aplicado",
+        description: created > 0
+          ? `${created} clases creadas${skipped ? ` · ${skipped} ya existían` : ""}.`
+          : (res.data?.message || "Plantilla guardada"),
       });
     },
-    onError: () =>
-      toast({ title: "Error", description: "No se pudo restablecer", variant: "destructive" }),
+    onError: (err: any) =>
+      toast({
+        title: "Error",
+        description: err?.response?.data?.message || "No se pudo aplicar",
+        variant: "destructive",
+      }),
   });
 
   const selectedType = types.find((t) => t.id === classTypeId);
@@ -967,38 +984,77 @@ function GenerateTab({
       </div>
 
       {/* ── Preset: Horario Kala oficial ── */}
-      <div className="rounded-2xl border border-[#76214D]/30 bg-gradient-to-br from-[#76214D]/10 to-[#E9745F]/5 p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Sparkles size={14} className="text-[#F58A24]" />
-              <span className="text-xs font-semibold text-[#E9745F] uppercase tracking-wider">Preset Kala</span>
-            </div>
-            <p className="mt-1.5 text-sm font-medium text-white">Horario oficial del estudio</p>
-            <p className="mt-0.5 text-xs text-white/50">
-              Lun–Vie: 7am, 8am, 7pm, 8pm · Sáb: 7am, 8am, 9am · 23 slots semanales
-            </p>
+      <div className="rounded-2xl border border-[#76214D]/30 bg-gradient-to-br from-[#76214D]/10 to-[#E9745F]/5 p-5 space-y-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <Sparkles size={14} className="text-[#F58A24]" />
+            <span className="text-xs font-semibold text-[#E9745F] uppercase tracking-wider">Preset Kala</span>
           </div>
+          <p className="mt-1.5 text-sm font-medium text-white">Horario oficial del estudio</p>
+          <p className="mt-0.5 text-xs text-white/50">
+            Lun–Vie: 7am, 8am, 7pm, 8pm · Sáb: 7am, 8am, 9am · 23 slots semanales
+          </p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-white/60 text-xs">Instructora</Label>
+            <Select value={presetInstructorId} onValueChange={setPresetInstructorId}>
+              <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white">
+                <SelectValue placeholder="Seleccionar instructora" />
+              </SelectTrigger>
+              <SelectContent>
+                {instructors.map((inst) => (
+                  <SelectItem key={inst.id} value={inst.id}>{inst.displayName}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-white/60 text-xs">Semanas a generar</Label>
+            <Select value={String(presetWeeks)} onValueChange={(v) => setPresetWeeks(Number(v))}>
+              <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[1, 2, 4, 6, 8, 12].map((n) => (
+                  <SelectItem key={n} value={String(n)}>{n} semana{n === 1 ? "" : "s"}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
           <Button
             onClick={() => {
               if (
                 window.confirm(
-                  "Esto borrará TODOS los horarios actuales y dejará el horario Kala oficial:\n\nLun–Vie: 7am, 8am, 7pm, 8pm\nSábado: 7am, 8am, 9am\n\n¿Continuar?",
+                  `Esto creará ~${presetWeeks * 23} clases (${presetWeeks} semana${presetWeeks === 1 ? "" : "s"} × 23 slots) con la instructora seleccionada. Las que ya existan se omiten.\n\n¿Continuar?`,
                 )
               ) {
-                resetKalaMutation.mutate();
+                resetKalaMutation.mutate({ generate: true, instructorId: presetInstructorId, weeks: presetWeeks });
               }
             }}
-            disabled={resetKalaMutation.isPending}
-            variant="outline"
-            className="border-[#E9745F]/40 bg-white/[0.04] text-white/85 hover:bg-white/[0.08] disabled:opacity-50"
+            disabled={resetKalaMutation.isPending || !presetInstructorId}
+            className="bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white disabled:opacity-50"
           >
             {resetKalaMutation.isPending ? (
               <Loader2 size={14} className="mr-2 animate-spin" />
             ) : (
               <Sparkles size={14} className="mr-2" />
             )}
-            Aplicar horario Kala
+            Aplicar y generar clases
+          </Button>
+          <Button
+            onClick={() => {
+              if (window.confirm("Esto solo guarda la plantilla (23 slots). NO crea las clases reales.\n\n¿Continuar?")) {
+                resetKalaMutation.mutate({ generate: false });
+              }
+            }}
+            disabled={resetKalaMutation.isPending}
+            variant="outline"
+            className="border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/[0.08]"
+          >
+            Solo plantilla
           </Button>
         </div>
       </div>

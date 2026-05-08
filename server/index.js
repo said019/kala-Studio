@@ -8341,32 +8341,139 @@ app.delete("/api/schedules/:id", adminMiddleware, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
-// POST /api/schedules/reset-kala — wipes schedule_slots and seeds the 23 canonical Kala slots
-// Lun-Vie 7:00am, 8:00am, 7:00pm, 8:00pm  +  Sáb 7:00am, 8:00am, 9:00am
-app.post("/api/schedules/reset-kala", adminMiddleware, async (_req, res) => {
+// POST /api/schedules/reset-kala — wipes schedule_slots and seeds 23 canonical Kala slots.
+// Si body.generateClasses === true, también crea las class instances en `classes`
+// para las próximas body.weeksAhead semanas (default 4) usando body.instructorId.
+//
+// Body: { generateClasses?: boolean, weeksAhead?: number,
+//         instructorId?: string, classTypeId?: string, maxCapacity?: number }
+app.post("/api/schedules/reset-kala", adminMiddleware, async (req, res) => {
+  const {
+    generateClasses = false,
+    weeksAhead = 4,
+    instructorId: bodyInstructorId,
+    classTypeId: bodyClassTypeId,
+    maxCapacity = 10,
+  } = req.body || {};
+
+  // Canonical slots (day_of_week, time_slot, end_time +55min)
+  const KALA_SLOTS = [
+    [1, "7:00 am"], [1, "8:00 am"], [1, "7:00 pm"], [1, "8:00 pm"],
+    [2, "7:00 am"], [2, "8:00 am"], [2, "7:00 pm"], [2, "8:00 pm"],
+    [3, "7:00 am"], [3, "8:00 am"], [3, "7:00 pm"], [3, "8:00 pm"],
+    [4, "7:00 am"], [4, "8:00 am"], [4, "7:00 pm"], [4, "8:00 pm"],
+    [5, "7:00 am"], [5, "8:00 am"], [5, "7:00 pm"], [5, "8:00 pm"],
+    [6, "7:00 am"], [6, "8:00 am"], [6, "9:00 am"],
+  ];
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM schedule_slots");
-    await client.query(`
-      INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, is_active) VALUES
-        ('7:00 am', 1, 'Barre', true), ('8:00 am', 1, 'Barre', true), ('7:00 pm', 1, 'Barre', true), ('8:00 pm', 1, 'Barre', true),
-        ('7:00 am', 2, 'Barre', true), ('8:00 am', 2, 'Barre', true), ('7:00 pm', 2, 'Barre', true), ('8:00 pm', 2, 'Barre', true),
-        ('7:00 am', 3, 'Barre', true), ('8:00 am', 3, 'Barre', true), ('7:00 pm', 3, 'Barre', true), ('8:00 pm', 3, 'Barre', true),
-        ('7:00 am', 4, 'Barre', true), ('8:00 am', 4, 'Barre', true), ('7:00 pm', 4, 'Barre', true), ('8:00 pm', 4, 'Barre', true),
-        ('7:00 am', 5, 'Barre', true), ('8:00 am', 5, 'Barre', true), ('7:00 pm', 5, 'Barre', true), ('8:00 pm', 5, 'Barre', true),
-        ('7:00 am', 6, 'Barre', true), ('8:00 am', 6, 'Barre', true), ('9:00 am', 6, 'Barre', true)
-    `);
+    for (const [dow, ts] of KALA_SLOTS) {
+      await client.query(
+        `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, is_active)
+         VALUES ($1, $2, 'Barre', true)`,
+        [ts, dow],
+      );
+    }
     await client.query("COMMIT");
-    const r = await pool.query("SELECT * FROM schedule_slots ORDER BY day_of_week, time_slot");
-    return res.json({ data: r.rows, message: "Horario Kala restablecido (23 slots)" });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("reset-kala error:", err);
-    return res.status(500).json({ message: "Error interno", error: err.message });
-  } finally {
     client.release();
+    console.error("reset-kala (slots) error:", err);
+    return res.status(500).json({ message: "Error interno seedeando slots", error: err.message });
   }
+  client.release();
+
+  // Si no se pidió generar instancias, devolvemos solo el seed.
+  if (!generateClasses) {
+    const r = await pool.query("SELECT * FROM schedule_slots ORDER BY day_of_week, time_slot");
+    return res.json({
+      data: { slots: r.rows, classesCreated: 0 },
+      message: "Plantilla Kala restablecida (23 slots)",
+    });
+  }
+
+  // Resolver class_type (Barre, único activo para Kala) e instructor.
+  let classTypeId = bodyClassTypeId;
+  if (!classTypeId) {
+    const ctRes = await pool.query(
+      `SELECT id FROM class_types WHERE is_active = true
+        ORDER BY (name ILIKE '%barre%') DESC, sort_order ASC LIMIT 1`,
+    );
+    classTypeId = ctRes.rows[0]?.id;
+  }
+  if (!classTypeId) {
+    return res.status(400).json({
+      message: "No hay class_type activo. Crea 'Barre' en /admin/classes/types primero.",
+    });
+  }
+  let instructorId = bodyInstructorId;
+  if (!instructorId) {
+    const insRes = await pool.query(
+      `SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1`,
+    );
+    instructorId = insRes.rows[0]?.id;
+  }
+  if (!instructorId) {
+    return res.status(400).json({
+      message: "No hay instructora activa. Crea una en /admin/classes (tab Instructoras) primero.",
+    });
+  }
+
+  // Generar instancias: del próximo lunes hasta +N semanas-1.
+  const nWeeks = Math.max(1, Math.min(12, Number(weeksAhead) || 4));
+  const today = new Date();
+  // Inicio: el lunes de esta semana (date_trunc style)
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  const dow = start.getDay() === 0 ? 6 : start.getDay() - 1; // 0=Mon..6=Sun
+  start.setDate(start.getDate() - dow);
+  const end = new Date(start);
+  end.setDate(end.getDate() + nWeeks * 7 - 1);
+
+  const created = [];
+  const skipped = [];
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    // schedule_slots usa 1=Mon..6=Sat; JS Date.getDay() es 0=Sun..6=Sat
+    const jsDay = d.getDay();
+    if (jsDay === 0) continue; // Domingo: Kala no opera
+    const slotDay = jsDay; // 1..6 directos
+    const slotsForDay = KALA_SLOTS.filter(([dw]) => dw === slotDay);
+    const dateStr = toDbDateString(d);
+    for (const [, timeSlot] of slotsForDay) {
+      const startTime = parseTimeSlotTo24Hour(timeSlot);
+      if (!startTime) continue;
+      const endTime = addMinutesToTimeString(startTime, 55);
+      const exists = await pool.query(
+        `SELECT id FROM classes WHERE date = $1 AND start_time = $2 AND class_type_id = $3 LIMIT 1`,
+        [dateStr, startTime, classTypeId],
+      );
+      if (exists.rows.length) {
+        skipped.push({ date: dateStr, time: startTime, reason: "exists" });
+        continue;
+      }
+      const r = await pool.query(
+        `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'scheduled') RETURNING id, date, start_time`,
+        [classTypeId, instructorId, dateStr, startTime, endTime, maxCapacity],
+      );
+      created.push(r.rows[0]);
+    }
+  }
+
+  return res.json({
+    data: {
+      slotsSeeded: 23,
+      classesCreated: created.length,
+      classesSkipped: skipped.length,
+      weeksAhead: nWeeks,
+      classTypeId,
+      instructorId,
+    },
+    message: `Plantilla Kala restablecida. ${created.length} clases creadas (${skipped.length} ya existían).`,
+  });
 });
 
 // POST /api/pos/checkout — alias for /pos/sale
