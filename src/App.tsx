@@ -51,6 +51,7 @@ import OrdersVerification from "./pages/admin/orders/OrdersVerification";
 import POSPage from "./pages/admin/pos/POSPage";
 import DiscountCodes from "./pages/admin/discount-codes/DiscountCodes";
 import LoyaltyPage from "./pages/admin/loyalty/LoyaltyPage";
+import CampaignsPage from "./pages/admin/campaigns/CampaignsPage";
 import Referrals from "./pages/admin/referrals/Referrals";
 import VideoList from "./pages/admin/videos/VideoList";
 import VideoUpload from "./pages/admin/videos/VideoUpload";
@@ -138,6 +139,7 @@ const App = () => (
           <Route path="/admin/pos" element={<POSPage />} />
           <Route path="/admin/discount-codes" element={<DiscountCodes />} />
           <Route path="/admin/loyalty" element={<LoyaltyPage />} />
+          <Route path="/admin/campaigns" element={<CampaignsPage />} />
           <Route path="/admin/referrals" element={<Referrals />} />
           <Route path="/admin/videos" element={<VideoList />} />
           <Route path="/admin/videos/upload" element={<VideoUpload />} />

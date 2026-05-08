@@ -7,7 +7,7 @@ import opheliaLogo from "@/assets/ophelia-logo-full.webp";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, ShoppingBag,
-  ShoppingCart, Tag, Gift, Video, BarChart2,
+  ShoppingCart, Tag, Gift, Video, BarChart2, MessageCircle,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, Ticket, X,
 } from "lucide-react";
 
@@ -35,6 +35,7 @@ const NAV_GROUPS = [
       { path: "/admin/pos", label: "POS", icon: ShoppingCart },
       { path: "/admin/discount-codes", label: "Descuentos", icon: Tag },
       { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
+      { path: "/admin/campaigns", label: "Campañas WA", icon: MessageCircle },
       { path: "/admin/videos", label: "Videos", icon: Video },
       { path: "/admin/events", label: "Eventos", icon: Ticket },
     ],
