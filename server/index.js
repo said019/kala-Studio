@@ -726,54 +726,7 @@ async function ensureSchema() {
     `).catch(() => { });
     // ── Migrate plans: 'mixto' class_category means both, keep as 'mixto' for logic ──
     // (mixto plans are still valid — the booking endpoint allows them on both categories)
-    // ── Seed plans: deactivate old schema_complete.sql plans & ensure only correct ones ──
-    // Soft-delete (deactivate) old plans that came from the migration seed (wrong data)
-    // Using UPDATE instead of DELETE to avoid FK constraint from orders table
-    await pool.query(`
-      UPDATE plans SET is_active = false WHERE name IN (
-        'Inscripción (Pago Anual)',
-        'Sesión Muestra o Individual',
-        'Sesión Extra (Socias o Inscritas)',
-        'Una Sesión (4 al Mes)',
-        'Dos Sesiones (8 al Mes)',
-        'Tres Sesiones (12 al Mes)',
-        'Cuatro Sesiones (16 al Mes)',
-        'Cinco Sesiones (20 al Mes)',
-        'Seis Sesiones (24 al Mes)',
-        'Siete Sesiones (28 al Mes)'
-      );
-    `).catch(() => { });
-    // Remove legacy plan "Sesión Extra (Socias o Inscritas)" and all related data.
-    // This keeps admin clean and avoids accidental reuse of an obsolete plan.
-    try {
-      const legacyPlanName = "Sesión Extra (Socias o Inscritas)";
-      const legacyRes = await pool.query(`SELECT id FROM plans WHERE name = $1`, [legacyPlanName]);
-      if (legacyRes.rows.length) {
-        const legacyIds = legacyRes.rows.map((row) => row.id);
-        const cleanupClient = await pool.connect();
-        try {
-          await cleanupClient.query("BEGIN");
-          await cleanupClient.query(
-            `UPDATE memberships
-                SET order_id = NULL
-              WHERE order_id IN (SELECT id FROM orders WHERE plan_id = ANY($1::uuid[]))`,
-            [legacyIds]
-          ).catch(() => {});
-          await cleanupClient.query(`DELETE FROM discount_codes WHERE plan_id = ANY($1::uuid[])`, [legacyIds]).catch(() => {});
-          await cleanupClient.query(`DELETE FROM memberships WHERE plan_id = ANY($1::uuid[])`, [legacyIds]).catch(() => {});
-          await cleanupClient.query(`DELETE FROM orders WHERE plan_id = ANY($1::uuid[])`, [legacyIds]).catch(() => {});
-          await cleanupClient.query(`DELETE FROM plans WHERE id = ANY($1::uuid[])`, [legacyIds]);
-          await cleanupClient.query("COMMIT");
-        } catch (legacyErr) {
-          await cleanupClient.query("ROLLBACK").catch(() => {});
-          console.warn("[schema] Legacy session cleanup skipped:", legacyErr?.message || legacyErr);
-        } finally {
-          cleanupClient.release();
-        }
-      }
-    } catch (legacyTopErr) {
-      console.warn("[schema] Legacy session lookup failed:", legacyTopErr?.message || legacyTopErr);
-    }
+    // ── Seed plans: ensure el lineup oficial de Kala existe si la tabla está vacía ──
     const plCount = await pool.query("SELECT COUNT(*) FROM plans WHERE is_active = true");
     if (parseInt(plCount.rows[0].count) === 0) {
       await pool.query(`
