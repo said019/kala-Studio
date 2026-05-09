@@ -11037,15 +11037,29 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
 
 // PUT /api/bookings/:id/check-in
 app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
+  // Validar UUID antes para no crashar el handler con 'undefined' o input malo
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(String(req.params.id))) {
+    return res.status(400).json({ message: "ID de reserva inválido" });
+  }
   try {
-    const r = await pool.query(
-      "UPDATE bookings SET status = 'checked_in', checked_in_at = NOW() WHERE id = $1 RETURNING *",
-      [req.params.id]
+    // 1) Lookup primero para saber si ya estaba checked-in y evitar duplicar puntos.
+    const before = await pool.query(
+      "SELECT user_id, status, checked_in_at, class_id FROM bookings WHERE id = $1",
+      [req.params.id],
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Reserva no encontrada" });
+    if (!before.rows.length) {
+      return res.status(404).json({ message: "Reserva no encontrada" });
+    }
+    const wasAlreadyCheckedIn = !!before.rows[0].checked_in_at;
+    // 2) UPDATE (idempotente: si ya estaba, refresca el timestamp pero no doblamos puntos).
+    const r = await pool.query(
+      "UPDATE bookings SET status = 'checked_in', checked_in_at = COALESCE(checked_in_at, NOW()) WHERE id = $1 RETURNING *",
+      [req.params.id],
+    );
     const booking = r.rows[0];
-    // Award loyalty points for attending a class
-    if (booking.user_id) {
+    // 3) Otorgar +10 pts SOLO si es primer check-in.
+    if (booking.user_id && !wasAlreadyCheckedIn) {
       try {
         const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
         const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
@@ -11053,17 +11067,38 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
         if (cfg.enabled !== false && pts > 0) {
           await pool.query(
             "INSERT INTO loyalty_transactions (user_id, type, points, description) VALUES ($1, 'earn', $2, 'Clase asistida')",
-            [booking.user_id, pts]
+            [booking.user_id, pts],
           );
         }
-      } catch (e) { /* loyalty earn error shouldn't fail check-in */ }
+      } catch (loyaltyErr) {
+        console.warn("[check-in] loyalty insert failed:", loyaltyErr?.message);
+      }
     }
-    if (booking.user_id) {
-      notifyClassAttended(booking.user_id, { className: booking.class_type_name }).catch(() => {});
+    // 4) notifyClassAttended (motivación + milestones + wallet sync) SOLO si es primer check-in.
+    if (booking.user_id && !wasAlreadyCheckedIn) {
+      // Get className for the notify ctx
+      let className = null;
+      try {
+        const cl = await pool.query(
+          "SELECT ct.name FROM classes c JOIN class_types ct ON ct.id = c.class_type_id WHERE c.id = $1",
+          [booking.class_id],
+        );
+        className = cl.rows[0]?.name || null;
+      } catch (_) { /* opcional */ }
+      notifyClassAttended(booking.user_id, { className }).catch((e) => {
+        console.warn("[check-in] notifyClassAttended async error:", e?.message);
+      });
     }
-    return res.json({ data: r.rows[0] });
+    return res.json({
+      data: booking,
+      alreadyCheckedIn: wasAlreadyCheckedIn,
+    });
   } catch (err) {
-    return res.status(500).json({ message: "Error interno" });
+    console.error("[check-in] error:", err?.message, err?.code, err?.detail);
+    return res.status(500).json({
+      message: "Error interno",
+      error: err?.message?.slice(0, 160) || null,
+    });
   }
 });
 
