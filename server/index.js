@@ -3885,6 +3885,175 @@ app.get("/api/me/rings", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/me/notifications — feed unificado de eventos para la alumna.
+// Une motivation_sends, milestone_awards, loyalty_transactions y bookings
+// recientes, ordenado por fecha descendente. Útil para /app/notifications.
+app.get("/api/me/notifications", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const limit = Math.min(Number(req.query.limit) || 30, 100);
+
+    // 1) Motivation/milestone WhatsApp templates enviados
+    const motivRes = await pool.query(
+      `SELECT 'motivation' AS source, id, template_key AS title, sent_at AS occurred_at
+         FROM motivation_sends
+        WHERE user_id = $1
+        ORDER BY sent_at DESC LIMIT $2`,
+      [userId, limit],
+    );
+
+    // 2) Milestones desbloqueados con info del milestone
+    const mileRes = await pool.query(
+      `SELECT 'milestone' AS source, a.id, m.name AS title, m.award_points AS points,
+              a.classes_at_award AS classes, a.awarded_at AS occurred_at
+         FROM loyalty_milestone_awards a
+         JOIN loyalty_milestones m ON m.id = a.milestone_id
+        WHERE a.user_id = $1
+        ORDER BY a.awarded_at DESC LIMIT $2`,
+      [userId, limit],
+    );
+
+    // 3) Transacciones de puntos (earn / spend / adjust)
+    const txRes = await pool.query(
+      `SELECT 'transaction' AS source, id, type, points, description AS title, created_at AS occurred_at
+         FROM loyalty_transactions
+        WHERE user_id = $1
+        ORDER BY created_at DESC LIMIT $2`,
+      [userId, limit],
+    );
+
+    // 4) Bookings recientes (confirmados / atendidos / cancelados)
+    const bookRes = await pool.query(
+      `SELECT 'booking' AS source, b.id, b.status, ct.name AS class_name,
+              c.date, c.start_time, b.created_at, b.checked_in_at,
+              GREATEST(b.checked_in_at, b.created_at) AS occurred_at
+         FROM bookings b
+         JOIN classes c ON c.id = b.class_id
+         JOIN class_types ct ON ct.id = c.class_type_id
+        WHERE b.user_id = $1
+          AND b.status IN ('confirmed', 'checked_in', 'cancelled')
+        ORDER BY GREATEST(b.checked_in_at, b.created_at) DESC LIMIT $2`,
+      [userId, limit],
+    );
+
+    // Mergear y ordenar
+    const items = [
+      ...motivRes.rows.map((r) => {
+        const k = String(r.title || "");
+        const cat = k.startsWith("milestone_") ? "milestone"
+          : k.startsWith("motivation_") ? "motivation"
+          : k.startsWith("promo_") ? "marketing"
+          : k.startsWith("class_") || k.startsWith("booking_") ? "booking"
+          : k.startsWith("membership_") || k.startsWith("renewal_") ? "membership"
+          : "system";
+        return {
+          id: `m_${r.id}`,
+          category: cat,
+          title: prettyTemplateKey(k),
+          body: humanizeMotivationKey(k),
+          time: r.occurred_at,
+        };
+      }),
+      ...mileRes.rows.map((r) => ({
+        id: `award_${r.id}`,
+        category: "milestone",
+        title: `Logro desbloqueado: ${r.title}`,
+        body: `Alcanzaste ${r.classes} clases · +${r.points} pts en tu cuenta.`,
+        time: r.occurred_at,
+      })),
+      ...txRes.rows.map((r) => ({
+        id: `tx_${r.id}`,
+        category: r.type === "earn" || r.type === "adjust" ? "loyalty_earn" : "loyalty_spend",
+        title: r.type === "earn"
+          ? (r.title || "Puntos ganados")
+          : r.type === "adjust"
+            ? (r.title || "Ajuste de puntos")
+            : (r.title || "Puntos canjeados"),
+        body: `${r.points >= 0 && r.type !== "spend" ? "+" : "−"}${Math.abs(r.points)} pts`,
+        time: r.occurred_at,
+      })),
+      ...bookRes.rows.map((r) => {
+        const dateStr = r.date
+          ? new Date(r.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })
+          : "";
+        const timeStr = r.start_time ? String(r.start_time).slice(0, 5) : "";
+        const labels = {
+          confirmed: ["Reserva confirmada", `${r.class_name} · ${dateStr} ${timeStr}`],
+          checked_in: ["Clase atendida ✨", `${r.class_name} · ${dateStr}`],
+          cancelled: ["Reserva cancelada", `${r.class_name} · ${dateStr}`],
+        };
+        const [t, b] = labels[r.status] || ["Reserva", r.class_name];
+        return {
+          id: `b_${r.id}`,
+          category: "booking",
+          title: t,
+          body: b,
+          time: r.occurred_at,
+        };
+      }),
+    ]
+      .filter((x) => x.time)
+      .sort((a, b) => new Date(b.time) - new Date(a.time))
+      .slice(0, limit);
+
+    return res.json({ data: items });
+  } catch (err) {
+    console.error("GET /api/me/notifications error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+function prettyTemplateKey(key) {
+  const map = {
+    welcome: "Bienvenida a Kala",
+    booking_confirmed: "Reserva confirmada",
+    booking_cancelled: "Reserva cancelada",
+    class_reminder: "Recordatorio de clase",
+    class_attended: "Check-in registrado",
+    membership_activated: "Tu paquete está activo",
+    membership_expiring_today: "Tu paquete vence hoy",
+    membership_expiring_tomorrow: "Tu paquete vence mañana",
+    membership_expiring_n_days: "Tu paquete vence pronto",
+    membership_expired: "Tu paquete terminó",
+    renewal_reminder: "Recordatorio de renovación",
+    transfer_rejected: "Comprobante rechazado",
+    rings_closed: "3 anillos cerrados",
+    points_earned: "Sumaste puntos",
+    reward_redeemed: "Recompensa canjeada",
+    event_registered: "Inscrita al evento",
+    motivation_first_class_week: "Arrancando la semana",
+    motivation_almost_ringed: "Te falta una",
+    motivation_streak_2_weeks: "Dos semanas seguidas",
+    motivation_streak_4_weeks: "Un mes completo",
+    motivation_streak_8_weeks: "Imparable",
+    motivation_comeback: "Qué bueno tenerte de regreso",
+    milestone_classes_5: "Primera meta",
+    milestone_classes_10: "10 clases",
+    milestone_classes_25: "25 clases",
+    milestone_classes_50: "50 clases",
+    milestone_classes_100: "100 clases",
+    promo_custom: "Promo Kala",
+    promo_dormant_invite: "Te extrañamos",
+    promo_expiring_offer: "Renueva con beneficio",
+    promo_birthday_month: "Feliz mes",
+  };
+  return map[key] || "Aviso de Kala";
+}
+
+function humanizeMotivationKey(key) {
+  if (key.startsWith("milestone_")) return "Lograste un nuevo milestone Kala.";
+  if (key.startsWith("motivation_")) return "Te enviamos un mensaje motivacional al WhatsApp.";
+  if (key.startsWith("promo_")) return "Te enviamos una promoción al WhatsApp.";
+  if (key === "class_attended") return "Tenemos tu check-in.";
+  if (key === "rings_closed") return "Cerraste tus 3 anillos esta semana.";
+  if (key === "points_earned") return "Sumaste puntos a tu cuenta.";
+  if (key === "reward_redeemed") return "Canjeaste una recompensa.";
+  if (key === "event_registered") return "Quedaste inscrita a un evento.";
+  if (key.startsWith("booking_")) return "Actualización sobre tu reserva.";
+  if (key.startsWith("membership_") || key === "renewal_reminder") return "Estado de tu paquete.";
+  return "Recibiste una notificación.";
+}
+
 // GET /api/admin/rings/users/:id
 app.get("/api/admin/rings/users/:id", adminMiddleware, async (req, res) => {
   try {
