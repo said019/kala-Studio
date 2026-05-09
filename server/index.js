@@ -5105,6 +5105,7 @@ async function getWalletSnapshotForUser(userId, { eventId = null } = {}) {
     if (memRes.rows.length > 0) {
       const m = memRes.rows[0];
       membership = {
+        id: m.id,
         plan_name: m.plan_name_override || m.plan_name || "Plan Activo",
         class_limit: m.class_limit_override ?? m.plan_class_limit,
         classes_remaining: m.classes_remaining,
