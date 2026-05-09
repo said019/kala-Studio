@@ -6226,6 +6226,62 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const compactAuxiliaryFields = [];
   const backFields = [];
 
+  // ── Next loyalty milestone (recompensa por asistencia) — para back field ──
+  // Independiente del estado de membresía: si la dueña ya configuró milestones,
+  // queremos surfacearlos en el pase para gamificación.
+  let nextMilestone = null;
+  let milestoneClassesRemaining = null;
+  if (userId) {
+    try {
+      const lifetimeRes = await pool.query(
+        "SELECT COUNT(*)::int AS n FROM bookings WHERE user_id = $1 AND status = 'checked_in'",
+        [userId],
+      );
+      const lifetime = lifetimeRes.rows[0]?.n || 0;
+      const nextRes = await pool.query(
+        `SELECT m.name, m.classes_required, m.award_points, m.award_type
+           FROM loyalty_milestones m
+          WHERE m.is_active = true
+            AND m.period = 'lifetime'
+            AND m.classes_required > $1
+            AND NOT EXISTS (
+              SELECT 1 FROM loyalty_milestone_awards a
+               WHERE a.user_id = $2 AND a.milestone_id = m.id
+            )
+          ORDER BY m.classes_required ASC
+          LIMIT 1`,
+        [lifetime, userId],
+      );
+      if (nextRes.rows.length) {
+        nextMilestone = nextRes.rows[0];
+        milestoneClassesRemaining = nextMilestone.classes_required - lifetime;
+      }
+    } catch (_) { /* milestone lookup falla silently */ }
+  }
+
+  // ── Weekly cap (planes 'Barre — N por semana') — para back field ──
+  let weeklyCap = null;
+  if (hasMembership) {
+    try {
+      const wRes = await pool.query(
+        `SELECT p.weekly_class_limit AS lim,
+                (SELECT COUNT(*)::int FROM bookings b
+                   JOIN classes c ON c.id = b.class_id
+                  WHERE b.user_id = $1 AND b.membership_id = $2
+                    AND b.status IN ('confirmed','waitlist','checked_in')
+                    AND date_trunc('week', c.date::date) = date_trunc('week', CURRENT_DATE)
+                ) AS used
+           FROM plans p
+          WHERE p.id = (SELECT plan_id FROM memberships WHERE id = $2)`,
+        [userId, membership.id],
+      );
+      const lim = wRes.rows[0]?.lim;
+      if (lim && lim > 0) {
+        weeklyCap = { limit: lim, used: wRes.rows[0]?.used || 0 };
+      }
+    } catch (_) { /* weekly cap lookup falla silently */ }
+  }
+
   if (hasEventPass) {
     secondaryFields.push({
       key: "event_title",
@@ -6312,6 +6368,32 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         value: `${ringState.conexion.progress}/${ringState.conexion.goal} · ${ringState.conexion.label}`,
       },
     );
+    // Tope semanal — visible solo si el plan lo tiene
+    if (weeklyCap) {
+      const remaining = Math.max(0, weeklyCap.limit - weeklyCap.used);
+      backFields.push({
+        key: "weekly_cap",
+        label: "Tope semanal",
+        value: remaining === 0
+          ? `Ya reservaste tus ${weeklyCap.limit} clases de esta semana`
+          : `Te quedan ${remaining} de ${weeklyCap.limit} esta semana`,
+        changeMessage: "Tope semanal: %@",
+      });
+    }
+    // Próximo logro (loyalty milestone)
+    if (nextMilestone && milestoneClassesRemaining !== null) {
+      const reward = nextMilestone.award_type === "points"
+        ? `+${nextMilestone.award_points} pts`
+        : "recompensa";
+      backFields.push({
+        key: "next_milestone",
+        label: "Próximo logro",
+        value: milestoneClassesRemaining === 1
+          ? `1 clase más para ${nextMilestone.name} · ${reward}`
+          : `${milestoneClassesRemaining} clases más para ${nextMilestone.name} · ${reward}`,
+        changeMessage: "Tu próximo logro: %@",
+      });
+    }
     if (membership.end_date) {
       const endDate = new Date(membership.end_date);
       const daysLeft = Math.max(0, Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)));
@@ -6385,6 +6467,17 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         value: "Constancia (asistencia), Esfuerzo (clases intensas), Conexión (puntos comunidad). Tu pase los va llenando solo conforme vienes.",
       },
     );
+    // Próximo logro como meta aspiracional para alumnas sin paquete
+    if (nextMilestone && milestoneClassesRemaining !== null) {
+      const reward = nextMilestone.award_type === "points"
+        ? `+${nextMilestone.award_points} pts`
+        : "recompensa";
+      backFields.push({
+        key: "next_milestone_welcome",
+        label: "Tu primer logro",
+        value: `${nextMilestone.classes_required} clases para ${nextMilestone.name} · ${reward}`,
+      });
+    }
   }
 
   if (nextBooking) {
