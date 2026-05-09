@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
@@ -30,6 +32,8 @@ interface Notif {
   title: string;
   body: string;
   time: string;
+  link?: string;
+  unread?: boolean;
 }
 
 const CATEGORY_ICON: Record<Category, React.ReactNode> = {
@@ -65,12 +69,32 @@ function formatTime(iso: string): string {
 }
 
 const Notifications = () => {
-  const { data, isLoading } = useQuery<{ data: Notif[] }>({
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ data: Notif[]; meta?: { unread_count: number } }>({
     queryKey: ["my-notifications"],
     queryFn: async () => (await api.get("/me/notifications?limit=40")).data,
     refetchInterval: 30_000,
   });
   const items = Array.isArray(data?.data) ? data!.data : [];
+
+  const markReadMutation = useMutation({
+    mutationFn: () => api.post("/me/notifications/mark-read"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["my-notifications"] });
+      qc.invalidateQueries({ queryKey: ["notifications-unread-count"] });
+    },
+  });
+
+  // Marca todo como leído al entrar (después de un breve delay para que la
+  // alumna vea el dot de unread brevemente).
+  useEffect(() => {
+    if (items.length === 0) return;
+    const t = setTimeout(() => markReadMutation.mutate(), 1200);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length > 0]);
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
@@ -95,15 +119,28 @@ const Notifications = () => {
               {items.map((n) => (
                 <ListRow
                   key={n.id}
+                  asButton={!!n.link}
+                  onClick={n.link ? () => navigate(n.link!) : undefined}
                   icon={CATEGORY_ICON[n.category] ?? <Bell size={17} strokeWidth={1.7} />}
                   iconTint={CATEGORY_TINT[n.category] ?? "berry"}
-                  title={n.title}
+                  title={
+                    <span style={{ opacity: n.unread ? 1 : 0.7 }}>
+                      {n.title}
+                    </span>
+                  }
                   description={
                     <>
                       {n.body}
                       <span style={{ color: KALA.ink, opacity: 0.4 }}> · {formatTime(n.time)}</span>
                     </>
                   }
+                  trailing={n.unread ? (
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: KALA.berry }}
+                      aria-label="Sin leer"
+                    />
+                  ) : undefined}
                 />
               ))}
             </ListGroup>

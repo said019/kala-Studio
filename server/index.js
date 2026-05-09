@@ -501,6 +501,7 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(20)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS health_notes TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_reminders BOOLEAN DEFAULT true`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_last_read_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_promotions BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
@@ -3936,6 +3937,28 @@ app.get("/api/me/notifications", authMiddleware, async (req, res) => {
       [userId, limit],
     );
 
+    // Lookup last_read_at para marcar unread
+    const userRes = await pool.query(
+      "SELECT notifications_last_read_at FROM users WHERE id = $1",
+      [userId],
+    );
+    const lastReadAt = userRes.rows[0]?.notifications_last_read_at;
+    const lastReadMs = lastReadAt ? new Date(lastReadAt).getTime() : 0;
+
+    const linkForCategory = (cat) => {
+      switch (cat) {
+        case "booking": return "/app/bookings";
+        case "milestone": return "/app/wallet/rewards";
+        case "loyalty_earn":
+        case "loyalty_spend": return "/app/wallet/history";
+        case "membership": return "/app/profile/membership";
+        case "marketing": return "/app/checkout";
+        case "motivation":
+        case "system":
+        default: return "/app";
+      }
+    };
+
     // Mergear y ordenar
     const items = [
       ...motivRes.rows.map((r) => {
@@ -3952,6 +3975,7 @@ app.get("/api/me/notifications", authMiddleware, async (req, res) => {
           title: prettyTemplateKey(k),
           body: humanizeMotivationKey(k),
           time: r.occurred_at,
+          link: linkForCategory(cat),
         };
       }),
       ...mileRes.rows.map((r) => ({
@@ -3960,6 +3984,7 @@ app.get("/api/me/notifications", authMiddleware, async (req, res) => {
         title: `Logro desbloqueado: ${r.title}`,
         body: `Alcanzaste ${r.classes} clases · +${r.points} pts en tu cuenta.`,
         time: r.occurred_at,
+        link: "/app/wallet/rewards",
       })),
       ...txRes.rows.map((r) => ({
         id: `tx_${r.id}`,
@@ -3971,6 +3996,7 @@ app.get("/api/me/notifications", authMiddleware, async (req, res) => {
             : (r.title || "Puntos canjeados"),
         body: `${r.points >= 0 && r.type !== "spend" ? "+" : "−"}${Math.abs(r.points)} pts`,
         time: r.occurred_at,
+        link: "/app/wallet/history",
       })),
       ...bookRes.rows.map((r) => {
         const dateStr = r.date
@@ -3989,16 +4015,62 @@ app.get("/api/me/notifications", authMiddleware, async (req, res) => {
           title: t,
           body: b,
           time: r.occurred_at,
+          link: "/app/bookings",
         };
       }),
     ]
       .filter((x) => x.time)
+      .map((x) => ({ ...x, unread: lastReadMs === 0 || new Date(x.time).getTime() > lastReadMs }))
       .sort((a, b) => new Date(b.time) - new Date(a.time))
       .slice(0, limit);
 
-    return res.json({ data: items });
+    return res.json({
+      data: items,
+      meta: {
+        unread_count: items.filter((x) => x.unread).length,
+        last_read_at: lastReadAt,
+      },
+    });
   } catch (err) {
     console.error("GET /api/me/notifications error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/me/notifications/mark-read — alumna marca todo leído
+app.post("/api/me/notifications/mark-read", authMiddleware, async (req, res) => {
+  try {
+    await pool.query(
+      "UPDATE users SET notifications_last_read_at = NOW() WHERE id = $1",
+      [req.userId],
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/me/notifications/unread-count — sólo el contador (lightweight)
+app.get("/api/me/notifications/unread-count", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const u = await pool.query("SELECT notifications_last_read_at FROM users WHERE id = $1", [userId]);
+    const lastReadAt = u.rows[0]?.notifications_last_read_at;
+    // Conteo simple: motivation_sends + milestone_awards + transactions + bookings con time > lastReadAt
+    const cutoff = lastReadAt || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // si nunca leyó, contar últimos 30d
+    const r = await pool.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM motivation_sends WHERE user_id = $1 AND sent_at > $2) +
+        (SELECT COUNT(*)::int FROM loyalty_milestone_awards WHERE user_id = $1 AND awarded_at > $2) +
+        (SELECT COUNT(*)::int FROM loyalty_transactions WHERE user_id = $1 AND created_at > $2) +
+        (SELECT COUNT(*)::int FROM bookings WHERE user_id = $1
+          AND status IN ('confirmed','checked_in','cancelled')
+          AND GREATEST(checked_in_at, created_at) > $2)
+        AS n`,
+      [userId, cutoff],
+    );
+    return res.json({ data: { unread_count: r.rows[0]?.n || 0 } });
+  } catch (err) {
     return res.status(500).json({ message: "Error interno" });
   }
 });

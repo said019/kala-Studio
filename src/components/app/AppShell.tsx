@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import {
   Home,
@@ -82,6 +84,15 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
     navigate("/auth/login");
   };
 
+  // Unread badge count para el bell icon
+  const { data: unreadData } = useQuery<{ data: { unread_count: number } }>({
+    queryKey: ["notifications-unread-count"],
+    queryFn: async () => (await api.get("/me/notifications/unread-count")).data,
+    refetchInterval: 60_000,
+    enabled: !!user?.id,
+  });
+  const unreadCount = unreadData?.data?.unread_count ?? 0;
+
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]" style={{ backgroundColor: KALA.cream, color: KALA.ink }}>
       {/* ───────────── Sidebar (desktop) ───────────── */}
@@ -139,7 +150,17 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
               opacity: pathname.startsWith("/app/notifications") ? 1 : 0.78,
             }}
           >
-            <Bell size={16} strokeWidth={1.8} />
+            <span className="relative inline-flex">
+              <Bell size={16} strokeWidth={1.8} />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 grid place-items-center rounded-full text-[0.55rem] font-bold leading-none px-1 min-w-[14px] h-[14px]"
+                  style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </span>
             <span>Notificaciones</span>
             <span aria-hidden="true" />
           </Link>
@@ -209,14 +230,22 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
           <div className="flex items-center gap-2">
             <Link
               to="/app/notifications"
-              className="grid h-10 w-10 place-items-center rounded-full no-underline transition-colors"
+              className="relative grid h-10 w-10 place-items-center rounded-full no-underline transition-colors"
               style={{
                 backgroundColor: pathname.startsWith("/app/notifications") ? KALA.blush : "transparent",
                 color: KALA.ink,
               }}
-              aria-label="Notificaciones"
+              aria-label={unreadCount > 0 ? `Notificaciones (${unreadCount} sin leer)` : "Notificaciones"}
             >
               <Bell size={17} strokeWidth={1.8} />
+              {unreadCount > 0 && (
+                <span
+                  className="absolute top-1 right-1 grid place-items-center rounded-full text-[0.6rem] font-bold leading-none px-1 min-w-[16px] h-[16px]"
+                  style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
             </Link>
             <Link
               to="/app/profile"
