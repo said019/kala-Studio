@@ -13,7 +13,27 @@ import {
 } from "@/components/app/AppShell";
 import { BackLink } from "@/components/app/widgets";
 import { useToast } from "@/hooks/use-toast";
-import { Gift } from "lucide-react";
+import { Gift, Trophy, Check } from "lucide-react";
+
+type Milestone = {
+  id: string;
+  name: string;
+  description: string | null;
+  classes_required: number;
+  period: "lifetime" | "month" | "year";
+  award_type: "points" | "reward";
+  award_points: number;
+  achieved: boolean;
+  awarded_at: string | null;
+};
+
+type MilestonesMe = {
+  lifetime_classes: number;
+  next_milestone: Milestone | null;
+  next_progress: number | null;
+  next_remaining: number | null;
+  milestones: Milestone[];
+};
 
 const WalletRewards = () => {
   const { toast } = useToast();
@@ -28,6 +48,12 @@ const WalletRewards = () => {
     queryKey: ["wallet-pass"],
     queryFn: async () => (await api.get("/wallet/pass")).data,
   });
+
+  const { data: milestonesData } = useQuery<{ data: MilestonesMe }>({
+    queryKey: ["my-milestones"],
+    queryFn: async () => (await api.get("/loyalty/milestones/me")).data,
+  });
+  const ms = milestonesData?.data;
 
   const rewards: any[] = Array.isArray(rewardsData?.data) ? rewardsData.data : Array.isArray(rewardsData) ? rewardsData : [];
   const myPoints: number = walletData?.data?.points ?? walletData?.points ?? 0;
@@ -59,6 +85,103 @@ const WalletRewards = () => {
             <Tag tint="orange">{myPoints.toLocaleString("es-MX")} pts</Tag>
           }
         />
+
+        {/* ── Próximo logro: progreso a la siguiente recompensa por asistencia ── */}
+        {ms?.next_milestone && (
+          <Section title="Tu próximo logro">
+            <div
+              className="rounded-3xl p-5 sm:p-6"
+              style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
+            >
+              <div className="flex items-start gap-4">
+                <span
+                  className="grid h-12 w-12 place-items-center rounded-2xl shrink-0"
+                  style={{ backgroundColor: `${KALA.orange}1f`, color: KALA.orange }}
+                >
+                  <Trophy size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "1.25rem" }}>
+                      {ms.next_milestone.name}
+                    </h3>
+                    <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.berry }}>
+                      +{ms.next_milestone.award_points} pts
+                    </span>
+                  </div>
+                  {ms.next_milestone.description && (
+                    <p className="mt-1 text-[0.84rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.65 }}>
+                      {ms.next_milestone.description}
+                    </p>
+                  )}
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-[0.74rem]">
+                      <span style={{ color: KALA.ink, opacity: 0.7 }}>
+                        <strong style={{ color: KALA.berry }}>{ms.lifetime_classes}</strong> de {ms.next_milestone.classes_required} clases
+                      </span>
+                      <span style={{ color: KALA.olive, fontWeight: 600 }}>
+                        Te faltan {ms.next_remaining ?? 0}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: KALA.blush }}>
+                      <div
+                        className="h-full rounded-full transition-[width] duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                        style={{
+                          width: `${Math.min(100, Math.round((ms.lifetime_classes / Math.max(1, ms.next_milestone.classes_required)) * 100))}%`,
+                          background: `linear-gradient(90deg, ${KALA.berry}, ${KALA.coral})`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Logros conseguidos */}
+              {ms.milestones.some((m) => m.achieved) && (
+                <div
+                  className="mt-5 pt-5"
+                  style={{ borderTop: `1px solid ${KALA.border}` }}
+                >
+                  <p className="text-[0.62rem] uppercase tracking-[0.22em] mb-3" style={{ color: KALA.ink, opacity: 0.55 }}>
+                    Tus logros desbloqueados
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {ms.milestones.filter((m) => m.achieved).map((m) => (
+                      <span
+                        key={m.id}
+                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.74rem]"
+                        style={{
+                          backgroundColor: KALA.blush,
+                          color: KALA.berry,
+                        }}
+                      >
+                        <Check size={12} />
+                        {m.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
+
+        {ms && !ms.next_milestone && ms.milestones.length > 0 && ms.milestones.every((m) => m.achieved) && (
+          <Section title="Logros completos">
+            <div
+              className="rounded-3xl p-6 text-center"
+              style={{ backgroundColor: KALA.blush }}
+            >
+              <Trophy size={28} style={{ color: KALA.orange, margin: "0 auto" }} />
+              <p className="mt-3 font-bebas" style={{ color: KALA.ink, fontSize: "1.25rem" }}>
+                Has desbloqueado todos los logros.
+              </p>
+              <p className="mt-1 text-[0.84rem]" style={{ color: KALA.ink, opacity: 0.65 }}>
+                Eres leyenda Kala. ✨
+              </p>
+            </div>
+          </Section>
+        )}
 
         <Section>
           {isLoading ? (

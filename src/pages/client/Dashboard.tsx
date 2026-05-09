@@ -70,6 +70,13 @@ const Dashboard = () => {
     retry: false,
   });
 
+  const { data: milestonesData } = useQuery({
+    queryKey: ["my-milestones"],
+    queryFn: async () => (await api.get("/loyalty/milestones/me")).data,
+    retry: false,
+  });
+  const ms = milestonesData?.data ?? null;
+
   const { data: videosData } = useQuery({
     queryKey: ["recent-videos"],
     queryFn: async () => (await api.get("/videos?limit=4")).data,
@@ -211,6 +218,62 @@ const Dashboard = () => {
             </div>
           </div>
         </Section>
+
+        {/* ── Próximo milestone (recompensa por asistencia) ── */}
+        {ms?.next_milestone && (
+          <Section
+            title="Tu próximo logro"
+            trailing={
+              <Link to="/app/wallet/rewards" className="no-underline" style={{ color: KALA.berry }}>
+                Ver todos
+              </Link>
+            }
+          >
+            <Link
+              to="/app/wallet/rewards"
+              className="block no-underline rounded-3xl p-5 sm:p-6 transition-transform hover:-translate-y-0.5"
+              style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
+            >
+              <div className="flex items-start gap-4">
+                <span
+                  className="grid h-12 w-12 place-items-center rounded-2xl shrink-0"
+                  style={{ backgroundColor: `${KALA.orange}1f`, color: KALA.orange }}
+                >
+                  <Award size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                    <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "1.25rem" }}>
+                      {ms.next_milestone.name}
+                    </h3>
+                    <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.berry }}>
+                      +{ms.next_milestone.award_points} pts
+                    </span>
+                  </div>
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between text-[0.74rem]">
+                      <span style={{ color: KALA.ink, opacity: 0.7 }}>
+                        <strong style={{ color: KALA.berry }}>{ms.lifetime_classes}</strong> de {ms.next_milestone.classes_required} clases
+                      </span>
+                      <span style={{ color: KALA.olive, fontWeight: 600 }}>
+                        Te faltan {ms.next_remaining ?? 0}
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: KALA.blush }}>
+                      <div
+                        className="h-full rounded-full transition-[width] duration-700 ease-[cubic-bezier(0.23,1,0.32,1)]"
+                        style={{
+                          width: `${Math.min(100, Math.round((ms.lifetime_classes / Math.max(1, ms.next_milestone.classes_required)) * 100))}%`,
+                          background: `linear-gradient(90deg, ${KALA.berry}, ${KALA.coral})`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Link>
+          </Section>
+        )}
 
         {/* ── Membership + wallet, side by side ── */}
         <Section title="Tu cuenta">
