@@ -539,6 +539,8 @@ async function ensureSchema() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_referral_codes_user ON referral_codes(user_id)`).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_referral_codes_code ON referral_codes(code)`).catch(() => { });
+    await pool.query(`ALTER TABLE referral_codes ADD COLUMN IF NOT EXISTS max_uses INTEGER`).catch(() => { });
+    await pool.query(`ALTER TABLE referral_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     // Ensure discount_codes table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS discount_codes (
@@ -9686,6 +9688,74 @@ app.get("/api/referrals/stats", adminMiddleware, async (req, res) => {
     ]);
     return res.json({ data: { total: parseInt(total.rows[0].count), rewarded: parseInt(rewarded.rows[0].count) } });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// POST /api/admin/referrals/codes — crear código manualmente
+app.post("/api/admin/referrals/codes", adminMiddleware, async (req, res) => {
+  try {
+    let { code, user_id, reward_points = 200, max_uses, is_active = true } = req.body || {};
+    if (!code) {
+      // Auto-generar código corto y único
+      const chars = "ABCDEFGHIJKLMNPQRSTUVWXYZ23456789";
+      do {
+        code = "KALA-" + Array.from({ length: 5 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+        const exists = await pool.query("SELECT 1 FROM referral_codes WHERE code = $1", [code]);
+        if (!exists.rows.length) break;
+      } while (true);
+    } else {
+      code = String(code).toUpperCase().trim();
+      const exists = await pool.query("SELECT 1 FROM referral_codes WHERE code = $1", [code]);
+      if (exists.rows.length) {
+        return res.status(409).json({ message: "Ese código ya existe" });
+      }
+    }
+    if (!user_id) {
+      user_id = req.userId; // default: admin que crea
+    }
+    const r = await pool.query(
+      `INSERT INTO referral_codes (user_id, code, reward_points, max_uses, is_active)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [user_id, code, Number(reward_points) || 200, max_uses ? Number(max_uses) : null, !!is_active],
+    );
+    return res.status(201).json({ data: r.rows[0] });
+  } catch (err) {
+    console.error("[POST /admin/referrals/codes]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  }
+});
+
+// PUT /api/admin/referrals/codes/:id — actualizar
+app.put("/api/admin/referrals/codes/:id", adminMiddleware, async (req, res) => {
+  try {
+    const { reward_points, max_uses, is_active } = req.body || {};
+    const r = await pool.query(
+      `UPDATE referral_codes SET
+         reward_points = COALESCE($1, reward_points),
+         max_uses = COALESCE($2, max_uses),
+         is_active = COALESCE($3, is_active)
+       WHERE id = $4 RETURNING *`,
+      [
+        reward_points != null ? Number(reward_points) : null,
+        max_uses != null ? Number(max_uses) : null,
+        is_active != null ? !!is_active : null,
+        req.params.id,
+      ],
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Código no encontrado" });
+    return res.json({ data: r.rows[0] });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// DELETE /api/admin/referrals/codes/:id
+app.delete("/api/admin/referrals/codes/:id", adminMiddleware, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM referral_codes WHERE id = $1", [req.params.id]);
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 // ─── Settings ────────────────────────────────────────────────────────────────

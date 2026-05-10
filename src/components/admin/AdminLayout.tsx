@@ -36,6 +36,7 @@ const NAV_GROUPS = [
       { path: "/admin/discount-codes", label: "Descuentos", icon: Tag },
       { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
       { path: "/admin/campaigns", label: "Campañas WA", icon: MessageCircle },
+      { path: "/admin/whatsapp-templates", label: "Templates WA", icon: MessageCircle },
       { path: "/admin/videos", label: "Videos", icon: Video },
       { path: "/admin/events", label: "Eventos", icon: Ticket },
     ],
