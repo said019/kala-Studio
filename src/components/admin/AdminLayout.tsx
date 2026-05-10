@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, ShoppingBag,
-  ShoppingCart, Tag, Gift, Video, BarChart2, MessageCircle, GraduationCap,
+  ShoppingCart, Tag, Gift, Video, BarChart2, MessageCircle, GraduationCap, Bell,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, Ticket, X,
 } from "lucide-react";
 
@@ -17,6 +17,7 @@ const NAV_GROUPS = [
     accentColor: "#76214D",
     items: [
       { path: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { path: "/admin/notifications", label: "Bandeja", icon: Bell },
       { path: "/admin/clients", label: "Clientes", icon: Users },
       { path: "/admin/payments", label: "Pagos", icon: DollarSign },
       { path: "/admin/bookings", label: "Reservas", icon: BookOpen },

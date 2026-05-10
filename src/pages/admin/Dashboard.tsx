@@ -6,7 +6,8 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarDays, Users, DollarSign, AlertCircle, Cake } from "lucide-react";
+import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, AreaChart, Area } from "recharts";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -69,6 +70,30 @@ const Dashboard = () => {
     },
   });
 
+  const { data: revenueData } = useQuery<any>({
+    queryKey: ["dashboard-revenue"],
+    queryFn: async () => (await api.get("/reports/revenue")).data,
+  });
+  const revenueRows: { month: string; amount: number }[] = Array.isArray(revenueData?.data)
+    ? revenueData.data.map((r: any) => ({
+        month: r.month ? new Date(r.month).toLocaleDateString("es-MX", { month: "short" }) : "",
+        amount: Number(r.amount ?? 0),
+      })).slice(-6)
+    : [];
+
+  const { data: dormantData } = useQuery<any>({
+    queryKey: ["dashboard-dormant"],
+    queryFn: async () => (await api.get("/reports/dormant")).data,
+  });
+  const dorm = dormantData?.data ?? null;
+  const dormantRows = dorm ? [
+    { label: "≤7d", value: dorm.active_7d, color: "#778455" },
+    { label: "8-14d", value: dorm.dormant_8_14d, color: "#F58A24" },
+    { label: "15-30d", value: dorm.dormant_15_30d, color: "#E9745F" },
+    { label: "31-60d", value: dorm.dormant_31_60d, color: "#76214D" },
+    { label: "60+d", value: dorm.lost_60d, color: "#888" },
+  ] : [];
+
   const currentMonth = new Date().getMonth() + 1;
   const { data: birthdaysData, isLoading: loadingBirthdays } = useQuery<{
     month: number; total: number; todayCount: number; data: Birthday[];
@@ -104,11 +129,80 @@ const Dashboard = () => {
           <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
           {/* Metric cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#E9745F")}
             {metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#76214D")}
             {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#F58A24")}
             {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#F97316")}
+          </div>
+
+          {/* ── Mini charts row ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <Card
+              className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => navigate("/admin/reports")}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp size={15} className="text-[#76214D]" />
+                  Ingresos últimos 6 meses
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {revenueRows.length === 0 ? (
+                  <Skeleton className="h-[120px] w-full" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={120}>
+                    <AreaChart data={revenueRows} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="rev-grad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#76214D" stopOpacity={0.4} />
+                          <stop offset="100%" stopColor="#76214D" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip
+                        formatter={(v: any) => `$${Number(v).toLocaleString("es-MX")}`}
+                        contentStyle={{ fontSize: 11, padding: 6 }}
+                      />
+                      <Area type="monotone" dataKey="amount" stroke="#76214D" strokeWidth={2} fill="url(#rev-grad)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:border-primary/50 transition-colors"
+              onClick={() => navigate("/admin/campaigns")}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <UserMinus size={15} className="text-[#E9745F]" />
+                  Distribución por última visita
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {dormantRows.length === 0 ? (
+                  <Skeleton className="h-[120px] w-full" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={120}>
+                    <BarChart data={dormantRows} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip contentStyle={{ fontSize: 11, padding: 6 }} />
+                      <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                        {dormantRows.map((row, i) => (
+                          <rect key={i} fill={row.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <p className="text-[10px] text-muted-foreground text-center mt-1">
+                  Click → reactivar via campaña
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Birthdays of the month — full width card */}

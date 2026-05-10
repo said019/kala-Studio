@@ -3888,6 +3888,154 @@ app.get("/api/me/rings", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/admin/notifications — feed unificado de eventos del studio para la dueña.
+app.get("/api/admin/notifications", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 30, 100);
+    const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const [users, orders, milestones, checkins, campaigns, rejected, expiring] = await Promise.all([
+      // Nuevas alumnas registradas (últimos 30d)
+      pool.query(
+        `SELECT id, display_name, email, phone, created_at
+           FROM users
+          WHERE role = 'client' AND created_at > $1
+          ORDER BY created_at DESC LIMIT 20`,
+        [cutoff30],
+      ),
+      // Órdenes pendientes de verificación (recientes)
+      pool.query(
+        `SELECT o.id, o.total_amount, o.status, o.created_at, u.display_name AS user_name
+           FROM orders o
+           LEFT JOIN users u ON u.id = o.user_id
+          WHERE o.status IN ('pending_verification', 'pending_payment')
+            AND o.created_at > $1
+          ORDER BY o.created_at DESC LIMIT 20`,
+        [cutoff30],
+      ),
+      // Milestones otorgados (recientes)
+      pool.query(
+        `SELECT a.id, a.classes_at_award, a.awarded_at, m.name AS milestone_name,
+                m.award_points, u.display_name AS user_name
+           FROM loyalty_milestone_awards a
+           JOIN loyalty_milestones m ON m.id = a.milestone_id
+           LEFT JOIN users u ON u.id = a.user_id
+          WHERE a.awarded_at > $1
+          ORDER BY a.awarded_at DESC LIMIT 20`,
+        [cutoff30],
+      ),
+      // Check-ins (recientes)
+      pool.query(
+        `SELECT b.id, b.checked_in_at, ct.name AS class_name, u.display_name AS user_name
+           FROM bookings b
+           JOIN classes c ON c.id = b.class_id
+           JOIN class_types ct ON ct.id = c.class_type_id
+           LEFT JOIN users u ON u.id = b.user_id
+          WHERE b.status = 'checked_in' AND b.checked_in_at > $1
+          ORDER BY b.checked_in_at DESC LIMIT 20`,
+        [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)],
+      ),
+      // Campañas enviadas (recientes)
+      pool.query(
+        `SELECT id, name, segment, total_targets, total_sent, total_failed, status, created_at, completed_at
+           FROM campaigns
+          WHERE created_at > $1
+          ORDER BY created_at DESC LIMIT 10`,
+        [cutoff30],
+      ),
+      // Órdenes rechazadas (recientes)
+      pool.query(
+        `SELECT o.id, o.total_amount, o.created_at, u.display_name AS user_name
+           FROM orders o
+           LEFT JOIN users u ON u.id = o.user_id
+          WHERE o.status = 'rejected' AND o.created_at > $1
+          ORDER BY o.created_at DESC LIMIT 10`,
+        [cutoff30],
+      ),
+      // Membresías por vencer próximos 7 días
+      pool.query(
+        `SELECT m.id, m.end_date, p.name AS plan_name, u.display_name AS user_name
+           FROM memberships m
+           LEFT JOIN plans p ON p.id = m.plan_id
+           LEFT JOIN users u ON u.id = m.user_id
+          WHERE m.status = 'active'
+            AND m.end_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '7 days')
+          ORDER BY m.end_date ASC LIMIT 15`,
+      ),
+    ]);
+
+    const items = [
+      ...users.rows.map((r) => ({
+        id: `u_${r.id}`,
+        category: "new_user",
+        title: "Nueva alumna registrada",
+        body: r.display_name + (r.email ? ` · ${r.email}` : ""),
+        time: r.created_at,
+        link: `/admin/clients/${r.id}`,
+      })),
+      ...orders.rows.map((r) => ({
+        id: `o_${r.id}`,
+        category: "order_pending",
+        title: r.status === "pending_verification" ? "Orden por verificar" : "Orden pendiente de pago",
+        body: `${r.user_name || "Alumna"} · $${Number(r.total_amount || 0).toLocaleString("es-MX")}`,
+        time: r.created_at,
+        link: "/admin/orders",
+      })),
+      ...milestones.rows.map((r) => ({
+        id: `aw_${r.id}`,
+        category: "milestone",
+        title: `Logro otorgado: ${r.milestone_name}`,
+        body: `${r.user_name || "Alumna"} · ${r.classes_at_award} clases · +${r.award_points} pts`,
+        time: r.awarded_at,
+        link: "/admin/loyalty",
+      })),
+      ...checkins.rows.map((r) => ({
+        id: `c_${r.id}`,
+        category: "checkin",
+        title: "Check-in",
+        body: `${r.user_name || "Alumna"} · ${r.class_name}`,
+        time: r.checked_in_at,
+        link: "/admin/bookings",
+      })),
+      ...campaigns.rows.map((r) => ({
+        id: `cp_${r.id}`,
+        category: "campaign",
+        title: `Campaña ${r.status === "completed" ? "completada" : r.status === "sending" ? "enviando" : r.status}`,
+        body: `${r.name} · ${r.total_sent}/${r.total_targets} enviadas${r.total_failed ? ` · ${r.total_failed} fallaron` : ""}`,
+        time: r.completed_at || r.created_at,
+        link: "/admin/campaigns",
+      })),
+      ...rejected.rows.map((r) => ({
+        id: `or_${r.id}`,
+        category: "order_rejected",
+        title: "Orden rechazada",
+        body: `${r.user_name || "Alumna"} · $${Number(r.total_amount || 0).toLocaleString("es-MX")}`,
+        time: r.created_at,
+        link: "/admin/orders",
+      })),
+      ...expiring.rows.map((r) => {
+        const days = Math.ceil((new Date(r.end_date) - new Date()) / 86400000);
+        return {
+          id: `exp_${r.id}`,
+          category: "expiring",
+          title: days <= 0 ? "Membresía vence hoy" : days === 1 ? "Membresía vence mañana" : `Membresía vence en ${days} días`,
+          body: `${r.user_name || "Alumna"} · ${r.plan_name || "Paquete"}`,
+          time: r.end_date,
+          link: "/admin/memberships",
+        };
+      }),
+    ]
+      .filter((x) => x.time)
+      .sort((a, b) => new Date(b.time) - new Date(a.time))
+      .slice(0, limit);
+
+    return res.json({ data: items });
+  } catch (err) {
+    console.error("[admin/notifications]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // GET /api/me/notifications — feed unificado de eventos para la alumna.
 // Une motivation_sends, milestone_awards, loyalty_transactions y bookings
 // recientes, ordenado por fecha descendente. Útil para /app/notifications.
