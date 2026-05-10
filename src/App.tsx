@@ -53,6 +53,7 @@ import DiscountCodes from "./pages/admin/discount-codes/DiscountCodes";
 import LoyaltyPage from "./pages/admin/loyalty/LoyaltyPage";
 import CampaignsPage from "./pages/admin/campaigns/CampaignsPage";
 import Referrals from "./pages/admin/referrals/Referrals";
+import InstructorsList from "./pages/admin/staff/InstructorsList";
 import VideoList from "./pages/admin/videos/VideoList";
 import VideoUpload from "./pages/admin/videos/VideoUpload";
 import VideoSalesVerification from "./pages/admin/videos/VideoSalesVerification";
@@ -133,7 +134,7 @@ const App = () => (
           <Route path="/admin/schedules" element={<Navigate to="/admin/classes" replace />} />
           <Route path="/admin/bookings" element={<BookingsList />} />
           <Route path="/admin/bookings/waitlist" element={<Waitlist />} />
-          <Route path="/admin/staff" element={<Navigate to="/admin/classes" replace />} />
+          <Route path="/admin/staff" element={<InstructorsList />} />
           <Route path="/admin/payments" element={<PaymentsPage />} />
           <Route path="/admin/orders" element={<OrdersVerification />} />
           <Route path="/admin/pos" element={<POSPage />} />

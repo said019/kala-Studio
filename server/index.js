@@ -9337,7 +9337,7 @@ app.get("/api/loyalty/points/:userId", adminMiddleware, async (req, res) => {
 app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
   try {
     const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    const [members, revenue, bookings, classes, newMembers, reviews] = await Promise.all([
+    const [members, revenue, bookings, classes, newMembers, reviews, churn] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM memberships WHERE status='active'"),
       pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at>=$1", [monthStart]),
       pool.query(
@@ -9357,12 +9357,33 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
           WHERE created_at >= $1`,
         [monthStart]
       ),
+      // Churn: alumnas con membresía vencida en últimos 30d sin renovación posterior
+      pool.query(
+        `WITH expired_recent AS (
+           SELECT DISTINCT user_id FROM memberships
+            WHERE end_date BETWEEN (CURRENT_DATE - INTERVAL '30 days') AND (CURRENT_DATE - INTERVAL '1 day')
+         ),
+         still_active AS (
+           SELECT DISTINCT user_id FROM memberships
+            WHERE status = 'active' AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+         ),
+         active_30d_ago AS (
+           SELECT DISTINCT user_id FROM memberships
+            WHERE start_date <= (CURRENT_DATE - INTERVAL '30 days')
+              AND (end_date IS NULL OR end_date > (CURRENT_DATE - INTERVAL '30 days'))
+         )
+         SELECT
+           (SELECT COUNT(*) FROM expired_recent e
+             WHERE NOT EXISTS (SELECT 1 FROM still_active s WHERE s.user_id = e.user_id))::int AS churned,
+           GREATEST(1, (SELECT COUNT(*) FROM active_30d_ago))::int AS base`,
+      ),
     ]);
     const monthlyBookings = parseInt(bookings.rows[0].total || 0);
     const attended = parseInt(bookings.rows[0].attended || 0);
     const classOccupancyRate = monthlyBookings > 0
       ? Number(((attended / monthlyBookings) * 100).toFixed(1))
       : 0;
+    const churnRate = Number((100 * churn.rows[0].churned / churn.rows[0].base).toFixed(1));
 
     return res.json({
       data: {
@@ -9372,13 +9393,17 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
         upcomingClasses: parseInt(classes.rows[0].count),
         classOccupancyRate,
         newMembersThisMonth: parseInt(newMembers.rows[0].count || 0),
-        churnRate: 0,
+        churnRate,
+        churnedUsers: churn.rows[0].churned,
         reviewsTotal: parseInt(reviews.rows[0].total || 0),
         reviewsPending: parseInt(reviews.rows[0].pending || 0),
         reviewsAverage: Number(parseFloat(reviews.rows[0].average || 0).toFixed(1)),
       }
     });
-  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+  } catch (err) {
+    console.error("[reports/overview]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
@@ -9424,12 +9449,125 @@ app.get("/api/reports/classes", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
   try {
+    // Time-series mensual: para cada uno de los últimos 12 meses, calcula
+    // % de alumnas que estaban activas el mes anterior y siguen activas este mes.
+    const r = await pool.query(`
+      WITH months AS (
+        SELECT DATE_TRUNC('month', CURRENT_DATE) - (INTERVAL '1 month' * gs.n) AS month_start
+        FROM generate_series(0, 11) AS gs(n)
+      )
+      SELECT
+        m.month_start AS month,
+        (SELECT COUNT(DISTINCT user_id) FROM memberships
+          WHERE start_date <= m.month_start
+            AND (end_date IS NULL OR end_date >= m.month_start))::int AS active_at_month,
+        (SELECT COUNT(DISTINCT m1.user_id) FROM memberships m1
+          WHERE m1.start_date <= (m.month_start - INTERVAL '1 month')
+            AND (m1.end_date IS NULL OR m1.end_date >= (m.month_start - INTERVAL '1 month'))
+            AND EXISTS (
+              SELECT 1 FROM memberships m2
+               WHERE m2.user_id = m1.user_id
+                 AND m2.start_date <= m.month_start
+                 AND (m2.end_date IS NULL OR m2.end_date >= m.month_start)
+            ))::int AS retained
+      FROM months m
+      ORDER BY m.month_start ASC
+    `);
+    const series = r.rows.map((row) => {
+      const prevActive = Number(row.active_at_month) > 0 ? Number(row.active_at_month) : 1;
+      // retention rate = retained from prev month / active prev month
+      // Simplificado: retained ya está calculado contra el mes anterior
+      const rate = Number(row.retained) > 0
+        ? Number(((Number(row.retained) / prevActive) * 100).toFixed(1))
+        : 0;
+      return {
+        month: row.month,
+        active: Number(row.active_at_month),
+        retained: Number(row.retained),
+        rate,
+      };
+    });
+    return res.json({ data: series });
+  } catch (err) {
+    console.error("[reports/retention]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// Top alumnas por asistencia (lifetime + último mes)
+app.get("/api/reports/top-attendance", adminMiddleware, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
     const r = await pool.query(
-      `SELECT COUNT(*) AS total,
-              COUNT(CASE WHEN created_at >= NOW() - INTERVAL '30 days' THEN 1 END) AS new_this_month
-       FROM users WHERE role='client'`
+      `SELECT u.id, u.display_name, u.phone,
+              COUNT(*) FILTER (WHERE b.status = 'checked_in')::int AS lifetime,
+              COUNT(*) FILTER (WHERE b.status = 'checked_in' AND b.checked_in_at >= DATE_TRUNC('month', CURRENT_DATE))::int AS this_month,
+              MAX(b.checked_in_at) AS last_visit
+         FROM users u
+         JOIN bookings b ON b.user_id = u.id
+        WHERE u.role = 'client' AND b.status = 'checked_in'
+        GROUP BY u.id, u.display_name, u.phone
+        ORDER BY lifetime DESC, this_month DESC
+        LIMIT $1`,
+      [limit],
     );
-    return res.json({ data: camelRow(r.rows[0]) });
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// Conversión clase muestra → paquete recurrente
+app.get("/api/reports/conversion", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      WITH muestras AS (
+        SELECT DISTINCT m.user_id, MIN(m.start_date) AS muestra_date
+          FROM memberships m
+          JOIN plans p ON p.id = m.plan_id
+         WHERE p.repeat_key LIKE 'trial_single_session%'
+            OR p.name ILIKE '%muestra%'
+         GROUP BY m.user_id
+      ),
+      converted AS (
+        SELECT DISTINCT m.user_id
+          FROM memberships m
+          JOIN plans p ON p.id = m.plan_id
+          JOIN muestras mu ON mu.user_id = m.user_id
+         WHERE p.class_limit > 1
+           AND m.start_date >= mu.muestra_date
+      )
+      SELECT
+        (SELECT COUNT(*) FROM muestras)::int AS muestras_total,
+        (SELECT COUNT(*) FROM converted)::int AS converted_total
+    `);
+    const muestras = r.rows[0]?.muestras_total || 0;
+    const converted = r.rows[0]?.converted_total || 0;
+    const rate = muestras > 0 ? Number(((converted / muestras) * 100).toFixed(1)) : 0;
+    return res.json({ data: { muestras_total: muestras, converted_total: converted, conversion_rate: rate } });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// Dormant cohort: distribución por días sin venir
+app.get("/api/reports/dormant", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      WITH last_visit AS (
+        SELECT u.id AS user_id,
+               COALESCE(MAX(b.checked_in_at)::date, u.created_at::date) AS last_at
+          FROM users u
+          LEFT JOIN bookings b ON b.user_id = u.id AND b.status = 'checked_in'
+         WHERE u.role = 'client'
+           AND EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id)
+         GROUP BY u.id, u.created_at
+      )
+      SELECT
+        SUM(CASE WHEN (CURRENT_DATE - last_at) <= 7 THEN 1 ELSE 0 END)::int AS active_7d,
+        SUM(CASE WHEN (CURRENT_DATE - last_at) BETWEEN 8 AND 14 THEN 1 ELSE 0 END)::int AS dormant_8_14d,
+        SUM(CASE WHEN (CURRENT_DATE - last_at) BETWEEN 15 AND 30 THEN 1 ELSE 0 END)::int AS dormant_15_30d,
+        SUM(CASE WHEN (CURRENT_DATE - last_at) BETWEEN 31 AND 60 THEN 1 ELSE 0 END)::int AS dormant_31_60d,
+        SUM(CASE WHEN (CURRENT_DATE - last_at) > 60 THEN 1 ELSE 0 END)::int AS lost_60d
+      FROM last_visit
+    `);
+    return res.json({ data: r.rows[0] || {} });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 

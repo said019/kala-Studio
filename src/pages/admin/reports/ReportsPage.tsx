@@ -34,6 +34,21 @@ const ReportsPage = () => {
     queryFn: async () => (await api.get("/reports/instructors")).data,
   });
 
+  const { data: topAttendance } = useQuery({
+    queryKey: ["reports-top-attendance"],
+    queryFn: async () => (await api.get("/reports/top-attendance?limit=10")).data,
+  });
+
+  const { data: conversion } = useQuery({
+    queryKey: ["reports-conversion"],
+    queryFn: async () => (await api.get("/reports/conversion")).data,
+  });
+
+  const { data: dormant } = useQuery({
+    queryKey: ["reports-dormant"],
+    queryFn: async () => (await api.get("/reports/dormant")).data,
+  });
+
   const { data: reviewsData } = useQuery({
     queryKey: ["reports-evaluations"],
     queryFn: async () => (await api.get("/admin/reviews")).data,
@@ -68,15 +83,15 @@ const ReportsPage = () => {
     bookings: Number(row.bookings ?? row.count ?? 0),
     attended: Number(row.attended ?? 0),
   }));
-  const retentionRaw = retention?.data ?? retention;
-  const retentionData = Array.isArray(retentionRaw)
-    ? retentionRaw
-    : retentionRaw
-      ? [
-          { month: "Total", rate: Number(retentionRaw.total ?? 0) },
-          { month: "Nuevos", rate: Number(retentionRaw.new_this_month ?? retentionRaw.newThisMonth ?? 0) },
-        ]
-      : [];
+  const retentionData = safeArray(retention?.data ?? retention).map((row: any) => ({
+    month: fmtMonth(row.month),
+    rate: Number(row.rate ?? 0),
+    active: Number(row.active ?? 0),
+    retained: Number(row.retained ?? 0),
+  }));
+  const topAttendanceData = safeArray(topAttendance?.data ?? topAttendance);
+  const conv = conversion?.data ?? conversion ?? null;
+  const dorm = dormant?.data ?? dormant ?? null;
   const instructorsData = safeArray(instructors?.data ?? instructors).map((ins: any, idx: number) => ({
     id: String(ins.id ?? `ins-${idx}`),
     name: String(ins.name ?? ins.display_name ?? "Instructor"),
@@ -110,23 +125,85 @@ const ReportsPage = () => {
         <div className="admin-page max-w-6xl">
           <h1 className="text-2xl font-bold mb-6">Reportes</h1>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {metric("Miembros activos", o.activeMembers)}
-            {metric("Ingresos del mes", o.monthlyRevenue ? `$${o.monthlyRevenue}` : undefined)}
+            {metric("Ingresos del mes", o.monthlyRevenue ? `$${Number(o.monthlyRevenue).toLocaleString("es-MX")}` : undefined)}
             {metric("Reservas del mes", o.monthlyBookings)}
-            {metric("Ocupación clases", o.classOccupancyRate, "%")}
-            {metric("Nuevos miembros", o.newMembersThisMonth)}
-            {metric("Churn rate", o.churnRate, "%")}
-            {metric("Reseñas del mes", o.reviewsTotal)}
-            {metric("Reseñas pendientes", o.reviewsPending)}
+            {metric("Ocupación", o.classOccupancyRate, "%")}
+            {metric("Nuevos del mes", o.newMembersThisMonth)}
+            {metric("Churn (30d)", o.churnRate, "%")}
+            {metric("Reseñas (mes)", o.reviewsTotal)}
+            {metric("Promedio ⭐", o.reviewsAverage ? Number(o.reviewsAverage).toFixed(1) : "—")}
           </div>
+
+          {/* ── Conversión clase muestra → paquete ── */}
+          {conv && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-base">Conversión clase muestra → paquete</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Muestras tomadas</p>
+                    <p className="text-2xl font-bold">{conv.muestras_total ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Convirtieron</p>
+                    <p className="text-2xl font-bold text-[#778455]">{conv.converted_total ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Tasa de conversión</p>
+                    <p className="text-2xl font-bold text-[#76214D]">{conv.conversion_rate ?? 0}%</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Dormant cohort ── */}
+          {dorm && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-base">Distribución por última visita</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Activas (≤7d)</p>
+                    <p className="text-xl font-bold text-[#778455]">{dorm.active_7d ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">8–14 días</p>
+                    <p className="text-xl font-bold text-[#F58A24]">{dorm.dormant_8_14d ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">15–30 días</p>
+                    <p className="text-xl font-bold text-[#E9745F]">{dorm.dormant_15_30d ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">31–60 días</p>
+                    <p className="text-xl font-bold text-[#76214D]">{dorm.dormant_31_60d ?? 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Perdidas (60+)</p>
+                    <p className="text-xl font-bold text-muted-foreground">{dorm.lost_60d ?? 0}</p>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  Tip: usa /admin/campañas con segmento dormant_14d o dormant_30d para reactivar.
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
           <Tabs defaultValue="revenue">
             <TabsList>
               <TabsTrigger value="revenue">Ingresos</TabsTrigger>
               <TabsTrigger value="classes">Clases</TabsTrigger>
               <TabsTrigger value="retention">Retención</TabsTrigger>
-              <TabsTrigger value="instructors">Instructores</TabsTrigger>
+              <TabsTrigger value="top">Top alumnas</TabsTrigger>
+              <TabsTrigger value="instructors">Instructoras</TabsTrigger>
             </TabsList>
 
             <TabsContent value="revenue" className="mt-4">
@@ -177,6 +254,32 @@ const ReportsPage = () => {
                       <Line type="monotone" dataKey="rate" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="top" className="mt-4">
+              <Card>
+                <CardHeader><CardTitle>Top alumnas por asistencia (lifetime)</CardTitle></CardHeader>
+                <CardContent>
+                  {topAttendanceData.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Aún no hay asistencias registradas.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {topAttendanceData.slice(0, 10).map((u: any, idx: number) => (
+                        <div key={u.id} className="flex items-center gap-3 text-sm">
+                          <span className="w-6 text-center font-bold text-muted-foreground">{idx + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{u.display_name}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {u.this_month} este mes · última visita {u.last_visit ? new Date(u.last_visit).toLocaleDateString("es-MX", { day: "numeric", month: "short" }) : "—"}
+                            </p>
+                          </div>
+                          <Badge variant="default">{u.lifetime} clases</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
