@@ -9484,28 +9484,63 @@ app.get("/api/loyalty/points/:userId", adminMiddleware, async (req, res) => {
 
 // ─── Reports sub-routes ──────────────────────────────────────────────────────
 
+// Helper: parsea ?from=&to= y devuelve current + previous range (mismo número de días hacia atrás)
+function parseDateRange(req) {
+  const now = new Date();
+  let from, to;
+  if (req.query.from && req.query.to) {
+    from = new Date(req.query.from);
+    to = new Date(req.query.to);
+  } else {
+    // Default: este mes
+    from = new Date(now.getFullYear(), now.getMonth(), 1);
+    to = now;
+  }
+  const days = Math.max(1, Math.ceil((to - from) / 86400000));
+  const prevFrom = new Date(from);
+  prevFrom.setDate(prevFrom.getDate() - days);
+  const prevTo = new Date(from);
+  prevTo.setDate(prevTo.getDate() - 1);
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+    prevFrom: prevFrom.toISOString().slice(0, 10),
+    prevTo: prevTo.toISOString().slice(0, 10),
+    days,
+  };
+}
+
+function pctChange(curr, prev) {
+  curr = Number(curr || 0);
+  prev = Number(prev || 0);
+  if (prev === 0) return curr > 0 ? 100 : 0;
+  return Number((((curr - prev) / prev) * 100).toFixed(1));
+}
+
 app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
   try {
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    const [members, revenue, bookings, classes, newMembers, reviews, churn] = await Promise.all([
+    const range = parseDateRange(req);
+    const monthStart = range.from;
+    const [members, revenue, bookings, classes, newMembers, reviews, churn,
+           prevRevenue, prevBookings, prevNewMembers, prevReviews] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM memberships WHERE status='active'"),
-      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at>=$1", [monthStart]),
+      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.from, range.to]),
       pool.query(
         `SELECT COUNT(*) AS total,
                 COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended
            FROM bookings
-          WHERE created_at >= $1`,
-        [monthStart]
+          WHERE created_at BETWEEN $1 AND $2`,
+        [range.from, range.to],
       ),
-      pool.query("SELECT COUNT(*) FROM classes WHERE status='scheduled' AND date>=$1", [monthStart]),
-      pool.query("SELECT COUNT(*) FROM users WHERE role='client' AND created_at>=$1", [monthStart]),
+      pool.query("SELECT COUNT(*) FROM classes WHERE status='scheduled' AND date BETWEEN $1 AND $2", [range.from, range.to]),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='client' AND created_at BETWEEN $1 AND $2", [range.from, range.to]),
       pool.query(
         `SELECT COUNT(*) AS total,
                 COUNT(CASE WHEN is_approved = false THEN 1 END) AS pending,
                 COALESCE(AVG(rating),0) AS average
            FROM reviews
-          WHERE created_at >= $1`,
-        [monthStart]
+          WHERE created_at BETWEEN $1 AND $2`,
+        [range.from, range.to],
       ),
       // Churn: alumnas con membresía vencida en últimos 30d sin renovación posterior
       pool.query(
@@ -9527,6 +9562,19 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
              WHERE NOT EXISTS (SELECT 1 FROM still_active s WHERE s.user_id = e.user_id))::int AS churned,
            GREATEST(1, (SELECT COUNT(*) FROM active_30d_ago))::int AS base`,
       ),
+      // Previous period (mismo número de días hacia atrás)
+      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.prevFrom, range.prevTo]),
+      pool.query(
+        `SELECT COUNT(*) AS total, COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended
+           FROM bookings WHERE created_at BETWEEN $1 AND $2`,
+        [range.prevFrom, range.prevTo],
+      ),
+      pool.query("SELECT COUNT(*) FROM users WHERE role='client' AND created_at BETWEEN $1 AND $2", [range.prevFrom, range.prevTo]),
+      pool.query(
+        `SELECT COUNT(*) AS total, COALESCE(AVG(rating),0) AS average
+           FROM reviews WHERE created_at BETWEEN $1 AND $2`,
+        [range.prevFrom, range.prevTo],
+      ),
     ]);
     const monthlyBookings = parseInt(bookings.rows[0].total || 0);
     const attended = parseInt(bookings.rows[0].attended || 0);
@@ -9534,26 +9582,63 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
       ? Number(((attended / monthlyBookings) * 100).toFixed(1))
       : 0;
     const churnRate = Number((100 * churn.rows[0].churned / churn.rows[0].base).toFixed(1));
+    const monthlyRevenue = parseFloat(revenue.rows[0].total);
+    const newMembersCount = parseInt(newMembers.rows[0].count || 0);
+    const reviewsAvg = Number(parseFloat(reviews.rows[0].average || 0).toFixed(1));
+    const prevRev = parseFloat(prevRevenue.rows[0].total);
+    const prevBookingsCount = parseInt(prevBookings.rows[0].total || 0);
+    const prevAttended = parseInt(prevBookings.rows[0].attended || 0);
+    const prevOccupancy = prevBookingsCount > 0 ? (prevAttended / prevBookingsCount) * 100 : 0;
+    const prevNewMembersCount = parseInt(prevNewMembers.rows[0].count || 0);
+    const prevReviewsAvg = Number(parseFloat(prevReviews.rows[0].average || 0).toFixed(1));
 
     return res.json({
       data: {
         activeMembers: parseInt(members.rows[0].count),
-        monthlyRevenue: parseFloat(revenue.rows[0].total),
+        monthlyRevenue,
         monthlyBookings,
         upcomingClasses: parseInt(classes.rows[0].count),
         classOccupancyRate,
-        newMembersThisMonth: parseInt(newMembers.rows[0].count || 0),
+        newMembersThisMonth: newMembersCount,
         churnRate,
         churnedUsers: churn.rows[0].churned,
         reviewsTotal: parseInt(reviews.rows[0].total || 0),
         reviewsPending: parseInt(reviews.rows[0].pending || 0),
-        reviewsAverage: Number(parseFloat(reviews.rows[0].average || 0).toFixed(1)),
+        reviewsAverage: reviewsAvg,
+        // Deltas vs previous period (porcentaje)
+        deltas: {
+          revenue: pctChange(monthlyRevenue, prevRev),
+          bookings: pctChange(monthlyBookings, prevBookingsCount),
+          occupancy: pctChange(classOccupancyRate, prevOccupancy),
+          newMembers: pctChange(newMembersCount, prevNewMembersCount),
+          reviewsAvg: pctChange(reviewsAvg, prevReviewsAvg),
+        },
+        range: { from: range.from, to: range.to, days: range.days },
       }
     });
   } catch (err) {
     console.error("[reports/overview]", err.message);
-    return res.status(500).json({ message: "Error interno" });
+    return res.status(500).json({ message: "Error interno", error: err.message });
   }
+});
+
+// Sparkline data: ingresos por semana últimas 12 semanas
+app.get("/api/reports/revenue-sparkline", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(`
+      WITH weeks AS (
+        SELECT DATE_TRUNC('week', CURRENT_DATE) - (INTERVAL '1 week' * gs.n) AS week_start
+        FROM generate_series(0, 11) AS gs(n)
+      )
+      SELECT w.week_start AS week,
+             COALESCE(SUM(o.total_amount), 0)::int AS amount
+        FROM weeks w
+        LEFT JOIN orders o ON DATE_TRUNC('week', o.created_at) = w.week_start AND o.status = 'approved'
+       GROUP BY w.week_start
+       ORDER BY w.week_start ASC
+    `);
+    return res.json({ data: r.rows });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
 app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
