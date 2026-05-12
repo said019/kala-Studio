@@ -62,7 +62,7 @@ const Terminos = () => {
           <ul className="list-disc pl-6 space-y-2">
             <li><strong className="text-foreground">"Estudio"</strong> se refiere a Kala Barre Studio y sus instalaciones en San Luis Potosí.</li>
             <li><strong className="text-foreground">"Alumna/o"</strong> se refiere a cualquier persona registrada en la plataforma que asiste a clases.</li>
-            <li><strong className="text-foreground">"Paquete"</strong> se refiere a los planes de clases adquiridos (jumping, pilates o mixtos).</li>
+            <li><strong className="text-foreground">"Paquete"</strong> se refiere a los planes de clases de Barre adquiridos en el estudio.</li>
             <li><strong className="text-foreground">"Clase"</strong> se refiere a cada sesión de ejercicio programada en el estudio.</li>
           </ul>
 
@@ -117,10 +117,9 @@ const Terminos = () => {
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">8. Vestimenta y artículos personales</h2>
           <ul className="list-disc pl-6 space-y-2">
-            <li>Para clases de jumping: ropa deportiva cómoda y <strong className="text-foreground">tenis deportivos obligatorios</strong>.</li>
-            <li>Para clases de pilates: ropa deportiva y <strong className="text-foreground">calcetas antideslizantes</strong>.</li>
+            <li>Para clases de Barre: ropa deportiva cómoda y <strong className="text-foreground">calcetas antideslizantes obligatorias</strong>.</li>
             <li>Todos los artículos personales deben guardarse en los lockers proporcionados.</li>
-            <li>No se permite llevar objetos personales (incluida agua) al área de mat/trampolines para evitar accidentes.</li>
+            <li>No se permite llevar objetos personales (incluida agua) al área de la barra para evitar accidentes.</li>
             <li>El celular debe permanecer en silencio durante la clase.</li>
             <li>El estudio no se hace responsable por objetos perdidos o robados.</li>
           </ul>
@@ -147,7 +146,7 @@ const Terminos = () => {
             Para cualquier duda respecto a estos Términos y Condiciones:
           </p>
           <ul className="list-none space-y-1">
-            <li><strong className="text-foreground">Email:</strong> info@opheliajumping.mx</li>
+            <li><strong className="text-foreground">Email:</strong> hola@kalabarre.mx</li>
             <li><strong className="text-foreground">Teléfono:</strong> +52 442 123 4567</li>
             <li><strong className="text-foreground">Dirección:</strong> San Luis Potosí, México</li>
           </ul>

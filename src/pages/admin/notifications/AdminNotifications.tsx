@@ -94,9 +94,9 @@ const AdminNotifications = () => {
 
           {/* Stats por categoría */}
           {!isLoading && items.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-6" data-stagger>
               {(Object.keys(CATEGORY_LABEL) as Category[]).map((cat) => (
-                <Card key={cat} className="border-l-2" style={{ borderLeftColor: ACCENT[cat] }}>
+                <Card key={cat} data-stagger-item className="border-l-2" style={{ borderLeftColor: ACCENT[cat] }}>
                   <CardContent className="p-3">
                     <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{CATEGORY_LABEL[cat]}</p>
                     <p className="text-xl font-bold mt-0.5" style={{ color: ACCENT[cat] }}>
@@ -128,6 +128,7 @@ const AdminNotifications = () => {
                   {items.map((n) => (
                     <li key={n.id}>
                       <button
+                        data-press
                         onClick={() => n.link && navigate(n.link)}
                         className="w-full flex items-start gap-3 p-4 text-left hover:bg-muted/30 transition-colors"
                       >

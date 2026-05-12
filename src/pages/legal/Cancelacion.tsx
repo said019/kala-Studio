@@ -109,7 +109,7 @@ const Cancelacion = () => {
             <li>Extender la vigencia por el periodo de incapacidad comprobada.</li>
           </ul>
           <p>
-            Estas excepciones requieren notificación por escrito a <strong className="text-primary">info@opheliajumping.mx</strong> con documentación de soporte y quedan a criterio de la administración del estudio.
+            Estas excepciones requieren notificación por escrito a <strong className="text-primary">hola@kalabarre.mx</strong> con documentación de soporte y quedan a criterio de la administración del estudio.
           </p>
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">4. Cancelación de clases por parte del estudio</h2>
@@ -173,7 +173,7 @@ const Cancelacion = () => {
             Para cualquier duda o aclaración respecto a esta Política de Cancelación:
           </p>
           <ul className="list-none space-y-1">
-            <li><strong className="text-foreground">Email:</strong> info@opheliajumping.mx</li>
+            <li><strong className="text-foreground">Email:</strong> hola@kalabarre.mx</li>
             <li><strong className="text-foreground">Teléfono:</strong> +52 442 123 4567</li>
             <li><strong className="text-foreground">Dirección:</strong> San Luis Potosí, México</li>
           </ul>

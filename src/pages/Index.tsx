@@ -68,12 +68,14 @@ const KALA = {
 } as const;
 
 /* ───── Types ───── */
+// Kala es estudio de Barre. Solo manejamos categoría 'barre'. Mantenemos
+// el campo para forward-compat pero no hay otras categorías activas.
 type ClassTypeRow = {
   id: string;
   name: string;
   subtitle: string | null;
   description: string | null;
-  category: "barre" | "jumping" | "pilates" | "mixto";
+  category: "barre";
   intensity: "ligera" | "media" | "pesada" | "todas";
   color: string;
   emoji: string;
@@ -89,7 +91,7 @@ type PackageRow = {
   name: string;
   num_classes: string;
   price: number;
-  category: "barre" | "jumping" | "pilates" | "mixtos";
+  category: "barre";
   validity_days: number;
   is_active: boolean;
   sort_order: number;
@@ -98,7 +100,7 @@ type PackageRow = {
 type TrialPlanRow = {
   id: string;
   name: string;
-  classCategory: "barre" | "jumping" | "pilates";
+  classCategory: "barre";
   price: number;
   durationDays: number;
   classLimit: number;
@@ -175,18 +177,9 @@ function clampFocus(value: unknown): number {
 
 function pickClassImage(name: string, idx: number): string {
   const lc = (name || "").toLowerCase();
-  const map: Record<string, string> = {
-    barre: kalaHeroClass,
-    yoga: kalaBarreLine,
-    pilates: kalaClassEnergy,
-    "flow pilates": kalaClassEnergy,
-    "hot pilates": kalaClassEnergy,
-    "jumping fitness": kalaInstagram01,
-    "jump dance": kalaInstagram02,
-    "strong jump": kalaInstagram03,
-    "jump & tone": kalaDetailAnkleWeights,
-  };
-  if (map[lc]) return map[lc];
+  // Solo Barre. Si el name contiene "barre" en cualquier variante (mixto,
+  // flow, energy, etc.) usa la hero; el resto rota por el pool.
+  if (lc.includes("barre")) return kalaHeroClass;
   return CLASS_IMAGE_POOL[idx % CLASS_IMAGE_POOL.length];
 }
 
@@ -242,13 +235,14 @@ const Index = () => {
 
   const trialPlans: TrialPlanRow[] = useMemo(() => {
     const rows = Array.isArray(plansData?.data) ? plansData.data : [];
-    const byCategory = new Map<"barre" | "jumping" | "pilates", TrialPlanRow>();
+    const byCategory = new Map<"barre", TrialPlanRow>();
     for (const row of rows) {
       const isActive = (row?.isActive ?? row?.is_active) !== false;
       if (!isActive) continue;
       const category = String(row?.classCategory ?? row?.class_category ?? "").toLowerCase();
-      const normalizedCategory = category === "all" ? "barre" : category;
-      if (normalizedCategory !== "barre" && normalizedCategory !== "jumping" && normalizedCategory !== "pilates") continue;
+      // Kala solo opera Barre; any/all/mixto cuentan como barre, demás se ignoran.
+      if (!["barre", "all", "mixto"].includes(category)) continue;
+      const normalizedCategory = "barre" as const;
       const repeatKey = String(row?.repeatKey ?? row?.repeat_key ?? "");
       const classLimit = Number(row?.classLimit ?? row?.class_limit ?? 0);
       const price = Number(row?.price ?? 0);
@@ -468,7 +462,9 @@ const Index = () => {
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <button
                 onClick={() => navigate(membershipCtaPath)}
-                className="group inline-flex items-center gap-3 rounded-full px-7 py-4 text-[0.84rem] font-medium uppercase tracking-[0.16em] transition-transform hover:-translate-y-0.5"
+                data-press
+                data-lift
+                className="group inline-flex items-center gap-3 rounded-full px-7 py-4 text-[0.84rem] font-medium uppercase tracking-[0.16em]"
                 style={{ backgroundColor: KALA.berry, color: KALA.cream }}
               >
                 Reserva tu clase muestra
@@ -489,13 +485,13 @@ const Index = () => {
             </div>
 
             {/* Inline studio facts (no card grid) */}
-            <dl className="mt-12 grid grid-cols-3 gap-6 max-w-[520px]">
+            <dl className="mt-12 grid grid-cols-3 gap-6 max-w-[520px]" data-stagger>
               {[
                 { k: "5", l: "Lugares por clase" },
                 { k: "50min", l: "Cada sesión" },
                 { k: "Karla", l: "Te recibe" },
               ].map((stat) => (
-                <div key={stat.l} className="border-t pt-3" style={{ borderColor: KALA.border }}>
+                <div key={stat.l} data-stagger-item className="border-t pt-3" style={{ borderColor: KALA.border }}>
                   <dt className="font-bebas text-[1.85rem] leading-none" style={{ color: KALA.berry }}>{stat.k}</dt>
                   <dd className="mt-1 text-[0.72rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">{stat.l}</dd>
                 </div>
@@ -576,7 +572,7 @@ const Index = () => {
             </div>
 
             {/* Inline values, no card grid */}
-            <ul className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-0 list-none m-0 p-0">
+            <ul className="mt-10 grid grid-cols-1 sm:grid-cols-3 gap-0 list-none m-0 p-0" data-stagger>
               {[
                 { tag: "01", word: "Bienestar", note: "Cuerpo, postura, energía." },
                 { tag: "02", word: "Comunidad", note: "Grupos pequeños, atención cercana." },
@@ -584,6 +580,7 @@ const Index = () => {
               ].map((v, i) => (
                 <li
                   key={v.word}
+                  data-stagger-item
                   className={"py-5 sm:py-0 sm:pl-6 " + (i === 0 ? "border-t sm:border-t-0 sm:border-l-0" : "border-t sm:border-t-0 sm:border-l")}
                   style={{ borderColor: KALA.border }}
                 >
@@ -616,7 +613,7 @@ const Index = () => {
           </div>
 
           {/* Asymmetric editorial grid */}
-          <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-x-5 gap-y-10 list-none m-0 p-0">
+          <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-x-5 gap-y-10 list-none m-0 p-0" data-stagger>
             {classTypes.slice(0, 8).map((c, idx) => {
               const isOpen = openClassId === c.id;
               const img = pickClassImage(c.name, idx);
@@ -635,9 +632,10 @@ const Index = () => {
                 layout === 5 ? "aspect-[5/4]" :
                 "aspect-[4/5]";
               return (
-                <li key={c.id} className={span}>
+                <li key={c.id} className={span} data-stagger-item>
                   <button
                     onClick={() => setOpenClassId(isOpen ? null : c.id)}
+                    data-press
                     className="group block w-full text-left bg-transparent border-0 p-0 cursor-pointer"
                     aria-expanded={isOpen}
                   >

@@ -29,7 +29,7 @@ const STATUS: Record<string, { label: string; tone: keyof typeof KALA }> = {
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
-  jumping: "Jumping",
+  jumping: "Barre",
   pilates: "Pilates",
   mixto: "Mixto",
   all: "Todas",

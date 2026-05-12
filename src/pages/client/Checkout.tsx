@@ -42,11 +42,11 @@ const flag = (value: unknown): boolean => {
   return false;
 };
 
-const detectCategory = (plan: any): "jumping" | "pilates" | "mixto" | "all" => {
+const detectCategory = (plan: any): "barre" | "all" => {
   const raw = String(plan.classCategory ?? plan.class_category ?? "").toLowerCase();
-  if (["jumping", "pilates", "mixto", "all"].includes(raw)) return raw as any;
+  if (["barre", "pilates", "mixto", "all"].includes(raw)) return raw as any;
   const byName = String(plan.name ?? "").toLowerCase();
-  if (byName.includes("jump")) return "jumping";
+  if (byName.includes("jump")) return "barre";
   if (byName.includes("pilates")) return "pilates";
   if (byName.includes("mixto")) return "mixto";
   return "all";
@@ -60,7 +60,7 @@ const CATEGORY_TINT: Record<string, keyof typeof KALA> = {
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
-  jumping: "Jumping",
+  jumping: "Barre",
   pilates: "Pilates",
   mixto: "Mixto",
   all: "Suelta",

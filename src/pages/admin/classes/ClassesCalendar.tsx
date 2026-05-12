@@ -61,7 +61,7 @@ interface ClassType {
   id: string;
   name: string;
   color: string;
-  category?: "jumping" | "pilates";
+  category?: "barre" | "pilates";
   defaultDuration?: number;
   durationMin?: number;
   maxCapacity?: number;
@@ -102,7 +102,7 @@ type ClassFormData = z.infer<typeof classSchema>;
 const typeSchema = z.object({
   name: z.string().min(1),
   color: z.string().default("#E9745F"),
-  category: z.enum(["jumping", "pilates"]).default("jumping"),
+  category: z.enum(["barre", "pilates"]).default("barre"),
   defaultDuration: z.coerce.number().min(1),
   maxCapacity: z.coerce.number().min(1),
   isActive: z.boolean().default(true),
@@ -653,7 +653,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
   const [editing, setEditing] = useState<ClassType | null>(null);
   const form = useForm<TypeFormData>({
     resolver: zodResolver(typeSchema),
-    defaultValues: { color: "#E9745F", category: "jumping", defaultDuration: 50, maxCapacity: 10, isActive: true },
+    defaultValues: { color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 10, isActive: true },
   });
 
   const createMutation = useMutation({
@@ -684,7 +684,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
     form.reset({
       name: t.name,
       color: t.color,
-      category: (t.category === "pilates" ? "pilates" : "jumping") as "jumping" | "pilates",
+      category: (t.category === "pilates" ? "pilates" : "barre") as "barre" | "pilates",
       defaultDuration: t.defaultDuration ?? t.durationMin ?? 50,
       maxCapacity: t.maxCapacity ?? t.capacity ?? 10,
       isActive: t.isActive ?? true,
@@ -693,7 +693,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
     setOpen(true);
   };
   const openCreate = () => {
-    form.reset({ color: "#E9745F", category: "jumping", defaultDuration: 50, maxCapacity: 10, isActive: true });
+    form.reset({ color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 10, isActive: true });
     setEditing(null);
     setOpen(true);
   };
@@ -723,7 +723,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                       <p className="truncate text-sm font-semibold text-white">{t.name}</p>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {t.category === "jumping" && <Badge className="bg-[#76214D]/20 text-[#76214D] border border-[#76214D]/30">Jumping</Badge>}
+                      {t.category === "barre" && <Badge className="bg-[#76214D]/20 text-[#76214D] border border-[#76214D]/30">Barre</Badge>}
                       {t.category === "pilates" && <Badge className="bg-[#E9745F]/20 text-[#E9745F] border border-[#E9745F]/30">Pilates</Badge>}
                       {!t.category && <Badge variant="secondary">—</Badge>}
                       <Badge variant="outline">{(t.defaultDuration ?? t.durationMin ?? "—") + " min"}</Badge>
@@ -774,7 +774,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                   <TableCell><div className="w-6 h-6 rounded-full shadow-sm" style={{ backgroundColor: t.color }} /></TableCell>
                   <TableCell className="font-medium">{t.name}</TableCell>
                   <TableCell>
-                    {t.category === "jumping" && <Badge className="bg-[#76214D]/20 text-[#76214D] border border-[#76214D]/30">Jumping</Badge>}
+                    {t.category === "barre" && <Badge className="bg-[#76214D]/20 text-[#76214D] border border-[#76214D]/30">Barre</Badge>}
                     {t.category === "pilates" && <Badge className="bg-[#E9745F]/20 text-[#E9745F] border border-[#E9745F]/30">Pilates</Badge>}
                     {!t.category && <Badge variant="secondary">—</Badge>}
                   </TableCell>
@@ -821,13 +821,13 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
               <Label>Categoría</Label>
               <Select
                 value={form.watch("category")}
-                onValueChange={(v) => form.setValue("category", v as "jumping" | "pilates")}
+                onValueChange={(v) => form.setValue("category", v as "barre" | "pilates")}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="jumping">Jumping</SelectItem>
+                  <SelectItem value="barre">Barre</SelectItem>
                   <SelectItem value="pilates">Pilates</SelectItem>
                 </SelectContent>
               </Select>
@@ -1600,7 +1600,7 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
             <div className="space-y-1"><Label>Bio</Label><Input {...form.register("bio")} /></div>
             <div className="space-y-1">
               <Label>Especialidades (separadas por coma)</Label>
-              <Input {...form.register("specialties")} placeholder="Ej: Jumping, Pilates, Cardio" />
+              <Input {...form.register("specialties")} placeholder="Ej: Barre, Cardio, Stretch" />
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">

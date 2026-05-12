@@ -129,17 +129,18 @@ const Dashboard = () => {
           <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
 
           {/* Metric cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            {metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#E9745F")}
-            {metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#76214D")}
-            {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#F58A24")}
-            {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#F97316")}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" data-stagger>
+            <div data-stagger-item>{metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#E9745F")}</div>
+            <div data-stagger-item>{metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#76214D")}</div>
+            <div data-stagger-item>{metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#F58A24")}</div>
+            <div data-stagger-item>{metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#F97316")}</div>
           </div>
 
           {/* ── Mini charts row ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
             <Card
-              className="cursor-pointer hover:border-primary/50 transition-colors"
+              data-lift
+              className="cursor-pointer hover:border-primary/50"
               onClick={() => navigate("/admin/reports")}
             >
               <CardHeader className="pb-2">
@@ -173,7 +174,8 @@ const Dashboard = () => {
             </Card>
 
             <Card
-              className="cursor-pointer hover:border-primary/50 transition-colors"
+              data-lift
+              className="cursor-pointer hover:border-primary/50"
               onClick={() => navigate("/admin/campaigns")}
             >
               <CardHeader className="pb-2">

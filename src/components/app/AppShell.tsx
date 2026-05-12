@@ -292,6 +292,7 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
               <Link
                 key={item.to}
                 to={item.to}
+                data-press
                 className="flex flex-col items-center justify-center gap-1 py-1 no-underline"
                 aria-current={active ? "page" : undefined}
               >

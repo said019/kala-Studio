@@ -31,7 +31,7 @@ const DAY_LABELS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 
 type ClassCat = "jumping" | "pilates" | "mixto" | "all";
 const CAT_LABEL: Record<ClassCat, string> = {
-  jumping: "Jumping",
+  jumping: "Barre",
   pilates: "Pilates",
   mixto: "Mixto",
   all: "Todas",

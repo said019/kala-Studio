@@ -206,14 +206,15 @@ const Dashboard = () => {
                 />
               </div>
             </div>
-            <div className="lg:col-span-7 grid grid-cols-3 gap-5 sm:gap-7">
+            <div className="lg:col-span-7 grid grid-cols-3 gap-5 sm:gap-7" data-stagger>
               {rings.metrics.map((m) => (
-                <Stat
-                  key={m.key}
-                  value={m.value}
-                  label={m.label}
-                  tint={m.key === "constancia" ? "berry" : m.key === "esfuerzo" ? "olive" : "orange"}
-                />
+                <div key={m.key} data-stagger-item>
+                  <Stat
+                    value={m.value}
+                    label={m.label}
+                    tint={m.key === "constancia" ? "berry" : m.key === "esfuerzo" ? "olive" : "orange"}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -231,7 +232,8 @@ const Dashboard = () => {
           >
             <Link
               to="/app/wallet/rewards"
-              className="block no-underline rounded-3xl p-5 sm:p-6 transition-transform hover:-translate-y-0.5"
+              data-lift
+              className="block no-underline rounded-3xl p-5 sm:p-6"
               style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
             >
               <div className="flex items-start gap-4">
@@ -432,9 +434,9 @@ const Dashboard = () => {
             title="Videos recientes"
             trailing={<Link to="/app/videos" className="no-underline" style={{ color: KALA.berry }}>Ver todos</Link>}
           >
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4" data-stagger>
               {videos.slice(0, 4).map((v: any) => (
-                <Link key={v.id} to={`/app/videos/${v.id}`} className="group block no-underline">
+                <Link key={v.id} to={`/app/videos/${v.id}`} data-stagger-item data-lift className="group block no-underline">
                   <div className="relative aspect-[4/5] overflow-hidden rounded-2xl" style={{ backgroundColor: KALA.blush }}>
                     {v.thumbnail_url ? (
                       <img src={v.thumbnail_url} alt={v.title} loading="lazy" className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]" />

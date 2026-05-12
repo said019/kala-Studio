@@ -31,11 +31,11 @@ function groupPlans(plans: any[]) {
   const groups: Record<string, any[]> = { jumping: [], pilates: [], mixto: [], otro: [] };
   for (const p of plans) {
     const cat = p.classCategory ?? p.class_category ?? "";
-    if (cat === "jumping") groups.jumping.push(p);
+    if (cat === "barre") groups.jumping.push(p);
     else if (cat === "pilates") groups.pilates.push(p);
     else if (cat === "mixto") groups.mixto.push(p);
     else if (cat === "all") groups.otro.push(p);
-    else if (p.name?.toLowerCase().includes("jumping") || p.name?.toLowerCase().includes("jump")) groups.jumping.push(p);
+    else if (p.name?.toLowerCase().includes("barre") || p.name?.toLowerCase().includes("jump")) groups.jumping.push(p);
     else if (p.name?.toLowerCase().includes("pilates")) groups.pilates.push(p);
     else if (p.name?.toLowerCase().includes("mixto")) groups.mixto.push(p);
     else groups.otro.push(p);
@@ -204,7 +204,7 @@ const CashAssignment = () => {
               otro: "text-white/50",
             };
             const groupLabels: Record<string, string> = {
-              jumping: "Paquetes Jumping",
+              jumping: "Paquetes Barre",
               pilates: "Paquetes Pilates",
               mixto: "Paquetes Mixto",
               otro: "Otros paquetes",

@@ -203,6 +203,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                     <Link
                       key={path}
                       to={path}
+                      data-press
                       title={isCompact ? label : undefined}
                       className={cn(
                         "flex items-center gap-3 mx-2 my-0.5 rounded-xl transition-all duration-200 no-underline group",
@@ -317,6 +318,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                   <li key={item.path}>
                     <Link
                       to={item.path}
+                      data-press
                       className={cn(
                         "flex h-12 min-h-[44px] flex-col items-center justify-center rounded-xl text-[11px] font-semibold transition-colors",
                         active

@@ -79,19 +79,74 @@
   transform: translateY(8px);
   animation: kala-fade-up 360ms var(--ease-kala-out) forwards;
 }
-[data-stagger] [data-stagger-item]:nth-child(1) { animation-delay: 60ms; }
-[data-stagger] [data-stagger-item]:nth-child(2) { animation-delay: 120ms; }
-[data-stagger] [data-stagger-item]:nth-child(3) { animation-delay: 180ms; }
-[data-stagger] [data-stagger-item]:nth-child(4) { animation-delay: 240ms; }
-[data-stagger] [data-stagger-item]:nth-child(5) { animation-delay: 300ms; }
-[data-stagger] [data-stagger-item]:nth-child(6) { animation-delay: 360ms; }
+[data-stagger] [data-stagger-item]:nth-child(1) { animation-delay: 40ms; }
+[data-stagger] [data-stagger-item]:nth-child(2) { animation-delay: 80ms; }
+[data-stagger] [data-stagger-item]:nth-child(3) { animation-delay: 120ms; }
+[data-stagger] [data-stagger-item]:nth-child(4) { animation-delay: 160ms; }
+[data-stagger] [data-stagger-item]:nth-child(5) { animation-delay: 200ms; }
+[data-stagger] [data-stagger-item]:nth-child(6) { animation-delay: 240ms; }
+[data-stagger] [data-stagger-item]:nth-child(7) { animation-delay: 280ms; }
+[data-stagger] [data-stagger-item]:nth-child(8) { animation-delay: 320ms; }
+[data-stagger] [data-stagger-item]:nth-child(n+9) { animation-delay: 360ms; }
+
+/* Hover-lift: applied to anything with [data-lift]. Cards, list items.
+   Per Emil: subtle translateY + shadow shift signals tappable. */
+[data-lift] {
+  transition: transform 280ms var(--ease-kala-out), box-shadow 280ms var(--ease-kala-out);
+  will-change: transform;
+}
+[data-lift]:hover {
+  transform: translateY(-2px);
+}
+
+/* Scale-in: dialogs, popovers. Emil-curve. */
+@keyframes kala-scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+[data-scale-in] {
+  animation: kala-scale-in 320ms var(--ease-kala-drawer) forwards;
+}
+
+/* Slide-up: bottom sheets, mobile toasts. */
+@keyframes kala-slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+[data-slide-up] {
+  animation: kala-slide-up 380ms var(--ease-kala-drawer) forwards;
+}
+
+/* Fade-in simple sin movimiento (para imágenes lazy). */
+@keyframes kala-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+[data-fade-in] {
+  animation: kala-fade-in 480ms var(--ease-kala-out) forwards;
+}
+
+/* IntersectionObserver-friendly: aplica [data-reveal] al element y
+   class .is-visible cuando entra a viewport. */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 600ms var(--ease-kala-out), transform 600ms var(--ease-kala-out);
+}
+[data-reveal].is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
 
 @media (prefers-reduced-motion: reduce) {
   [data-press]:active { transform: none; }
-  [data-stagger] [data-stagger-item] {
+  [data-lift]:hover { transform: none; }
+  [data-stagger] [data-stagger-item],
+  [data-scale-in], [data-slide-up], [data-fade-in], [data-reveal] {
     animation: none;
     opacity: 1;
     transform: none;
+    transition: none;
   }
 }
 

@@ -30,7 +30,7 @@ const codeSchema = z.object({
   minOrderAmount: z.coerce.number().min(0).default(0),
   maxUses: nullableInt,
   planId: z.string().optional(),
-  classCategory: z.enum(["all", "jumping", "pilates", "mixto"]).optional(),
+  classCategory: z.enum(["all", "barre", "pilates", "mixto"]).optional(),
   channel: z.enum(["all", "membership", "pos", "event"]).default("all"),
   expiresAt: z.string().optional(),
   isActive: z.boolean().default(true),
@@ -297,7 +297,7 @@ const DiscountCodes = () => {
                     <SelectContent>
                       <SelectItem value="none">Todas</SelectItem>
                       <SelectItem value="all">General</SelectItem>
-                      <SelectItem value="jumping">Jumping</SelectItem>
+                      <SelectItem value="barre">Barre</SelectItem>
                       <SelectItem value="pilates">Pilates</SelectItem>
                       <SelectItem value="mixto">Mixto</SelectItem>
                     </SelectContent>

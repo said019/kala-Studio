@@ -93,7 +93,7 @@ const Privacidad = () => {
 
           <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">5. Derechos ARCO</h2>
           <p>
-            Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse (derechos ARCO) al tratamiento de sus datos personales. Para ejercer estos derechos, envíe una solicitud al correo electrónico <strong className="text-primary">info@opheliajumping.mx</strong> indicando:
+            Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse (derechos ARCO) al tratamiento de sus datos personales. Para ejercer estos derechos, envíe una solicitud al correo electrónico <strong className="text-primary">hola@kalabarre.mx</strong> indicando:
           </p>
           <ul className="list-disc pl-6 space-y-2">
             <li>Nombre completo y datos de contacto.</li>
@@ -124,7 +124,7 @@ const Privacidad = () => {
             Si tiene alguna duda o comentario sobre este Aviso de Privacidad, puede contactarnos en:
           </p>
           <ul className="list-none space-y-1">
-            <li><strong className="text-foreground">Email:</strong> info@opheliajumping.mx</li>
+            <li><strong className="text-foreground">Email:</strong> hola@kalabarre.mx</li>
             <li><strong className="text-foreground">Teléfono:</strong> +52 442 123 4567</li>
             <li><strong className="text-foreground">Dirección:</strong> San Luis Potosí, México</li>
           </ul>

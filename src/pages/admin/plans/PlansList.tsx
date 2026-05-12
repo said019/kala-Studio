@@ -29,7 +29,7 @@ import { MoreHorizontal, Plus } from "lucide-react";
 
 const CATEGORIES = [
   { value: "barre",   label: "Barre",         color: "bg-[#76214D]/20 text-[#76214D] border-[#76214D]/30" },
-  { value: "jumping", label: "Jumping",       color: "bg-[#76214D]/20 text-[#76214D] border-[#76214D]/30" },
+  { value: "barre", label: "Barre",         color: "bg-[#76214D]/20 text-[#76214D] border-[#76214D]/30" },
   { value: "pilates", label: "Pilates",        color: "bg-[#E9745F]/20 text-[#E9745F] border-[#E9745F]/30" },
   { value: "mixto",   label: "Mixto",          color: "bg-yellow-400/15 text-yellow-400 border-yellow-400/30" },
   { value: "all",     label: "Todas (sin filtro)", color: "bg-white/10 text-white/60 border-white/15" },
@@ -44,7 +44,7 @@ const planSchema = z.object({
   currency: z.string().default("MXN"),
   durationDays: z.coerce.number().min(1),
   classLimit: z.preprocess((v) => (v === "" || v === null || v === undefined ? null : Number(v)), z.number().nullable()),
-  classCategory: z.enum(["barre", "jumping", "pilates", "mixto", "all"]).default("all"),
+  classCategory: z.enum(["barre", "barre", "pilates", "mixto", "all"]).default("all"),
   features: z.string().optional(),
   isActive: z.boolean().default(true),
   isNonTransferable: z.boolean().default(false),
