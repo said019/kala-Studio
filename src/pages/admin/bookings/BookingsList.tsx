@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft, ChevronRight, Users, CheckCircle2,
-  Clock, ArrowLeft, UserCheck, UserX, Calendar, Plus, Search,
+  Clock, ArrowLeft, UserCheck, UserX, Calendar, Plus, Search, XCircle, Ban,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 
@@ -89,6 +89,46 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
+  // Admin cancela reserva (override política 2h, devuelve crédito).
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      api.delete(`/admin/bookings/${id}`, { data: { reason } }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["roster", classId] });
+      qc.invalidateQueries({ queryKey: ["my-bookings"] });
+      const restored = res?.data?.data?.credit_restored;
+      toast({
+        title: "Reserva cancelada",
+        description: restored ? "Crédito devuelto a la alumna." : "Cancelada (sin crédito por devolver).",
+      });
+    },
+    onError: (e: any) => toast({
+      title: "Error al cancelar",
+      description: e?.response?.data?.message || "Inténtalo de nuevo",
+      variant: "destructive",
+    }),
+  });
+
+  // Admin cancela la clase completa (cascada: todos los bookings + créditos + WA).
+  const cancelClassMutation = useMutation({
+    mutationFn: (reason?: string) =>
+      api.put(`/classes/${classId}/cancel`, { reason }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["roster", classId] });
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      const d = res?.data?.data || {};
+      toast({
+        title: "Clase cancelada",
+        description: `${d.bookings_cancelled ?? 0} reservas canceladas · ${d.credits_restored ?? 0} créditos devueltos · ${d.wa_sent ?? 0} WhatsApps`,
+      });
+    },
+    onError: (e: any) => toast({
+      title: "Error",
+      description: e?.response?.data?.message || "No se pudo cancelar",
+      variant: "destructive",
+    }),
+  });
+
   const assignMutation = useMutation({
     mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId }),
     onSuccess: (res: any) => {
@@ -147,14 +187,38 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
             </button>
           </div>
 
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
               onClick={() => setAssignOpen(true)}
+              data-press
               className="bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
             >
               <Plus size={14} className="mr-1" /> Asignar miembro
             </Button>
+            {(confirmed > 0 || waitlist > 0) && (
+              <Button
+                size="sm"
+                variant="outline"
+                data-press
+                onClick={() => {
+                  const total = confirmed + waitlist;
+                  const reason = window.prompt(
+                    `Motivo de cancelación (se incluye en el WA a las ${total} alumna${total === 1 ? "" : "s"}):`,
+                    "",
+                  );
+                  if (reason === null) return;
+                  if (!window.confirm(
+                    `¿Cancelar la clase completa?\n\n${total} reserva${total === 1 ? "" : "s"} se cancelarán y ${confirmed} crédito${confirmed === 1 ? "" : "s"} se devolverán automáticamente. WhatsApp a cada alumna.`,
+                  )) return;
+                  cancelClassMutation.mutate(reason || undefined);
+                }}
+                disabled={cancelClassMutation.isPending}
+                className="border-[#E9745F]/40 text-[#E9745F]/85 hover:bg-[#E9745F]/10"
+              >
+                <Ban size={14} className="mr-1" /> Cancelar clase
+              </Button>
+            )}
           </div>
 
           {/* Stats */}
@@ -189,6 +253,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
               const sc = statusConfig[entry.status] ?? statusConfig.confirmed;
               const canCheckin = entry.status === "confirmed" || entry.status === "waitlist";
               const canNoShow  = entry.status === "confirmed";
+              const canCancel  = entry.status === "confirmed" || entry.status === "waitlist";
               return (
                 <div
                   key={entry.bookingId}
@@ -255,6 +320,22 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                         className="w-8 h-8 rounded-lg bg-[#f87171]/8 border border-[#f87171]/20 text-[#f87171]/70 hover:bg-[#f87171]/15 flex items-center justify-center transition-all disabled:opacity-40"
                       >
                         <UserX size={14} />
+                      </button>
+                    )}
+                    {canCancel && (
+                      <button
+                        data-press
+                        onClick={() => {
+                          const reason = window.prompt(`Motivo de cancelación (opcional, va al WhatsApp de ${entry.userName || "la alumna"}):`, "");
+                          if (reason === null) return; // user cancelled
+                          if (!window.confirm(`¿Cancelar reserva de ${entry.userName || "esta alumna"}?\n\nSe devolverá el crédito a su paquete (si aplica).`)) return;
+                          cancelMutation.mutate({ id: entry.bookingId, reason: reason || undefined });
+                        }}
+                        disabled={cancelMutation.isPending}
+                        title="Cancelar reserva (devuelve crédito)"
+                        className="w-8 h-8 rounded-lg bg-[#E9745F]/8 border border-[#E9745F]/25 text-[#E9745F]/80 hover:bg-[#E9745F]/15 flex items-center justify-center transition-all disabled:opacity-40"
+                      >
+                        <XCircle size={14} />
                       </button>
                     )}
                   </div>
