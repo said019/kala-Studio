@@ -10507,6 +10507,80 @@ app.post("/api/admin/whatsapp-templates/preview", adminMiddleware, async (req, r
   }
 });
 
+// POST /api/admin/whatsapp-templates/test-send — dueña envía template real
+// a un teléfono para validar antes de mandar masivo.
+// Body: { templateKey, phone, vars? }
+app.post("/api/admin/whatsapp-templates/test-send", adminMiddleware, async (req, res) => {
+  try {
+    const { templateKey, phone, vars } = req.body || {};
+    if (!templateKey || !phone) {
+      return res.status(400).json({ message: "templateKey y phone son requeridos" });
+    }
+    if (!EVOLUTION_API_URL || !EVOLUTION_INSTANCE) {
+      return res.status(503).json({ message: "Evolution API no está configurada" });
+    }
+    // Check connection state
+    try {
+      const stateRes = await evolutionApi.get(`/instance/connectionState/${EVOLUTION_INSTANCE}`);
+      const state = stateRes.data?.instance?.state || stateRes.data?.state || "unknown";
+      if (state !== "open") {
+        return res.status(503).json({
+          message: `WhatsApp no está conectado (estado: ${state}). Conecta primero en /admin/settings.`,
+        });
+      }
+    } catch (stateErr) {
+      return res.status(503).json({
+        message: "No se pudo verificar conexión Evolution. Revisa configuración.",
+      });
+    }
+    // Default sample vars (la dueña puede sobrescribir)
+    const sampleVars = {
+      firstName: "Karla",
+      name: "Karla",
+      class: "Barre Flow",
+      date: "viernes 15 mayo",
+      time: "07:00",
+      points: 50, totalPoints: 1500,
+      classes: 10, classesThisWeek: 1, weekGoal: 4, days: 7,
+      rewardName: "Clase muestra gratis",
+      eventTitle: "Clase muestra",
+      message: "esto es una prueba del template",
+      plan: "Barre — 4 Clases por semana",
+      startDate: "1 mayo", endDate: "31 mayo",
+      expiresAt: "31 mayo",
+      reason: "comprobante ilegible",
+      link: "https://kala-studio.app/test",
+      creditRestored: "Sí",
+      ...(vars || {}),
+    };
+    const result = await sendConfiguredWhatsAppTemplate({
+      templateKey,
+      phone: normalisePhone(phone),
+      vars: sampleVars,
+      fallbackMessage: "",
+    });
+    if (!result.sent) {
+      return res.status(400).json({
+        message: result.reason === "whatsapp_disabled"
+          ? "WhatsApp deshabilitado en configuración"
+          : result.reason === "empty_message"
+            ? "Template renderea vacío. Revisa el body."
+            : `No se pudo enviar (${result.reason})`,
+      });
+    }
+    return res.json({
+      data: {
+        sent: true,
+        phone: normalisePhone(phone),
+        templateKey,
+      },
+    });
+  } catch (err) {
+    console.error("[test-send]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  }
+});
+
 // ─── Evolution API (WhatsApp) ─────────────────────────────────────────────────
 
 // Helper: normalise phone to WhatsApp format (521XXXXXXXXXX for MX)
@@ -10576,12 +10650,77 @@ async function areEmailNotificationsEnabled() {
   return notificationSettings?.email_reminders !== false;
 }
 
-// Webhook (no auth) — receives Evolution API events
+// Webhook (no auth, Evolution lo llama directo). Procesa eventos:
+//   - MESSAGES_UPSERT: mensaje entrante (alumna respondió a WA). Logueamos.
+//   - MESSAGES_UPDATE: receipt de delivery/read. Actualiza campaign_logs.
+//   - CONNECTION_UPDATE: cambio de estado WA (open/close).
+// Idempotente — siempre responde 200 (Evolution no debería reintentar).
 app.post("/api/webhook/evolution", async (req, res) => {
   try {
-    const body = req.body;
-    console.log("[EVOLUTION WEBHOOK]", JSON.stringify(body).slice(0, 400));
-    // TODO: handle inbound messages / delivery receipts
+    const body = req.body || {};
+    const event = String(body.event || body.eventName || "").toUpperCase();
+    const data = body.data || {};
+
+    if (event === "MESSAGES_UPDATE" || event === "messages.update".toUpperCase()) {
+      // Evolution envía { key: { remoteJid, id }, status: 'SERVER_ACK' | 'DELIVERY_ACK' | 'READ' | 'PLAYED' }
+      // O en algunos schemas: { messageId, status, ... }
+      const updates = Array.isArray(data) ? data : (data.update ? [data.update] : [data]);
+      for (const u of updates) {
+        const remoteJid = u.key?.remoteJid || u.remoteJid || u.recipient;
+        const status = String(u.status || u.update?.status || "").toUpperCase();
+        if (!remoteJid) continue;
+        const phone = String(remoteJid).split("@")[0].replace(/\D/g, "");
+        if (!phone) continue;
+
+        // Map Evolution status → nuestro tracking
+        // PENDING / SERVER_ACK = mandado pero no entregado todavía
+        // DELIVERY_ACK = entregado al device
+        // READ = leído por el usuario
+        // PLAYED = audio escuchado (no aplica para text)
+        let newStatus = null;
+        if (status === "READ") newStatus = "read";
+        else if (status === "DELIVERY_ACK" || status === "DELIVERED") newStatus = "delivered";
+        if (!newStatus) continue;
+
+        // Match al campaign_log más reciente para ese teléfono dentro de últimas 24h
+        try {
+          await pool.query(
+            `UPDATE campaign_logs SET
+                status = CASE
+                  WHEN status = 'sent' AND $2 IN ('delivered','read') THEN $2
+                  WHEN status = 'delivered' AND $2 = 'read' THEN 'read'
+                  ELSE status
+                END
+              WHERE id IN (
+                SELECT id FROM campaign_logs
+                 WHERE phone LIKE '%' || $1
+                   AND status IN ('sent','delivered')
+                   AND sent_at >= NOW() - INTERVAL '24 hours'
+                 ORDER BY sent_at DESC
+                 LIMIT 1
+              )`,
+            [phone, newStatus],
+          );
+        } catch (_) { /* silent */ }
+      }
+    }
+
+    if (event === "MESSAGES_UPSERT" || event === "messages.upsert".toUpperCase()) {
+      // Mensaje entrante (alumna respondió). Por ahora solo logueamos.
+      // Futuro: podríamos parsear como "reply" a campaign y marcar engagement.
+      const msgs = Array.isArray(data) ? data : (data.messages ? data.messages : [data]);
+      for (const m of msgs) {
+        // Skip mensajes que el server envió (fromMe = true)
+        if (m.key?.fromMe || m.fromMe) continue;
+        const remoteJid = m.key?.remoteJid || m.remoteJid;
+        const text = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
+        if (remoteJid && text) {
+          console.log("[EVOLUTION INCOMING]", remoteJid, ":", text.slice(0, 100));
+          // TODO future: registrar en una tabla wa_inbound_messages para inbox admin
+        }
+      }
+    }
+
     return res.sendStatus(200);
   } catch (err) {
     console.error("[EVOLUTION WEBHOOK ERROR]", err.message);
@@ -10636,6 +10775,45 @@ app.get("/api/evolution/status", adminMiddleware, async (req, res) => {
   }
 });
 
+// Helper: configura el webhook de Evolution apuntando a nuestro server.
+// Idempotente — se puede llamar las veces que quieras. Evolution v2 espera
+// POST /webhook/set/:instance con body { webhook: { url, events, enabled } }.
+async function configureEvolutionWebhook() {
+  const webhookUrl = (process.env.SITE_URL || "https://kala-studio-production.up.railway.app").replace(/\/$/, "") + "/api/webhook/evolution";
+  try {
+    await evolutionApi.post(`/webhook/set/${EVOLUTION_INSTANCE}`, {
+      webhook: {
+        url: webhookUrl,
+        enabled: true,
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: [
+          "MESSAGES_UPSERT",       // mensaje entrante (alumna responde)
+          "MESSAGES_UPDATE",       // delivery / read receipts
+          "CONNECTION_UPDATE",     // wa conectado/desconectado
+          "QRCODE_UPDATED",
+        ],
+      },
+    });
+    console.log("[Evolution] Webhook configurado:", webhookUrl);
+    return { ok: true, url: webhookUrl };
+  } catch (err) {
+    // Algunas versiones aceptan el body sin 'webhook:' wrapper
+    try {
+      await evolutionApi.post(`/webhook/set/${EVOLUTION_INSTANCE}`, {
+        url: webhookUrl,
+        enabled: true,
+        events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+      });
+      console.log("[Evolution] Webhook configurado (formato v1):", webhookUrl);
+      return { ok: true, url: webhookUrl };
+    } catch (err2) {
+      console.warn("[Evolution] No se pudo configurar webhook:", err2.response?.data || err2.message);
+      return { ok: false, error: err2.response?.data || err2.message };
+    }
+  }
+}
+
 // POST /api/evolution/connect — create instance (or fetch QR if already exists)
 app.post("/api/evolution/connect", adminMiddleware, async (req, res) => {
   try {
@@ -10654,6 +10832,8 @@ app.post("/api/evolution/connect", adminMiddleware, async (req, res) => {
         integration: "WHATSAPP-BAILEYS",
       });
       createData = createRes.data;
+      // Configura webhook automáticamente tras crear (no bloquea si falla)
+      configureEvolutionWebhook().catch(() => {});
     } catch (createErr) {
       createErrStatus = createErr.response?.status ?? null;
       createErrMessage = JSON.stringify(createErr.response?.data || createErr.message || "");
@@ -10707,11 +10887,20 @@ app.post("/api/evolution/connect", adminMiddleware, async (req, res) => {
       return res.status(502).json({ message: "Evolution respondió sin QR. Intenta nuevamente en unos segundos." });
     }
 
+    // Asegura webhook configurado (idempotente)
+    configureEvolutionWebhook().catch(() => {});
+
     return res.json({ data: { qrCode, state: "qr_pending", message: "Escanea el código QR con WhatsApp" } });
   } catch (err) {
     console.error("[EVOLUTION CONNECT]", err.response?.data || err.message);
     return res.status(500).json({ message: "Error al conectar con Evolution API" });
   }
+});
+
+// POST /api/evolution/configure-webhook — forzar reconfiguración del webhook
+app.post("/api/evolution/configure-webhook", adminMiddleware, async (req, res) => {
+  const result = await configureEvolutionWebhook();
+  return res.status(result.ok ? 200 : 502).json(result);
 });
 
 // POST /api/evolution/disconnect

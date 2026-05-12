@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Eye, RotateCcw, Save, Loader2, Sparkles } from "lucide-react";
+import { MessageSquare, Eye, RotateCcw, Save, Loader2, Sparkles, Send } from "lucide-react";
 
 interface Template { subject: string; body: string }
 interface ApiResponse {
@@ -80,6 +80,7 @@ const TemplateCard = ({
   const [saving, setSaving] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
 
   const dirty = subject !== template.subject || body !== template.body;
 
@@ -112,6 +113,30 @@ const TemplateCard = ({
 
   const insertVariable = (v: string) => {
     setBody((prev) => prev + `{${v}}`);
+  };
+
+  const handleTestSend = async () => {
+    const phone = window.prompt(
+      `Manda esta plantilla como WhatsApp de prueba.\n\nTeléfono (con o sin +52, solo números):`,
+      "",
+    );
+    if (!phone) return;
+    setSendingTest(true);
+    try {
+      await api.post("/admin/whatsapp-templates/test-send", {
+        templateKey,
+        phone,
+      });
+      toast({ title: "✓ Enviado", description: `WA de prueba mandado a ${phone}` });
+    } catch (e: any) {
+      toast({
+        title: "No se envió",
+        description: e?.response?.data?.message || "Verifica conexión Evolution",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingTest(false);
+    }
   };
 
   return (
@@ -183,6 +208,17 @@ const TemplateCard = ({
             >
               {previewing ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Eye size={13} className="mr-1.5" />}
               Preview
+            </Button>
+            <Button
+              onClick={handleTestSend}
+              disabled={sendingTest || dirty}
+              variant="outline"
+              size="sm"
+              className="border-[#778455]/40 bg-[#778455]/5 text-[#778455]"
+              title={dirty ? "Guarda primero los cambios antes de enviar prueba" : "Mandar WA de prueba a un teléfono"}
+            >
+              {sendingTest ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Send size={13} className="mr-1.5" />}
+              Enviar prueba
             </Button>
             <Button
               onClick={handleSave}
