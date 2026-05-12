@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { format, isToday, isYesterday, differenceInDays } from "date-fns";
 import { es } from "date-fns/locale";
@@ -23,6 +24,7 @@ interface Notif {
   body: string;
   time: string;
   link?: string;
+  unread?: boolean;
 }
 
 const ICON: Record<Category, React.ReactNode> = {
@@ -67,12 +69,29 @@ const CATEGORY_LABEL: Record<Category, string> = {
 
 const AdminNotifications = () => {
   const navigate = useNavigate();
-  const { data, isLoading } = useQuery<{ data: Notif[] }>({
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<{ data: Notif[]; meta?: { unread_count: number } }>({
     queryKey: ["admin-notifications"],
     queryFn: async () => (await api.get("/admin/notifications?limit=60")).data,
     refetchInterval: 30_000,
   });
   const items = Array.isArray(data?.data) ? data!.data : [];
+
+  const markReadMutation = useMutation({
+    mutationFn: () => api.post("/admin/notifications/mark-read"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-notifications"] });
+      qc.invalidateQueries({ queryKey: ["admin-notifications-unread-count"] });
+    },
+  });
+
+  // Marca como leído 1.2s después de cargar (le da tiempo a la dueña a ver el dot).
+  useEffect(() => {
+    if (items.length === 0) return;
+    const t = setTimeout(() => markReadMutation.mutate(), 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.length > 0]);
 
   // Stats por categoría (últimos 30d)
   const counts = items.reduce<Record<Category, number>>((acc, n) => {
@@ -139,12 +158,24 @@ const AdminNotifications = () => {
                           {ICON[n.category]}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{n.title}</p>
+                          <p
+                            className="text-sm font-medium truncate"
+                            style={{ opacity: n.unread === false ? 0.7 : 1 }}
+                          >
+                            {n.title}
+                          </p>
                           <p className="text-xs text-muted-foreground mt-0.5 truncate">
                             {n.body}
                             <span className="opacity-60"> · {formatTime(n.time)}</span>
                           </p>
                         </div>
+                        {n.unread && (
+                          <span
+                            className="h-2 w-2 rounded-full shrink-0 mt-1.5"
+                            style={{ backgroundColor: "#76214D" }}
+                            aria-label="Sin leer"
+                          />
+                        )}
                       </button>
                     </li>
                   ))}

@@ -502,6 +502,7 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS health_notes TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_reminders BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notifications_last_read_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_notifications_last_read_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_promotions BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
@@ -3893,6 +3894,12 @@ app.get("/api/admin/notifications", adminMiddleware, async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 30, 100);
     const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const lastReadRes = await pool.query(
+      "SELECT admin_notifications_last_read_at FROM users WHERE id = $1",
+      [req.userId],
+    );
+    const lastReadAt = lastReadRes.rows[0]?.admin_notifications_last_read_at;
+    const lastReadMs = lastReadAt ? new Date(lastReadAt).getTime() : 0;
 
     const [users, orders, milestones, checkins, campaigns, rejected, expiring] = await Promise.all([
       // Nuevas alumnas registradas (últimos 30d)
@@ -4026,12 +4033,58 @@ app.get("/api/admin/notifications", adminMiddleware, async (req, res) => {
       }),
     ]
       .filter((x) => x.time)
+      .map((x) => ({ ...x, unread: lastReadMs === 0 || new Date(x.time).getTime() > lastReadMs }))
       .sort((a, b) => new Date(b.time) - new Date(a.time))
       .slice(0, limit);
 
-    return res.json({ data: items });
+    return res.json({
+      data: items,
+      meta: {
+        unread_count: items.filter((x) => x.unread).length,
+        last_read_at: lastReadAt,
+      },
+    });
   } catch (err) {
     console.error("[admin/notifications]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/notifications/mark-read — dueña marca toda la bandeja como leída
+app.post("/api/admin/notifications/mark-read", adminMiddleware, async (req, res) => {
+  try {
+    await pool.query(
+      "UPDATE users SET admin_notifications_last_read_at = NOW() WHERE id = $1",
+      [req.userId],
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/notifications/unread-count — lightweight para badge en sidebar
+app.get("/api/admin/notifications/unread-count", adminMiddleware, async (req, res) => {
+  try {
+    const u = await pool.query("SELECT admin_notifications_last_read_at FROM users WHERE id = $1", [req.userId]);
+    const lastReadAt = u.rows[0]?.admin_notifications_last_read_at;
+    // Si nunca leyó, cuenta los últimos 30d (cap razonable para nuevo admin).
+    const cutoff = lastReadAt || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const r = await pool.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM users WHERE role='client' AND created_at > $1) +
+        (SELECT COUNT(*)::int FROM orders WHERE status IN ('pending_verification', 'pending_payment') AND created_at > $1) +
+        (SELECT COUNT(*)::int FROM loyalty_milestone_awards WHERE awarded_at > $1) +
+        (SELECT COUNT(*)::int FROM bookings WHERE status = 'checked_in' AND checked_in_at > $1) +
+        (SELECT COUNT(*)::int FROM campaigns WHERE COALESCE(completed_at, created_at) > $1) +
+        (SELECT COUNT(*)::int FROM orders WHERE status = 'rejected' AND created_at > $1) +
+        (SELECT COUNT(*)::int FROM memberships WHERE status = 'active'
+          AND end_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '7 days'))
+        AS n`,
+      [cutoff],
+    );
+    return res.json({ data: { unread_count: r.rows[0]?.n || 0 } });
+  } catch (err) {
     return res.status(500).json({ message: "Error interno" });
   }
 });

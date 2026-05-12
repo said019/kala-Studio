@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -101,6 +103,15 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
   );
 
   const isCompact = collapsed && !mobileOpen;
+
+  // Unread count para badge en sidebar item 'Bandeja'
+  const { data: unreadData } = useQuery<{ data: { unread_count: number } }>({
+    queryKey: ["admin-notifications-unread-count"],
+    queryFn: async () => (await api.get("/admin/notifications/unread-count")).data,
+    refetchInterval: 60_000,
+    enabled: !!user?.id,
+  });
+  const unreadCount = unreadData?.data?.unread_count ?? 0;
 
   return (
     <div className="kala-admin flex min-h-screen bg-[#FFF7F2] text-[#2E201C]">
@@ -218,11 +229,22 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                         color: accent,
                       } : {}}
                     >
-                      <Icon
-                        size={15}
-                        className="shrink-0 transition-colors"
-                        style={{ color: active ? accent : "#2E201C" }}
-                      />
+                      <span className="relative shrink-0 inline-flex">
+                        <Icon
+                          size={15}
+                          className="transition-colors"
+                          style={{ color: active ? accent : "#2E201C" }}
+                        />
+                        {/* Badge: unread count para 'Bandeja' nav item */}
+                        {path === "/admin/notifications" && unreadCount > 0 && (
+                          <span
+                            className="absolute -top-1.5 -right-2 grid place-items-center rounded-full text-[8px] font-bold leading-none px-1 min-w-[14px] h-[14px]"
+                            style={{ backgroundColor: "#76214D", color: "#FFF7F2" }}
+                          >
+                            {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        )}
+                      </span>
                       {!isCompact && (
                         <span className="text-[13px] leading-none truncate">{label}</span>
                       )}
