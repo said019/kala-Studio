@@ -185,8 +185,17 @@ function StripStat({ label, value, accent }: { label: string; value: string | nu
 }
 
 /* ═══════════ Action panel — sugerencias contextuales ═══════════ */
-function ActionPanel({ dorm, conv, navigate }: { dorm: any; conv: any; navigate: (p: string) => void }) {
+function ActionPanel({ dorm, conv, cancelRate, cancelled, navigate }: { dorm: any; conv: any; cancelRate?: number; cancelled?: number; navigate: (p: string) => void }) {
   const actions: { icon: any; label: string; cta: string; link: string; tone: string }[] = [];
+  if (cancelRate !== undefined && cancelRate >= 15 && (cancelled ?? 0) >= 3) {
+    actions.push({
+      icon: AlertTriangle,
+      label: `Cancelaciones altas: ${cancelRate.toFixed(1)}% (${cancelled} canceladas)`,
+      cta: "Revisar política",
+      link: "/admin/whatsapp-templates",
+      tone: C.coral,
+    });
+  }
   if (dorm) {
     const r14 = Number(dorm.dormant_8_14d || 0) + Number(dorm.dormant_15_30d || 0);
     if (r14 >= 5) {
@@ -418,7 +427,13 @@ const ReportsPage = () => {
           </div>
 
           {/* ═════ Action panel (top-priority CTAs) ═════ */}
-          <ActionPanel dorm={dorm} conv={conv} navigate={navigate} />
+          <ActionPanel
+            dorm={dorm}
+            conv={conv}
+            cancelRate={o.cancelRate}
+            cancelled={o.cancelledBookings}
+            navigate={navigate}
+          />
 
           {/* ═════ KPI Layout: 1 Hero + 3 Secondary + 4 Strip ═════ */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 mb-3" data-stagger>
@@ -464,11 +479,16 @@ const ReportsPage = () => {
           {/* Strip de stats compactos */}
           <Card className="mb-6" style={{ borderColor: C.border }}>
             <CardContent className="p-2">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-0" data-stagger>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-0" data-stagger>
                 <StripStat
                   label="Reservas"
                   value={String(o.monthlyBookings ?? 0)}
                   accent={C.berry}
+                />
+                <StripStat
+                  label="Canceladas"
+                  value={`${o.cancelledBookings ?? 0} · ${(o.cancelRate ?? 0).toFixed(1)}%`}
+                  accent={C.coral}
                 />
                 <StripStat
                   label="Nuevos miembros"
@@ -483,7 +503,7 @@ const ReportsPage = () => {
                 <StripStat
                   label="Promedio ⭐"
                   value={o.reviewsAverage ? Number(o.reviewsAverage).toFixed(1) : "—"}
-                  accent={C.coral}
+                  accent={C.berry}
                 />
               </div>
             </CardContent>

@@ -8623,6 +8623,104 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
 });
 
 // PUT /api/classes/:id/cancel
+/**
+ * Helper: aplica el rollback completo cuando se cancela un booking.
+ * Maneja todos los side-effects derivados del status previo.
+ *
+ * Para booking que era 'checked_in':
+ *   - Inserta loyalty_transactions tipo 'adjust' con puntos negativos para
+ *     revertir los +10 que se otorgaron al hacer check-in. Description
+ *     'Reverso por cancelación admin'.
+ *   - Decrementa ring_states.constancia_progress de la semana en que se hizo
+ *     el check-in (si todavía es > 0).
+ *   - NO revoca loyalty_milestone_awards (no se quitan logros desbloqueados,
+ *     pero al bajar lifetime no se desbloquearán nuevos hasta que vuelva a
+ *     subir de forma natural).
+ *
+ * Para booking que era 'confirmed':
+ *   - Restaura crédito a memberships.classes_remaining (+1) si tiene
+ *     membership_id.
+ *   - Decrementa classes.current_bookings.
+ *
+ * Para booking que era 'waitlist': nada.
+ *
+ * @param client PG client en transacción abierta.
+ * @param booking row con id, user_id, class_id, membership_id, status, date,
+ *                checked_in_at.
+ * @param opts { skipCreditRestore?: boolean } — si la política del caller
+ *             decide que NO debe devolver crédito (cancelación tardía
+ *             de alumna), pasa true.
+ * @returns { creditRestored, pointsReverted, ringDecremented }
+ */
+async function applyCancellationRollback(client, booking, opts = {}) {
+  const result = { creditRestored: false, pointsReverted: 0, ringDecremented: false };
+  const wasCheckedIn = booking.status === "checked_in";
+  const wasConfirmed = booking.status === "confirmed";
+
+  if (wasConfirmed && booking.membership_id && !opts.skipCreditRestore) {
+    await client.query(
+      `UPDATE memberships
+          SET classes_remaining = COALESCE(classes_remaining, 0) + 1,
+              updated_at = NOW()
+        WHERE id = $1 AND classes_remaining IS NOT NULL AND classes_remaining < 9999`,
+      [booking.membership_id],
+    );
+    result.creditRestored = true;
+  }
+  if (wasConfirmed) {
+    await client.query(
+      `UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1`,
+      [booking.class_id],
+    );
+  }
+
+  if (wasCheckedIn) {
+    // 1) Revertir puntos de loyalty (los +10 que dio el check-in).
+    try {
+      const cfgRes = await client.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
+      const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
+      const pts = Number(cfg.points_per_class ?? 10);
+      if (pts > 0 && booking.user_id) {
+        await client.query(
+          `INSERT INTO loyalty_transactions (user_id, type, points, description)
+           VALUES ($1, 'adjust', $2, $3)`,
+          [booking.user_id, -pts, "Reverso por cancelación de check-in"],
+        );
+        result.pointsReverted = pts;
+      }
+    } catch (loyaltyErr) {
+      console.warn("[cancel rollback] loyalty revert error:", loyaltyErr?.message);
+    }
+
+    // 2) Decrementar ring_states.constancia_progress de la semana del check-in.
+    try {
+      const checkinDate = booking.checked_in_at ? new Date(booking.checked_in_at) : null;
+      if (checkinDate && booking.user_id) {
+        const weekStart = await client.query(
+          `SELECT date_trunc('week', $1::timestamptz AT TIME ZONE 'America/Mexico_City')::date AS week_start`,
+          [checkinDate],
+        );
+        const ws = weekStart.rows[0]?.week_start;
+        if (ws) {
+          const dec = await client.query(
+            `UPDATE ring_states
+                SET constancia_progress = GREATEST(constancia_progress - 1, 0),
+                    updated_at = NOW()
+              WHERE user_id = $1 AND week_start = $2 AND constancia_progress > 0
+              RETURNING id`,
+            [booking.user_id, ws],
+          );
+          result.ringDecremented = dec.rowCount > 0;
+        }
+      }
+    } catch (ringErr) {
+      console.warn("[cancel rollback] ring decrement error:", ringErr?.message);
+    }
+  }
+
+  return result;
+}
+
 // PUT /api/classes/:id/cancel — admin cancela clase completa. Cascada:
 //   1. classes.status = 'cancelled'
 //   2. Cada booking activo: status='cancelled', cancelled_at=NOW(), restaura
@@ -8648,9 +8746,11 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
     }
     const classRow = cls.rows[0];
 
-    // 2) Get active bookings BEFORE cancelling them (for WA loop)
+    // 2) Get active bookings BEFORE cancelling them (incluye checked_in
+    //    porque la admin puede cancelar una clase a posteriori)
     const bookingsRes = await client.query(
-      `SELECT b.id, b.user_id, b.membership_id, b.status,
+      `SELECT b.id, b.user_id, b.class_id, b.membership_id, b.status, b.checked_in_at,
+              c.date AS class_date,
               u.display_name, u.phone, ct.name AS class_name
          FROM bookings b
          LEFT JOIN users u ON u.id = b.user_id
@@ -8661,24 +8761,19 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
     );
     const activeBookings = bookingsRes.rows;
 
-    // 3) Cancel each booking + restore credit
+    // 3) Cancel each booking + apply full rollback (credits, loyalty, rings)
     let creditsRestored = 0;
+    let pointsReverted = 0;
+    let ringsDecremented = 0;
     for (const b of activeBookings) {
       await client.query(
         `UPDATE bookings SET status='cancelled', cancelled_at=NOW() WHERE id=$1`,
         [b.id],
       );
-      if (b.membership_id && b.status === "confirmed") {
-        // Restore credit (only confirmed bookings consumed credit; waitlist didn't)
-        await client.query(
-          `UPDATE memberships
-              SET classes_remaining = COALESCE(classes_remaining, 0) + 1,
-                  updated_at = NOW()
-            WHERE id = $1 AND classes_remaining IS NOT NULL AND classes_remaining < 9999`,
-          [b.membership_id],
-        );
-        creditsRestored++;
-      }
+      const rollback = await applyCancellationRollback(client, b);
+      if (rollback.creditRestored) creditsRestored++;
+      if (rollback.pointsReverted) pointsReverted += rollback.pointsReverted;
+      if (rollback.ringDecremented) ringsDecremented++;
     }
     // 4) Reset class.current_bookings
     await client.query("UPDATE classes SET current_bookings = 0 WHERE id = $1", [req.params.id]);
@@ -8714,6 +8809,8 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
         class_id: classRow.id,
         bookings_cancelled: activeBookings.length,
         credits_restored: creditsRestored,
+        points_reverted: pointsReverted,
+        rings_decremented: ringsDecremented,
         wa_sent: waSent,
         reason: reason || null,
       },
@@ -8737,7 +8834,7 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
     await client.query("BEGIN");
 
     const r = await client.query(
-      `SELECT b.id, b.user_id, b.class_id, b.membership_id, b.status,
+      `SELECT b.id, b.user_id, b.class_id, b.membership_id, b.status, b.checked_in_at,
               c.date, c.start_time, ct.name AS class_name
          FROM bookings b
          JOIN classes c ON c.id = b.class_id
@@ -8761,23 +8858,8 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
       [req.params.id],
     );
 
-    // Restore credit (admin override = siempre devuelve)
-    let creditRestored = false;
-    if (booking.membership_id && booking.status === "confirmed") {
-      await client.query(
-        `UPDATE memberships
-            SET classes_remaining = COALESCE(classes_remaining, 0) + 1,
-                updated_at = NOW()
-          WHERE id = $1 AND classes_remaining IS NOT NULL AND classes_remaining < 9999`,
-        [booking.membership_id],
-      );
-      creditRestored = true;
-      // Decrement class.current_bookings
-      await client.query(
-        `UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1`,
-        [booking.class_id],
-      );
-    }
+    // Apply full rollback: credits, loyalty points, ring decrement
+    const rb = await applyCancellationRollback(client, booking);
 
     await client.query("COMMIT");
 
@@ -8793,10 +8875,10 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
           class: booking.class_name || "tu clase",
           date: dateStr,
           time: timeStr,
-          creditRestored: creditRestored ? "Sí" : "No",
+          creditRestored: rb.creditRestored ? "Sí" : "No",
         },
         ({ firstName }) =>
-          `${firstName}, cancelamos tu reserva de ${booking.class_name || "la clase"}${dateStr ? ` del ${dateStr}` : ""}.${cancelReason}${creditRestored ? " Tu clase regresó a tu paquete." : ""}`,
+          `${firstName}, cancelamos tu reserva de ${booking.class_name || "la clase"}${dateStr ? ` del ${dateStr}` : ""}.${cancelReason}${rb.creditRestored ? " Tu clase regresó a tu paquete." : ""}`,
       ).catch(() => {});
       triggerWalletPassSync(booking.user_id, "admin_booking_cancelled");
     }
@@ -8804,7 +8886,9 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
     return res.json({
       data: {
         id: booking.id,
-        credit_restored: creditRestored,
+        credit_restored: rb.creditRestored,
+        points_reverted: rb.pointsReverted,
+        ring_decremented: rb.ringDecremented,
         reason: reason || null,
       },
     });
@@ -9712,8 +9796,11 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
       pool.query("SELECT COUNT(*) FROM memberships WHERE status='active'"),
       pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.from, range.to]),
       pool.query(
-        `SELECT COUNT(*) AS total,
-                COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended
+        `SELECT
+            COUNT(*) FILTER (WHERE status != 'cancelled') AS total,
+            COUNT(*) FILTER (WHERE status = 'checked_in') AS attended,
+            COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+            COUNT(*) FILTER (WHERE status = 'no_show')  AS no_show
            FROM bookings
           WHERE created_at BETWEEN $1 AND $2`,
         [range.from, range.to],
@@ -9751,7 +9838,10 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
       // Previous period (mismo número de días hacia atrás)
       pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.prevFrom, range.prevTo]),
       pool.query(
-        `SELECT COUNT(*) AS total, COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended
+        `SELECT
+            COUNT(*) FILTER (WHERE status != 'cancelled') AS total,
+            COUNT(*) FILTER (WHERE status = 'checked_in') AS attended,
+            COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled
            FROM bookings WHERE created_at BETWEEN $1 AND $2`,
         [range.prevFrom, range.prevTo],
       ),
@@ -9764,8 +9854,13 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
     ]);
     const monthlyBookings = parseInt(bookings.rows[0].total || 0);
     const attended = parseInt(bookings.rows[0].attended || 0);
+    const cancelled = parseInt(bookings.rows[0].cancelled || 0);
+    const totalIncludingCancelled = monthlyBookings + cancelled;
     const classOccupancyRate = monthlyBookings > 0
       ? Number(((attended / monthlyBookings) * 100).toFixed(1))
+      : 0;
+    const cancelRate = totalIncludingCancelled > 0
+      ? Number(((cancelled / totalIncludingCancelled) * 100).toFixed(1))
       : 0;
     const churnRate = Number((100 * churn.rows[0].churned / churn.rows[0].base).toFixed(1));
     const monthlyRevenue = parseFloat(revenue.rows[0].total);
@@ -9778,11 +9873,18 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
     const prevNewMembersCount = parseInt(prevNewMembers.rows[0].count || 0);
     const prevReviewsAvg = Number(parseFloat(prevReviews.rows[0].average || 0).toFixed(1));
 
+    const prevCancelled = parseInt(prevBookings.rows[0].cancelled || 0);
+    const prevCancelRate = (prevBookingsCount + prevCancelled) > 0
+      ? (prevCancelled / (prevBookingsCount + prevCancelled)) * 100
+      : 0;
+
     return res.json({
       data: {
         activeMembers: parseInt(members.rows[0].count),
         monthlyRevenue,
-        monthlyBookings,
+        monthlyBookings, // ahora excluye canceladas
+        cancelledBookings: cancelled,
+        cancelRate,
         upcomingClasses: parseInt(classes.rows[0].count),
         classOccupancyRate,
         newMembersThisMonth: newMembersCount,
@@ -9798,6 +9900,7 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
           occupancy: pctChange(classOccupancyRate, prevOccupancy),
           newMembers: pctChange(newMembersCount, prevNewMembersCount),
           reviewsAvg: pctChange(reviewsAvg, prevReviewsAvg),
+          cancelRate: pctChange(cancelRate, prevCancelRate),
         },
         range: { from: range.from, to: range.to, days: range.days },
       }
@@ -9855,10 +9958,13 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/classes", adminMiddleware, async (req, res) => {
   try {
+    // Excluye bookings cancelados de la columna 'bookings' para que refleje
+    // demanda real, no intención.
     const r = await pool.query(
       `SELECT ct.name,
-              COUNT(b.id)::INT AS bookings,
-              COUNT(CASE WHEN b.status='checked_in' THEN 1 END)::INT AS attended
+              COUNT(b.id) FILTER (WHERE b.status != 'cancelled')::INT AS bookings,
+              COUNT(b.id) FILTER (WHERE b.status = 'checked_in')::INT AS attended,
+              COUNT(b.id) FILTER (WHERE b.status = 'cancelled')::INT AS cancelled
        FROM classes c
        JOIN class_types ct ON c.class_type_id=ct.id
        LEFT JOIN bookings b ON b.class_id=c.id
