@@ -49,6 +49,7 @@ import kalaInstagram01 from "@/assets/kala/instagram/kala-instagram-01.jpg";
 import kalaInstagram02 from "@/assets/kala/instagram/kala-instagram-02.jpg";
 import kalaInstagram03 from "@/assets/kala/instagram/kala-instagram-03.jpg";
 import kalaIconUrl from "@/assets/kala/kala-icon.png";
+import kalaKarlaCoach from "@/assets/kala/kala-karla-coach.jpg";
 
 /* ═════════════════════════════════════════════════════════════
    Kala Barre Studio · Landing
@@ -330,12 +331,8 @@ const Index = () => {
         }
       >
         <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-6 px-5 sm:px-8 lg:px-12">
-          <a href="#top" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex items-center gap-3 no-underline">
-            <img src={kalaIconUrl} alt="Kala Studio" className="h-9 w-9 object-contain" />
-            <div className="flex items-baseline gap-2">
-              <span className="font-bebas text-[1.55rem] sm:text-[1.85rem] leading-none tracking-tight" style={{ color: KALA.berry }}>kala</span>
-              <span className="hidden sm:inline-block text-[0.62rem] uppercase tracking-[0.32em] text-[color:var(--ink)]/55">SLP</span>
-            </div>
+          <a href="#top" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex items-center no-underline">
+            <img src="/wallet-logo@2x.png" alt="Kala Barre Studio" className="h-10 sm:h-12 w-auto object-contain" />
           </a>
 
           <ul className="hidden lg:flex items-center gap-7 list-none m-0 p-0">
@@ -699,90 +696,98 @@ const Index = () => {
       {/* ═════════ HORARIO (Schedule embed) ═════════ */}
       <Schedule />
 
-      {/* ═════════ VIDEOS ═════════ */}
-      {videoCards.length > 0 && (
-        <section className="px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.blush }}>
-          <div className="mx-auto max-w-[1320px]">
-            <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10">
-              <div>
-                <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
-                  La energía en pantalla
-                </span>
-                <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.2rem, 4.8vw, 4.2rem)" }}>
-                  Cómo se siente
-                  <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>una clase real.</span>
-                </h2>
+      {/* ═════════ KARLA CRUZ — Tu coach y founder ═════════ */}
+      <section className="px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.blush }}>
+        <div className="mx-auto max-w-[1320px] grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center">
+          {/* Photo column */}
+          <div className="lg:col-span-6 reveal opacity-0 translate-y-8 transition-all duration-700">
+            <div className="relative">
+              <div className="relative aspect-[4/5] overflow-hidden rounded-[28px]">
+                <img
+                  src={kalaKarlaCoach}
+                  alt="Karla Cruz, coach y founder de Kala Barre Studio"
+                  className="absolute inset-0 h-full w-full object-cover"
+                  loading="lazy"
+                />
+                <div
+                  className="absolute inset-0"
+                  style={{ background: "linear-gradient(180deg, rgba(46,32,28,0) 55%, rgba(46,32,28,0.35) 100%)" }}
+                />
+                {/* Name sticker */}
+                <div
+                  className="absolute left-4 bottom-4 sm:left-6 sm:bottom-6 rounded-2xl px-5 py-4 shadow-lg"
+                  style={{ backgroundColor: KALA.cream, color: KALA.ink }}
+                >
+                  <p className="font-bebas leading-none" style={{ fontSize: "1.55rem", color: KALA.berry }}>
+                    Karla Cruz
+                  </p>
+                  <p className="mt-1 text-[0.66rem] uppercase tracking-[0.24em]" style={{ color: KALA.ink, opacity: 0.65 }}>
+                    Coach · Fundadora
+                  </p>
+                </div>
               </div>
-              <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
-                Fragmentos sin filtros del estudio. Mira y luego ven a vivirlo.
+              {/* Decorative numeral */}
+              <div
+                className="hidden lg:block absolute -top-3 -right-3 font-bebas leading-none select-none pointer-events-none"
+                style={{ color: KALA.coral, fontSize: "5.5rem", opacity: 0.85 }}
+              >
+                03
+              </div>
+            </div>
+          </div>
+
+          {/* Text column */}
+          <div className="lg:col-span-6 reveal opacity-0 translate-y-8 transition-all duration-700">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.berry }}>
+              Conoce a tu coach
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.4vw, 4.8rem)" }}>
+              Aquí te recibe
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>
+                Karla.
+              </span>
+            </h2>
+            <div className="mt-7 space-y-5 text-[1rem] leading-[1.8] text-[color:var(--ink)]/76 max-w-[58ch]">
+              <p>
+                Karla guía cada clase, conoce el ritmo de cada alumna y ajusta cada postura para que ningún día sea igual al anterior. Cinco lugares por clase para que de verdad reciba a cada una por su nombre.
+              </p>
+              <p>
+                Su filosofía es simple: <strong style={{ color: KALA.ink, fontWeight: 600 }}>Barre es para todas</strong>, sin condición previa. Si llegas, ella te lleva. Lo que importa es venir y volver.
               </p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {videoCards.map((v) => {
-                const videoUrl = normalizeVideoUrl(v.video_url);
-                const isPlaying = playingVideoId === v.id;
-                const hasThumbnail = Boolean(v.thumbnail_url);
-                const handlePlay = () => {
-                  if (!videoUrl) return;
-                  setPlayingVideoId(v.id);
-                  setTimeout(() => { const el = videoRefs.current[v.id]; if (el) el.play().catch(() => {}); }, 100);
-                };
-                return (
-                  <div key={v.id} className="group">
-                    <div className="relative aspect-[4/5] overflow-hidden rounded-[22px]" style={{ backgroundColor: KALA.cream }}>
-                      {videoUrl && isPlaying ? (
-                        <video
-                          ref={(el) => { videoRefs.current[v.id] = el; }}
-                          src={videoUrl}
-                          className="absolute inset-0 h-full w-full object-cover bg-black"
-                          controls
-                          autoPlay
-                          playsInline
-                          title={v.title}
-                          onEnded={() => setPlayingVideoId(null)}
-                        />
-                      ) : videoUrl ? (
-                        <button onClick={handlePlay} className="absolute inset-0 h-full w-full bg-transparent border-0 p-0 cursor-pointer" aria-label={"Reproducir " + v.title}>
-                          {hasThumbnail ? (
-                            <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                          ) : (
-                            <video src={videoUrl} className="absolute inset-0 h-full w-full object-cover pointer-events-none" preload="metadata" muted playsInline />
-                          )}
-                          <div className="absolute inset-0 transition-colors" style={{ background: "linear-gradient(180deg, rgba(46,32,28,0) 35%, rgba(46,32,28,0.45) 100%)" }} />
-                          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 grid h-16 w-16 sm:h-20 sm:w-20 place-items-center rounded-full transition-transform group-hover:scale-110" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
-                            <Play size={22} className="ml-1" />
-                          </span>
-                        </button>
-                      ) : (
-                        <>
-                          {hasThumbnail ? (
-                            <img src={v.thumbnail_url!} alt={v.title} className="absolute inset-0 h-full w-full object-cover" />
-                          ) : (
-                            <div className="absolute inset-0" style={{ background: `radial-gradient(circle at 50% 60%, ${KALA.coral}33 0%, transparent 60%)` }} />
-                          )}
-                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
-                            <span className="grid h-16 w-16 place-items-center rounded-full" style={{ backgroundColor: KALA.cream, color: KALA.berry }}>
-                              <Play size={20} className="ml-1" />
-                            </span>
-                            <span className="text-[0.62rem] tracking-[0.22em] uppercase font-medium" style={{ color: KALA.berry }}>
-                              Pronto
-                            </span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    <div className="mt-4">
-                      <h3 className="font-bebas text-[1.4rem] leading-tight" style={{ color: KALA.ink }}>{v.title}</h3>
-                      <p className="mt-2 text-[0.88rem] leading-[1.65] text-[color:var(--ink)]/68 max-w-[36ch]">{v.description}</p>
-                    </div>
-                  </div>
-                );
-              })}
+            {/* Inline credentials/values */}
+            <ul className="mt-9 grid grid-cols-2 gap-x-7 gap-y-4 list-none m-0 p-0 max-w-[440px]" data-stagger>
+              {[
+                { k: "Coach certificada", v: "Barre & fitness funcional" },
+                { k: "5 alumnas", v: "Por clase, atención uno-a-uno" },
+                { k: "Cada clase", v: "Distinta, energía propia" },
+                { k: "Filosofía", v: "Bienestar · Comunidad · Compromiso" },
+              ].map((it) => (
+                <li key={it.k} data-stagger-item className="border-t pt-2.5" style={{ borderColor: KALA.border }}>
+                  <p className="text-[0.62rem] uppercase tracking-[0.22em]" style={{ color: KALA.berry }}>{it.k}</p>
+                  <p className="mt-1 text-[0.88rem] leading-[1.45]" style={{ color: KALA.ink, opacity: 0.78 }}>{it.v}</p>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-10">
+              <button
+                onClick={() => navigate(membershipCtaPath)}
+                data-press
+                data-lift
+                className="group inline-flex items-center gap-3 rounded-full px-7 py-4 text-[0.82rem] font-medium uppercase tracking-[0.16em]"
+                style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+              >
+                Reserva con Karla
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[color:var(--cream)]/18 transition-transform group-hover:translate-x-1">
+                  <ArrowUpRight size={13} />
+                </span>
+              </button>
             </div>
           </div>
-        </section>
-      )}
+        </div>
+      </section>
 
       {/* ═════════ PROGRESO (Rings) ═════════ */}
       <ProgresoSection onCta={() => navigate(membershipCtaPath)} />
@@ -1520,16 +1525,13 @@ const FooterSection = ({ scrollTo, navigate }: { scrollTo: (id: string) => void;
       <div className="absolute inset-0 pointer-events-none opacity-[0.08]" style={{ background: `radial-gradient(circle at 90% 10%, ${KALA.coral} 0%, transparent 55%)` }} />
       <div className="relative mx-auto max-w-[1320px]">
         {/* Giant wordmark */}
-        <div className="flex items-center gap-6 pb-12">
+        <div className="flex items-center pb-12">
           <img
-            src={kalaIconUrl}
-            alt=""
-            className="h-[clamp(4rem,12vw,11rem)] w-[clamp(4rem,12vw,11rem)] object-contain shrink-0"
+            src="/wallet-logo@3x.png"
+            alt="Kala Barre Studio"
+            className="h-[clamp(5rem,14vw,12rem)] w-auto object-contain"
             style={{ filter: "brightness(0) invert(1)" }}
           />
-          <div className="font-bebas leading-[0.86] tracking-[-0.02em]" style={{ fontSize: "clamp(5rem, 18vw, 16rem)", color: KALA.cream }}>
-            kala
-          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-8 pb-10" style={{ borderTop: `1px solid ${KALA.cream}22` }}>
