@@ -8127,14 +8127,11 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
     );
     const hasMembership = memRes.rows.length > 0;
     const rows = r.rows.map(v => {
-      // Derive video_url from drive_file_id (proxy) if available
-      let videoUrl = v.video_url;
-      if (v.drive_file_id) {
-        videoUrl = `/api/drive/video/${v.drive_file_id}`;
-      } else if (videoUrl) {
-        const m = videoUrl.match(/drive\.google\.com\/file\/d\/([^/]+)\/preview/);
-        if (m) videoUrl = `/api/drive/video/${m[1]}`;
-      }
+      // Drive-backed videos: NO leak the public proxy URL. Frontend must request a signed
+      // URL via GET /api/videos/:id/stream-url. Without this, anyone could read video_url
+      // from the JSON and curl /api/drive/video/:fileId directly (no auth on legacy proxy).
+      // Non-Drive (e.g. YouTube) videos keep their video_url for the iframe embed path.
+      let videoUrl = v.drive_file_id ? null : v.video_url;
       return { ...v, video_url: videoUrl, has_access: v.access_type === "free" || v.access_type === "gratuito" || hasMembership };
     });
     return res.json({ data: rows });
@@ -8159,12 +8156,12 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Video no encontrado" });
     const video = r.rows[0];
-    // Derive video_url from drive_file_id (proxy) if available
+    // Drive-backed videos: NO leak the public proxy URL. Frontend uses /stream-url to
+    // get a signed token and hits /api/drive/secure-video/:fileId instead. See B1 fix
+    // notes — without this, the legacy public proxy at /api/drive/video/:fileId is
+    // trivially reachable by reading video_url from the response.
     if (video.drive_file_id) {
-      video.video_url = `/api/drive/video/${video.drive_file_id}`;
-    } else if (video.video_url) {
-      const m = video.video_url.match(/drive\.google\.com\/file\/d\/([^\/]+)\/preview/);
-      if (m) video.video_url = `/api/drive/video/${m[1]}`;
+      video.video_url = null;
     }
     const memRes = await pool.query(
       "SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' LIMIT 1",
@@ -8192,7 +8189,7 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
 app.get("/api/videos/:id/stream-url", authMiddleware, async (req, res) => {
   try {
     const v = await pool.query(
-      "SELECT id, drive_file_id, is_trial FROM videos WHERE id = $1",
+      "SELECT id, drive_file_id, is_trial FROM videos WHERE id = $1 AND is_published = true",
       [req.params.id]
     );
     if (!v.rows.length) return res.status(404).json({ message: "Video no encontrado" });
@@ -8525,6 +8522,7 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
     ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description,
+    includes_video_library,
   } = req.body;
   if (!name?.trim() || price === undefined) return res.status(400).json({ message: "name y price requeridos" });
   try {
@@ -8536,14 +8534,15 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     const constanciaGoal = Math.max(1, Number(ring_constancia_goal ?? 1));
     const esfuerzoGoal = Math.max(1, Number(ring_esfuerzo_goal ?? 1));
     const conexionGoal = Math.max(1, Number(ring_conexion_goal ?? 10));
+    const includesVideoLibrary = parseBooleanFlag(includes_video_library);
     const r = await pool.query(
       `INSERT INTO plans
-        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description, includes_video_library)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [name.trim(), description || null, price, currency || "MXN",
       duration_days || 30, class_limit || null,
       cat, JSON.stringify(features || []), is_active ?? true, sort_order ?? 0, nonTransferable, nonRepeatable, safeRepeatKey,
-      constanciaGoal, esfuerzoGoal, conexionGoal, reward_description || null]
+      constanciaGoal, esfuerzoGoal, conexionGoal, reward_description || null, includesVideoLibrary]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
