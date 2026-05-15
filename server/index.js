@@ -219,6 +219,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Comprobante rechazado",
     body: "{firstName}, no pudimos aprobar tu comprobante. Motivo: {reason}. Mándanos uno nuevo desde la app o por WhatsApp.",
   },
+  video_access_granted: {
+    subject: "Tu acceso a videos está activo",
+    body: "Hola {name}, ya tienes acceso a la biblioteca de clases en video Kala. Disfruta cuando quieras desde la app. 💜",
+  },
 
   // ── Lealtad y eventos ──────────────────────────────────────────
   rings_closed: {
@@ -4333,6 +4337,7 @@ function prettyTemplateKey(key) {
     membership_expired: "Tu paquete terminó",
     renewal_reminder: "Recordatorio de renovación",
     transfer_rejected: "Comprobante rechazado",
+    video_access_granted: "Acceso a videos otorgado",
     rings_closed: "3 anillos cerrados",
     points_earned: "Sumaste puntos",
     reward_redeemed: "Recompensa canjeada",
@@ -10602,6 +10607,7 @@ const TEMPLATE_VARIABLES = {
   membership_expired: ["firstName"],
   renewal_reminder: ["firstName", "plan", "expiresAt"],
   transfer_rejected: ["firstName", "reason"],
+  video_access_granted: ["name"],
   rings_closed: ["firstName"],
   points_earned: ["firstName", "points", "totalPoints"],
   reward_redeemed: ["firstName", "rewardName", "points"],
