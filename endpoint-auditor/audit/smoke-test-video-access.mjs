@@ -238,5 +238,72 @@ await test("Video sin drive_file_id → 404", async () => {
   assert.equal(res._status, 404);
 });
 
+console.log("\nPOST /api/admin/users/:userId/video-access");
+
+function makePoolForGrants({ users = [], grants = [] }) {
+  return {
+    async query(sql, params = []) {
+      const s = sql.replace(/\s+/g, " ").trim();
+      if (/SELECT id, display_name, phone FROM users WHERE id = \$1/.test(s)) {
+        const u = users.find((u) => u.id === params[0]);
+        return u ? { rows: [u] } : { rows: [] };
+      }
+      if (/SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = \$1 AND revoked_at IS NULL/.test(s)) {
+        const g = grants.find((g) => g.user_id === params[0] && !g.revoked_at);
+        return g ? { rows: [g] } : { rows: [] };
+      }
+      if (/INSERT INTO video_access_grants/.test(s)) {
+        const ng = { id: `g-${grants.length + 1}`, user_id: params[0], granted_by: params[1], note: params[2], granted_at: new Date(), revoked_at: null };
+        grants.push(ng);
+        return { rows: [ng] };
+      }
+      throw new Error(`mock pool: query no soportada → ${s.slice(0, 120)}`);
+    },
+  };
+}
+
+async function handleGrant(pool, req, res) {
+  try {
+    const { note } = req.body || {};
+    const { userId } = req.params;
+    const u = await pool.query("SELECT id, display_name, phone FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+    const existing = await pool.query(
+      "SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+      [userId]
+    );
+    if (existing.rows.length) return res.json({ data: existing.rows[0], alreadyGranted: true });
+    const r = await pool.query(
+      `INSERT INTO video_access_grants (user_id, granted_by, note) VALUES ($1, $2, $3) RETURNING *`,
+      [userId, req.userId, note || null]
+    );
+    return res.status(201).json({ data: r.rows[0] });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+}
+
+await test("Grant a usuario existente sin grant previo → 201 con row nuevo", async () => {
+  const pool = makePoolForGrants({ users: [{ id: "u1", display_name: "Ana", phone: "+5215555555555" }] });
+  const res = makeRes();
+  await handleGrant(pool, { params: { userId: "u1" }, body: { note: "test" }, userId: "admin1" }, res);
+  assert.equal(res._status, 201);
+  assert.equal(res._body.data.user_id, "u1");
+});
+
+await test("Grant a usuario inexistente → 404", async () => {
+  const pool = makePoolForGrants({ users: [] });
+  const res = makeRes();
+  await handleGrant(pool, { params: { userId: "u-missing" }, body: {}, userId: "admin1" }, res);
+  assert.equal(res._status, 404);
+});
+
+await test("Re-grant cuando ya hay activo → 200 con alreadyGranted:true (idempotente)", async () => {
+  const grants = [{ id: "g1", user_id: "u1", granted_at: new Date(), granted_by: "admin1", revoked_at: null }];
+  const pool = makePoolForGrants({ users: [{ id: "u1", display_name: "Ana", phone: null }], grants });
+  const res = makeRes();
+  await handleGrant(pool, { params: { userId: "u1" }, body: {}, userId: "admin1" }, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.alreadyGranted, true);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

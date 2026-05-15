@@ -7952,6 +7952,51 @@ app.post("/api/admin/wallet/notify/:userId", adminMiddleware, async (req, res) =
   }
 });
 
+// ─── Routes: /api/admin/video-access ────────────────────────────────────────
+
+// POST /api/admin/users/:userId/video-access — grant library access (idempotent)
+app.post("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const { userId } = req.params;
+
+    // 404 if user doesn't exist
+    const u = await pool.query("SELECT id, display_name, phone FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    // Idempotent: if active grant exists, return it
+    const existing = await pool.query(
+      "SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+      [userId]
+    );
+    if (existing.rows.length) {
+      return res.json({ data: existing.rows[0], alreadyGranted: true });
+    }
+
+    const r = await pool.query(
+      `INSERT INTO video_access_grants (user_id, granted_by, note)
+         VALUES ($1, $2, $3) RETURNING *`,
+      [userId, req.userId, note || null]
+    );
+    const grant = r.rows[0];
+
+    // Notify alumna via WA (fire-and-forget). Template added in Task 6.1.
+    if (u.rows[0].phone) {
+      sendConfiguredWhatsAppTemplate({
+        templateKey: "video_access_granted",
+        phone: u.rows[0].phone,
+        vars: { name: u.rows[0].display_name || "Alumna" },
+        fallbackMessage: `Hola ${u.rows[0].display_name || "Alumna"}, ya tienes acceso a la biblioteca de clases en video. Disfruta. 💜`,
+      }).catch((e) => console.error("[WA] video_access_granted:", e.message));
+    }
+
+    return res.status(201).json({ data: grant });
+  } catch (err) {
+    console.error("POST /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Routes: /api/videos ────────────────────────────────────────────────────
 
 // GET /api/videos/categories
