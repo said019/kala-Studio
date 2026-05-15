@@ -63,5 +63,50 @@ test("verify with wrong secret → false", () => {
   assert.equal(verifyStreamToken({ token: t, userId: "u1", fileId: "f1", exp }, "WRONG_SECRET"), false);
 });
 
+console.log("\nGET /api/drive/secure-video/:fileId — gate logic");
+
+function handleSecureVideo(req, res, opts = {}) {
+  // Mirrors server/index.js logic without actually streaming.
+  const { t: token, exp, u: userId } = req.query;
+  if (!token || !exp || !userId) { res._status = 401; return; }
+  const ok = verifyStreamToken({
+    token: String(token), userId: String(userId), fileId: req.params.fileId, exp: Number(exp),
+  }, SECRET);
+  if (!ok) { res._status = 401; return; }
+  res._status = 200; // would call streamDriveFile in real handler
+}
+
+function mockRes() { return { _status: null }; }
+
+test("Token válido → 200", () => {
+  const exp = Date.now() + 60_000;
+  const t = signStreamToken({ userId: "u1", fileId: "abc1234567", exp }, SECRET);
+  const r = mockRes();
+  handleSecureVideo({ params: { fileId: "abc1234567" }, query: { t, exp, u: "u1" } }, r);
+  assert.equal(r._status, 200);
+});
+
+test("Sin token → 401", () => {
+  const r = mockRes();
+  handleSecureVideo({ params: { fileId: "abc1234567" }, query: {} }, r);
+  assert.equal(r._status, 401);
+});
+
+test("Token expirado → 401", () => {
+  const exp = Date.now() - 1_000;
+  const t = signStreamToken({ userId: "u1", fileId: "abc1234567", exp }, SECRET);
+  const r = mockRes();
+  handleSecureVideo({ params: { fileId: "abc1234567" }, query: { t, exp, u: "u1" } }, r);
+  assert.equal(r._status, 401);
+});
+
+test("Token de OTRO fileId → 401 (anti-tampering)", () => {
+  const exp = Date.now() + 60_000;
+  const t = signStreamToken({ userId: "u1", fileId: "OTHER", exp }, SECRET);
+  const r = mockRes();
+  handleSecureVideo({ params: { fileId: "abc1234567" }, query: { t, exp, u: "u1" } }, r);
+  assert.equal(r._status, 401);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

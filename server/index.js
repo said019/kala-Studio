@@ -11548,6 +11548,27 @@ app.get("/api/drive/video/:fileId", async (req, res) => {
   }
 });
 
+// GET /api/drive/secure-video/:fileId — gated proxy with HMAC token validation.
+// Token must be issued by /api/videos/:id/stream-url. Public-by-design assets
+// (homepage_video_cards) keep using /api/drive/video/:fileId.
+app.get("/api/drive/secure-video/:fileId", async (req, res) => {
+  try {
+    const { t: token, exp, u: userId } = req.query;
+    if (!token || !exp || !userId) return res.status(401).end();
+    const ok = verifyStreamToken({
+      token: String(token),
+      userId: String(userId),
+      fileId: req.params.fileId,
+      exp: Number(exp),
+    });
+    if (!ok) return res.status(401).end();
+    await streamDriveFile(req, res, req.params.fileId);
+  } catch (err) {
+    console.error("[GET /drive/secure-video] error:", err.message);
+    if (!res.headersSent) res.status(500).end();
+  }
+});
+
 // GET /api/drive/image/:fileId — proxy a public Google Drive image
 app.get("/api/drive/image/:fileId", async (req, res) => {
   try {
