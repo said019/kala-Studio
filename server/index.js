@@ -28,6 +28,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_kala_secret_change_me";
+
+// ─── Video stream token helpers ───────────────────────────────────────────────
+// HMAC tokens used to gate /api/drive/secure-video/:fileId. See spec
+// docs/superpowers/specs/2026-05-14-video-library-access-design.md.
+function signStreamToken({ userId, fileId, exp }) {
+  const payload = `${userId}|${fileId}|${exp}`;
+  return crypto.createHmac("sha256", JWT_SECRET).update(payload).digest("base64url");
+}
+function verifyStreamToken({ token, userId, fileId, exp }) {
+  if (!token || !exp || Date.now() >= Number(exp)) return false;
+  const expected = signStreamToken({ userId, fileId, exp });
+  if (token.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
+
 const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "https://kala-barre-studio.com.mx").replace(/\/+$/, "");
 
 // ─── Evolution API (WhatsApp) config ────────────────────────────────────────
