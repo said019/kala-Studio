@@ -173,11 +173,7 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            <Card
-              data-lift
-              className="cursor-pointer hover:border-primary/50"
-              onClick={() => navigate("/admin/campaigns")}
-            >
+            <Card data-lift>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <UserMinus size={15} className="text-[#E9745F]" />

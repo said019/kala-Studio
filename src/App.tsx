@@ -51,7 +51,6 @@ import OrdersVerification from "./pages/admin/orders/OrdersVerification";
 import POSPage from "./pages/admin/pos/POSPage";
 import DiscountCodes from "./pages/admin/discount-codes/DiscountCodes";
 import LoyaltyPage from "./pages/admin/loyalty/LoyaltyPage";
-import CampaignsPage from "./pages/admin/campaigns/CampaignsPage";
 import WhatsAppTemplatesPage from "./pages/admin/whatsapp/WhatsAppTemplatesPage";
 import AdminNotifications from "./pages/admin/notifications/AdminNotifications";
 import Referrals from "./pages/admin/referrals/Referrals";
@@ -142,7 +141,6 @@ const App = () => (
           <Route path="/admin/pos" element={<POSPage />} />
           <Route path="/admin/discount-codes" element={<DiscountCodes />} />
           <Route path="/admin/loyalty" element={<LoyaltyPage />} />
-          <Route path="/admin/campaigns" element={<CampaignsPage />} />
           <Route path="/admin/whatsapp-templates" element={<WhatsAppTemplatesPage />} />
           <Route path="/admin/notifications" element={<AdminNotifications />} />
           <Route path="/admin/referrals" element={<Referrals />} />

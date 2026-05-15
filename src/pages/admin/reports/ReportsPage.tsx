@@ -197,16 +197,6 @@ function ActionPanel({ dorm, conv, cancelRate, cancelled, navigate }: { dorm: an
     });
   }
   if (dorm) {
-    const r14 = Number(dorm.dormant_8_14d || 0) + Number(dorm.dormant_15_30d || 0);
-    if (r14 >= 5) {
-      actions.push({
-        icon: AlertTriangle,
-        label: `${r14} alumnas sin venir 8-30 días`,
-        cta: "Mandar reactivación",
-        link: "/admin/campaigns",
-        tone: C.coral,
-      });
-    }
     const r60 = Number(dorm.lost_60d || 0);
     if (r60 >= 3) {
       actions.push({
