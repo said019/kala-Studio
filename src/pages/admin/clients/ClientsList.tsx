@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { MoreHorizontal, Plus, Search, UserPlus, CreditCard, Banknote, Building2 } from "lucide-react";
+import { MoreHorizontal, Plus, Search, UserPlus, CreditCard, Banknote, Building2, Film } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -86,6 +86,32 @@ const ClientsList = () => {
     queryFn: async () => (await api.get(`/users?role=client&search=${debouncedSearch}`)).data,
   });
   const clients = Array.isArray(data?.data) ? data.data : [];
+
+  // Video access pending list
+  const { data: pendingData } = useQuery({
+    queryKey: ["video-access-pending"],
+    queryFn: async () => (await api.get("/admin/video-access/pending")).data,
+    staleTime: 60_000,
+  });
+  const pendingClients: any[] = Array.isArray(pendingData?.data) ? pendingData.data : [];
+  const pendingIds = new Set(pendingClients.map((c: any) => c.id));
+
+  const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const filteredClients = showOnlyPending
+    ? clients.filter((c: any) => pendingIds.has(c.id))
+    : clients;
+
+  const grantInlineMutation = useMutation({
+    mutationFn: (userId: string) =>
+      api.post(`/admin/users/${userId}/video-access`, { note: "Concedido desde lista" }),
+    onSuccess: (_res, userId) => {
+      const granted = pendingClients.find((c: any) => c.id === userId);
+      qc.invalidateQueries({ queryKey: ["video-access-pending"] });
+      qc.invalidateQueries({ queryKey: ["video-access", userId] });
+      toast({ title: `✅ Acceso dado a ${granted?.display_name ?? "alumna"}` });
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al conceder acceso", variant: "destructive" }),
+  });
 
   // Plans for the manual dialog
   const { data: plansData } = useQuery<{ data: Plan[] }>({
@@ -160,7 +186,11 @@ const ClientsList = () => {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-7">
             <div>
               <h1 className="text-3xl font-bold text-white mb-1">Clientas</h1>
-              <p className="text-sm text-white/35">{clients.length} clientas registradas</p>
+              <p className="text-sm text-white/35">
+                {showOnlyPending
+                  ? `${filteredClients.length} pendientes de acceso a videos`
+                  : `${clients.length} clientas registradas`}
+              </p>
             </div>
             <button
               onClick={() => setManualOpen(true)}
@@ -180,6 +210,23 @@ const ClientsList = () => {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
+
+          {/* Pending video access filter */}
+          {pendingClients.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowOnlyPending((s) => !s)}
+              className={cn(
+                "inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full mb-4 transition-colors",
+                showOnlyPending
+                  ? "bg-amber-500 text-white hover:bg-amber-500/90"
+                  : "bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+              )}
+            >
+              <Film size={12} /> Pendientes de acceso ({pendingClients.length})
+              {showOnlyPending && <span className="ml-1 opacity-80">· quitar filtro</span>}
+            </button>
+          )}
 
           {/* Table */}
           <div className="rounded-2xl border border-white/[0.07] overflow-hidden bg-white/[0.01]">
@@ -201,39 +248,67 @@ const ClientsList = () => {
                       ))}
                     </TableRow>
                   ))
-                  : clients.map((c) => (
+                  : filteredClients.length === 0 && showOnlyPending ? (
+                    <TableRow className="border-white/[0.05]">
+                      <TableCell colSpan={4} className="text-center text-sm text-white/40 py-8">
+                        Ninguna clienta pendiente de acceso a videos.
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredClients.map((c) => (
                     <TableRow key={c.id} className="border-white/[0.05] hover:bg-white/[0.03] transition-colors">
-                      <TableCell className="font-semibold text-white/85">{c.displayName}</TableCell>
+                      <TableCell className="font-semibold text-white/85">
+                        <div className="flex items-center gap-2">
+                          <span>{c.displayName}</span>
+                          {pendingIds.has(c.id) && (
+                            <Film size={12} className="text-amber-400" />
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-sm text-white/45">{c.email}</TableCell>
                       <TableCell className="text-sm text-white/45">{c.phone ?? "—"}</TableCell>
                       <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-white/30 hover:text-white/70 hover:bg-white/5">
-                              <MoreHorizontal size={14} />
+                        <div className="flex items-center justify-end gap-2">
+                          {showOnlyPending && pendingIds.has(c.id) && (
+                            <Button
+                              size="sm"
+                              className="text-xs h-7 bg-amber-500 hover:bg-amber-500/90 text-white border-0"
+                              disabled={grantInlineMutation.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                grantInlineMutation.mutate(c.id);
+                              }}
+                            >
+                              ✓ Conceder
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent className="bg-[#0f0518] border-white/10">
-                            <DropdownMenuItem
-                              className="text-white/70 hover:text-white focus:text-white hover:bg-white/5 focus:bg-white/5"
-                              onClick={() => navigate(`/admin/clients/${c.id}`)}
-                            >
-                              Ver detalle
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-white/70 hover:text-white focus:text-white hover:bg-white/5 focus:bg-white/5"
-                              onClick={() => openEdit(c)}
-                            >
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-[#f87171] hover:text-[#f87171] focus:text-[#f87171] hover:bg-[#f87171]/5 focus:bg-[#f87171]/5"
-                              onClick={() => { if (window.confirm("¿Eliminar este cliente?")) deleteMutation.mutate(c.id); }}
-                            >
-                              Eliminar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="text-white/30 hover:text-white/70 hover:bg-white/5">
+                                <MoreHorizontal size={14} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="bg-[#0f0518] border-white/10">
+                              <DropdownMenuItem
+                                className="text-white/70 hover:text-white focus:text-white hover:bg-white/5 focus:bg-white/5"
+                                onClick={() => navigate(`/admin/clients/${c.id}`)}
+                              >
+                                Ver detalle
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-white/70 hover:text-white focus:text-white hover:bg-white/5 focus:bg-white/5"
+                                onClick={() => openEdit(c)}
+                              >
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-[#f87171] hover:text-[#f87171] focus:text-[#f87171] hover:bg-[#f87171]/5 focus:bg-[#f87171]/5"
+                                onClick={() => { if (window.confirm("¿Eliminar este cliente?")) deleteMutation.mutate(c.id); }}
+                              >
+                                Eliminar
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
