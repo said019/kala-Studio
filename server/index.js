@@ -11814,13 +11814,28 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
 // PUT /api/memberships/:id/activate
 app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
   try {
+    // Idempotente: solo activamos (y notificamos) si la membresía NO estaba ya activa.
+    // Si ya estaba activa, devolvemos el row tal cual sin reenviar email/WA/wallet sync,
+    // así doble-click del admin no spamea a la alumna.
     const r = await pool.query(
-      `UPDATE memberships SET status = 'active', updated_at = NOW() WHERE id = $1
-       RETURNING *, (SELECT name FROM plans WHERE id = memberships.plan_id) AS plan_name,
-                    (SELECT class_limit FROM plans WHERE id = memberships.plan_id) AS plan_class_limit`,
+      `UPDATE memberships SET status = 'active', updated_at = NOW()
+         WHERE id = $1 AND status <> 'active'
+         RETURNING *, (SELECT name FROM plans WHERE id = memberships.plan_id) AS plan_name,
+                      (SELECT class_limit FROM plans WHERE id = memberships.plan_id) AS plan_class_limit`,
       [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+    if (!r.rows.length) {
+      // O no existe, o ya estaba 'active'. Distinguir para no devolver 404 falso.
+      const cur = await pool.query(
+        `SELECT m.*, (SELECT name FROM plans WHERE id = m.plan_id) AS plan_name,
+                     (SELECT class_limit FROM plans WHERE id = m.plan_id) AS plan_class_limit
+           FROM memberships m WHERE m.id = $1`,
+        [req.params.id]
+      );
+      if (!cur.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+      // Ya estaba activa: respuesta idempotente (200 con el row, sin side effects).
+      return res.json({ data: cur.rows[0], alreadyActive: true });
+    }
     const mem = r.rows[0];
 
     // ── Email: membership activated ──────────────────────────────────────
@@ -11857,22 +11872,86 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
     triggerWalletPassSync(mem.user_id, "membership_activated");
     return res.json({ data: mem });
   } catch (err) {
+    console.error("PUT /memberships/:id/activate error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
 
 // PUT /api/memberships/:id/cancel
+// Cancela la membresía y, en la misma transacción, cancela también las
+// bookings FUTURAS confirmadas atadas a esa membresía (decrementando
+// current_bookings de cada clase). NO se restauran créditos porque la
+// membresía deja de existir. Idempotente: si ya estaba cancelada, devuelve
+// el row sin tocar bookings ni notificar.
 app.put("/api/memberships/:id/cancel", adminMiddleware, async (req, res) => {
+  const { reason } = req.body || {};
+  const cancellationReason = (reason && String(reason).trim()) || "Cancelada por admin";
+  const client = await pool.connect();
   try {
-    const r = await pool.query(
-      "UPDATE memberships SET status = 'cancelled', updated_at = NOW() WHERE id = $1 RETURNING *",
+    await client.query("BEGIN");
+
+    const r = await client.query(
+      `UPDATE memberships
+          SET status = 'cancelled',
+              cancellation_reason = $2,
+              cancelled_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1 AND status <> 'cancelled'
+        RETURNING *`,
+      [req.params.id, cancellationReason]
+    );
+
+    if (!r.rows.length) {
+      // O no existe, o ya estaba cancelada → respuesta idempotente.
+      const cur = await client.query("SELECT * FROM memberships WHERE id = $1", [req.params.id]);
+      await client.query("ROLLBACK");
+      if (!cur.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+      return res.json({ data: cur.rows[0], alreadyCancelled: true });
+    }
+    const membership = r.rows[0];
+
+    // Cancelar bookings FUTURAS confirmadas de esta membresía (no checked_in,
+    // no no_show, no cancelled). Decrementar current_bookings de cada clase.
+    const futureBookings = await client.query(
+      `SELECT b.id, b.class_id, b.user_id
+         FROM bookings b
+         JOIN classes c ON c.id = b.class_id
+        WHERE b.membership_id = $1
+          AND b.status = 'confirmed'
+          AND (c.date > CURRENT_DATE
+               OR (c.date = CURRENT_DATE AND c.start_time > CURRENT_TIME))`,
       [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
-    triggerWalletPassSync(r.rows[0].user_id, "membership_cancelled");
-    return res.json({ data: r.rows[0] });
+
+    let bookingsCancelled = 0;
+    for (const b of futureBookings.rows) {
+      await client.query(
+        `UPDATE bookings SET status='cancelled', cancelled_at=NOW() WHERE id = $1`,
+        [b.id]
+      );
+      await client.query(
+        `UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1`,
+        [b.class_id]
+      );
+      bookingsCancelled++;
+    }
+
+    await client.query("COMMIT");
+
+    // Side effects fuera de la transacción (fire-and-forget).
+    triggerWalletPassSync(membership.user_id, "membership_cancelled");
+
+    return res.json({
+      data: membership,
+      bookings_cancelled: bookingsCancelled,
+      reason: cancellationReason,
+    });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("PUT /memberships/:id/cancel error:", err);
     return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
   }
 });
 
@@ -11880,6 +11959,26 @@ app.put("/api/memberships/:id/cancel", adminMiddleware, async (req, res) => {
 app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
   try {
     const { status, classesRemaining, endDate, paymentMethod } = req.body;
+
+    // Validar enum de status. Valores SACADOS DEL ENUM REAL `membership_status`
+    // en Postgres (verificado contra prod 2026-05): pending_payment,
+    // pending_activation, active, expired, paused, cancelled. Si Postgres rechaza
+    // un valor inválido el UPDATE truena con 500; este check devuelve 400 limpio.
+    const VALID_STATUS = ["pending_payment", "pending_activation", "active", "expired", "paused", "cancelled"];
+    if (status !== undefined && status !== null && !VALID_STATUS.includes(status)) {
+      return res.status(400).json({
+        message: `status inválido. Debe ser uno de: ${VALID_STATUS.join(", ")}`,
+      });
+    }
+
+    // classesRemaining no puede ser negativo (cota lógica del dominio).
+    if (classesRemaining !== undefined && classesRemaining !== null) {
+      const n = Number(classesRemaining);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ message: "classesRemaining debe ser >= 0" });
+      }
+    }
+
     const r = await pool.query(
       `UPDATE memberships SET
          status = COALESCE($1, status),
@@ -11894,6 +11993,7 @@ app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
     triggerWalletPassSync(r.rows[0].user_id, "membership_updated");
     return res.json({ data: r.rows[0] });
   } catch (err) {
+    console.error("PUT /memberships/:id error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
@@ -12652,11 +12752,25 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
   try {
     const { notes, reason } = req.body;
     const rejectionReason = reason || notes || "No especificado";
+    // Guard de estado: solo se puede rechazar mientras NO esté ya aprobada/rechazada.
+    // Evita el caso "rechazo una orden ya aprobada" que dejaría la membresía activa
+    // pero el WhatsApp/email contradiciendo el estado real. Si quieres "deshacer una
+    // aprobación", hay que hacer rollback transaccional aparte (membresía + descuento).
     const r = await pool.query(
-      "UPDATE orders SET status = 'rejected', verified_at = NOW(), notes = $2 WHERE id = $1 RETURNING *, user_id",
-      [req.params.id, rejectionReason]
+      `UPDATE orders SET status = 'rejected', verified_at = NOW(), verified_by = $3, notes = $2
+         WHERE id = $1 AND status NOT IN ('approved','rejected')
+         RETURNING *, user_id`,
+      [req.params.id, rejectionReason, req.userId]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    if (!r.rows.length) {
+      // Distinguir 404 (no existe) vs 409 (estado incompatible) para que el front pueda mostrarlo bien.
+      const exists = await pool.query("SELECT status FROM orders WHERE id = $1", [req.params.id]);
+      if (!exists.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+      return res.status(409).json({
+        message: `La orden ya está '${exists.rows[0].status}' y no se puede rechazar`,
+        currentStatus: exists.rows[0].status,
+      });
+    }
     const order = r.rows[0];
 
     // Notify the client about rejection via email and WhatsApp
@@ -12702,6 +12816,7 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
 
     return res.json({ data: order });
   } catch (err) {
+    console.error("PUT /admin/orders/:id/reject error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
