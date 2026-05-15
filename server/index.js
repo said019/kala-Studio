@@ -11436,59 +11436,71 @@ app.post("/api/drive/make-public/:fileId", adminMiddleware, async (req, res) => 
   }
 });
 
-// GET /api/drive/video/:fileId — stream a public Google Drive video (proxy)
+// ── Drive proxy helper (Range requests, used by both routes) ─────────────────
+// Streams a Google Drive file with Range support. Caller is responsible for
+// authentication/authorization before invoking this helper.
+async function streamDriveFile(req, res, fileId) {
+  if (!fileId || fileId.length < 10) return res.status(400).end();
+
+  const accessToken = await getGoogleDriveAccessToken();
+
+  // First, get file metadata to know the mimeType & size
+  const metaResp = await axios.get(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,size,name`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const { mimeType, size, name } = metaResp.data;
+  const totalSize = parseInt(size, 10);
+
+  // Support Range requests for seeking
+  const rangeHeader = req.headers.range;
+  let start = 0;
+  let end = totalSize - 1;
+
+  if (rangeHeader) {
+    const parts = rangeHeader.replace(/bytes=/, "").split("-");
+    start = parseInt(parts[0], 10);
+    end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    if (start >= totalSize || end >= totalSize) {
+      res.writeHead(416, { "Content-Range": `bytes */${totalSize}` });
+      return res.end();
+    }
+  }
+
+  const chunkSize = end - start + 1;
+  const driveHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    Range: `bytes=${start}-${end}`,
+  };
+
+  const driveResp = await axios.get(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: driveHeaders, responseType: "stream" }
+  );
+
+  const statusCode = rangeHeader ? 206 : 200;
+  res.writeHead(statusCode, {
+    "Content-Type": mimeType || "video/mp4",
+    "Content-Length": chunkSize,
+    "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "public, max-age=86400",
+    "Content-Disposition": `inline; filename="${name || "video.mp4"}"`,
+  });
+
+  driveResp.data.pipe(res);
+  driveResp.data.on("error", (err) => {
+    console.error("[drive proxy stream error]", err.message);
+    if (!res.headersSent) res.status(500).end();
+  });
+}
+
+// GET /api/drive/video/:fileId — stream a public Google Drive video (proxy).
+// Public by design — used by homepage_video_cards. Gated alumna access goes
+// through /api/drive/secure-video/:fileId instead.
 app.get("/api/drive/video/:fileId", async (req, res) => {
   try {
-    const { fileId } = req.params;
-    if (!fileId || fileId.length < 10) return res.status(400).end();
-
-    const accessToken = await getGoogleDriveAccessToken();
-
-    // First, get file metadata to know the mimeType & size
-    const metaResp = await axios.get(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,size,name`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const { mimeType, size, name } = metaResp.data;
-    const totalSize = parseInt(size, 10);
-
-    // Support Range requests for seeking
-    const rangeHeader = req.headers.range;
-    let start = 0;
-    let end = totalSize - 1;
-
-    if (rangeHeader) {
-      const parts = rangeHeader.replace(/bytes=/, "").split("-");
-      start = parseInt(parts[0], 10);
-      end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-      if (start >= totalSize || end >= totalSize) {
-        res.writeHead(416, { "Content-Range": `bytes */${totalSize}` });
-        return res.end();
-      }
-    }
-
-    const chunkSize = end - start + 1;
-    const driveHeaders = {
-      Authorization: `Bearer ${accessToken}`,
-      Range: `bytes=${start}-${end}`,
-    };
-
-    const driveResp = await axios.get(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: driveHeaders, responseType: "stream" }
-    );
-
-    const statusCode = rangeHeader ? 206 : 200;
-    res.writeHead(statusCode, {
-      "Content-Type": mimeType || "video/mp4",
-      "Content-Length": chunkSize,
-      "Content-Range": `bytes ${start}-${end}/${totalSize}`,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=86400",
-      "Content-Disposition": `inline; filename="${name || "video.mp4"}"`,
-    });
-
-    driveResp.data.pipe(res);
+    await streamDriveFile(req, res, req.params.fileId);
   } catch (err) {
     console.error("Drive video proxy error:", err?.response?.data || err.message);
     if (!res.headersSent) res.status(500).json({ message: "Error al obtener video" });
