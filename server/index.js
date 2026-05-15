@@ -8048,6 +8048,13 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
     );
     const hasMembership = memRes.rows.length > 0;
     video.has_access = video.access_type === "free" || video.access_type === "gratuito" || hasMembership;
+    // Compute video library access state. Trial OR gratuito → always unlocked;
+    // only `miembros + !is_trial` → check state.
+    let accessState = { state: "unlocked" };
+    if (video.is_trial !== true && video.access_type === "miembros") {
+      accessState = await computeVideoAccessState(req.userId);
+    }
+    video.access_state = accessState;
     // Log view
     await pool.query("UPDATE videos SET view_count = view_count + 1 WHERE id = $1", [req.params.id]);
     return res.json({ data: video });
