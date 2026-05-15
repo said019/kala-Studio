@@ -72,6 +72,7 @@ const ClientDetail = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["video-access", id] });
       qc.invalidateQueries({ queryKey: ["video-access-pending"] });
+      qc.invalidateQueries({ queryKey: ["me-video-access"] });
       toast({ title: "✅ Acceso concedido. Le mandamos WA." });
     },
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al conceder acceso", variant: "destructive" }),
@@ -81,6 +82,7 @@ const ClientDetail = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["video-access", id] });
       qc.invalidateQueries({ queryKey: ["video-access-pending"] });
+      qc.invalidateQueries({ queryKey: ["me-video-access"] });
       toast({ title: "Acceso revocado." });
     },
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al revocar acceso", variant: "destructive" }),
