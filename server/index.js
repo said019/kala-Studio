@@ -4308,6 +4308,17 @@ app.get("/api/me/notifications/unread-count", authMiddleware, async (req, res) =
   }
 });
 
+// GET /api/me/video-access — returns this user's library access state
+app.get("/api/me/video-access", authMiddleware, async (req, res) => {
+  try {
+    const state = await computeVideoAccessState(req.userId);
+    return res.json({ data: state });
+  } catch (err) {
+    console.error("GET /me/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 function prettyTemplateKey(key) {
   const map = {
     welcome: "Bienvenida a Kala",

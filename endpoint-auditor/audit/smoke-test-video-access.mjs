@@ -133,5 +133,34 @@ await test("Grant revocado → mismo trato que sin grant", async () => {
   assert.equal(r.state, "locked_pending_grant");
 });
 
+// ── Endpoint: GET /api/me/video-access ──────────────────────────────────────
+async function handleMeVideoAccess(pool, req, res) {
+  try {
+    const state = await computeVideoAccessState(pool, req.userId);
+    return res.json({ data: state });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+}
+
+function makeRes() {
+  const res = { _status: 200, _body: null };
+  res.status = (s) => { res._status = s; return res; };
+  res.json = (b) => { res._body = b; return res; };
+  return res;
+}
+
+console.log("\nGET /api/me/video-access");
+
+await test("Devuelve state con planName cuando unlocked", async () => {
+  const pool = makePool({
+    memberships: [{ user_id: "u1", status: "active", plan: planUnlimited, end_date: "2099-01-01" }],
+    grants: [{ id: "g1", user_id: "u1", granted_at: new Date(), revoked_at: null }],
+    plans: [planUnlimited],
+  });
+  const res = makeRes();
+  await handleMeVideoAccess(pool, { userId: "u1" }, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.data.state, "unlocked");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
