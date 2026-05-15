@@ -8523,6 +8523,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
     ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description,
+    includes_video_library,
   } = req.body;
   try {
     const validCats = ["barre", "jumping", "pilates", "mixto", "all"];
@@ -8549,8 +8550,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          ring_esfuerzo_goal   = COALESCE($15, ring_esfuerzo_goal),
          ring_conexion_goal   = COALESCE($16, ring_conexion_goal),
          reward_description   = COALESCE($17, reward_description),
+         includes_video_library = COALESCE($18, includes_video_library),
          updated_at    = NOW()
-       WHERE id = $18 RETURNING *`,
+       WHERE id = $19 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
       duration_days || null, class_limit ?? null,
       cat, features ? JSON.stringify(features) : null,
@@ -8559,6 +8561,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
       ring_esfuerzo_goal === undefined ? null : Math.max(1, Number(ring_esfuerzo_goal)),
       ring_conexion_goal === undefined ? null : Math.max(1, Number(ring_conexion_goal)),
       reward_description || null,
+      includes_video_library ?? null,
       req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "No encontrado" });
@@ -13821,12 +13824,13 @@ app.post("/api/admin/videos", adminMiddleware, async (req, res) => {
 // PUT /api/admin/videos/:id
 app.put("/api/admin/videos/:id", adminMiddleware, async (req, res) => {
   try {
-    const { title, description, videoUrl, thumbnailUrl, classTypeId, instructorId, durationMinutes, accessType, isPublished, isFeatured, sortOrder } = req.body;
+    const { title, description, videoUrl, thumbnailUrl, classTypeId, instructorId, durationMinutes, accessType, isPublished, isFeatured, sortOrder, isTrial } = req.body;
     const r = await pool.query(
       `UPDATE videos SET title=$1, description=$2, video_url=$3, thumbnail_url=$4, class_type_id=$5,
-       instructor_id=$6, duration_minutes=$7, access_type=$8, is_published=$9, is_featured=$10, sort_order=$11, updated_at=NOW()
-       WHERE id=$12 RETURNING *`,
-      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, req.params.id]
+       instructor_id=$6, duration_minutes=$7, access_type=$8, is_published=$9, is_featured=$10, sort_order=$11,
+       is_trial=COALESCE($12, is_trial), updated_at=NOW()
+       WHERE id=$13 RETURNING *`,
+      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, isTrial ?? null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Video no encontrado" });
     return res.json({ data: r.rows[0] });
