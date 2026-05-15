@@ -1021,6 +1021,21 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE orders ALTER COLUMN plan_id DROP NOT NULL`).catch(() => { });
     // Make user_id nullable (walk-in POS sales may not have a user)
     await pool.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL`).catch(() => { });
+    // ── Video library access (2026-05-14) ──────────────────────────────────
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS includes_video_library BOOLEAN NOT NULL DEFAULT false`).catch(() => { });
+    await pool.query(`ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_trial BOOLEAN NOT NULL DEFAULT false`).catch(() => { });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS video_access_grants (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        granted_by  UUID NOT NULL REFERENCES users(id),
+        granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        revoked_at  TIMESTAMPTZ NULL,
+        revoked_by  UUID NULL REFERENCES users(id),
+        note        TEXT NULL
+      )
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_vag_user_active ON video_access_grants(user_id) WHERE revoked_at IS NULL`).catch(() => { });
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
