@@ -48,8 +48,13 @@ const VideoList = () => {
   const updateTrialMutation = useMutation({
     mutationFn: ({ id, is_trial }: { id: string; is_trial: boolean }) =>
       api.put(`/admin/videos/${id}`, { is_trial }),
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["videos"] });
+      // I2: a trial toggle changes whether the video plays without a plan, so the
+      // single-video fetch, the signed-URL gate and the alumna's own state must refresh.
+      qc.invalidateQueries({ queryKey: ["video", vars.id] });
+      qc.invalidateQueries({ queryKey: ["video-stream-url", vars.id] });
+      qc.invalidateQueries({ queryKey: ["me-video-access"] });
       toast({ title: "Estado de muestra actualizado" });
     },
     onError: () => toast({ title: "Error al actualizar", variant: "destructive" }),

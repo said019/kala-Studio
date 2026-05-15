@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -98,6 +98,11 @@ const ClientsList = () => {
 
   const [searchParams] = useSearchParams();
   const [showOnlyPending, setShowOnlyPending] = useState(searchParams.get("pending") === "1");
+  // I4: re-sync when the URL param changes (e.g. dashboard widget click while
+  // already on /admin/clients — useState initializer alone wouldn't re-fire).
+  useEffect(() => {
+    if (searchParams.get("pending") === "1") setShowOnlyPending(true);
+  }, [searchParams]);
   const filteredClients = showOnlyPending
     ? clients.filter((c: any) => pendingIds.has(c.id))
     : clients;
@@ -109,6 +114,7 @@ const ClientsList = () => {
       const granted = pendingClients.find((c: any) => c.id === userId);
       qc.invalidateQueries({ queryKey: ["video-access-pending"] });
       qc.invalidateQueries({ queryKey: ["video-access", userId] });
+      qc.invalidateQueries({ queryKey: ["me-video-access"] });
       toast({ title: `✅ Acceso dado a ${granted?.display_name ?? "alumna"}` });
     },
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al conceder acceso", variant: "destructive" }),

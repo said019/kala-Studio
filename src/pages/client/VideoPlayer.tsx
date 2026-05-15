@@ -49,6 +49,9 @@ const VideoPlayer = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+  // I3: keep last playback position so an expired-token refetch can resume.
+  const videoElRef = useRef<HTMLVideoElement>(null);
+  const resumeAtRef = useRef(0);
 
   const [purchaseStep, setPurchaseStep] = useState<PurchaseStep>("idle");
   const [purchaseId, setPurchaseId] = useState<string | null>(null);
@@ -221,12 +224,30 @@ const VideoPlayer = () => {
                     onPlay={trackView}
                   >
                     <video
+                      ref={videoElRef}
                       src={streamUrl}
                       controls
                       preload="metadata"
                       playsInline
                       controlsList="nodownload"
                       onContextMenu={(e) => e.preventDefault()}
+                      onTimeUpdate={(e) => {
+                        // Remember position so we can resume after a token refresh.
+                        const t = e.currentTarget.currentTime;
+                        if (t > 0) resumeAtRef.current = t;
+                      }}
+                      onLoadedMetadata={(e) => {
+                        // New signed URL loaded — jump back to where we were.
+                        if (resumeAtRef.current > 0 && e.currentTarget.duration > resumeAtRef.current) {
+                          e.currentTarget.currentTime = resumeAtRef.current;
+                        }
+                      }}
+                      onError={() => {
+                        // Most likely the 60-min HMAC token expired mid-watch (Drive
+                        // returns 401/403 on the Range request). Force a fresh signed
+                        // URL; onLoadedMetadata restores the position.
+                        qc.invalidateQueries({ queryKey: ["video-stream-url", videoId] });
+                      }}
                       className="max-h-[78vh] w-full object-contain"
                     />
                   </div>
