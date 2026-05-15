@@ -305,5 +305,64 @@ await test("Re-grant cuando ya hay activo → 200 con alreadyGranted:true (idemp
   assert.equal(res._body.alreadyGranted, true);
 });
 
+console.log("\nDELETE /api/admin/users/:userId/video-access");
+
+async function handleRevoke(pool, req, res) {
+  try {
+    const { userId } = req.params;
+    const u = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+    const r = await pool.query(
+      `UPDATE video_access_grants SET revoked_at = NOW(), revoked_by = $2 WHERE user_id = $1 AND revoked_at IS NULL RETURNING *`,
+      [userId, req.userId]
+    );
+    if (!r.rows.length) return res.json({ alreadyRevoked: true });
+    return res.json({ data: r.rows[0] });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+}
+
+function makePoolForRevoke({ users = [], grants = [] }) {
+  return {
+    async query(sql, params = []) {
+      const s = sql.replace(/\s+/g, " ").trim();
+      if (/SELECT id FROM users WHERE id = \$1/.test(s)) {
+        const u = users.find((u) => u.id === params[0]);
+        return u ? { rows: [u] } : { rows: [] };
+      }
+      if (/UPDATE video_access_grants SET revoked_at = NOW\(\), revoked_by = \$2 WHERE user_id = \$1/.test(s)) {
+        const g = grants.find((g) => g.user_id === params[0] && !g.revoked_at);
+        if (!g) return { rows: [] };
+        g.revoked_at = new Date(); g.revoked_by = params[1];
+        return { rows: [g] };
+      }
+      throw new Error(`mock pool: query no soportada → ${s.slice(0, 120)}`);
+    },
+  };
+}
+
+await test("Revoke con grant activo → 200 con row actualizado", async () => {
+  const grants = [{ id: "g1", user_id: "u1", revoked_at: null }];
+  const pool = makePoolForRevoke({ users: [{ id: "u1" }], grants });
+  const res = makeRes();
+  await handleRevoke(pool, { params: { userId: "u1" }, userId: "admin1" }, res);
+  assert.equal(res._status, 200);
+  assert.ok(res._body.data.revoked_at);
+});
+
+await test("Revoke sin grant activo → 200 con alreadyRevoked:true", async () => {
+  const pool = makePoolForRevoke({ users: [{ id: "u1" }], grants: [] });
+  const res = makeRes();
+  await handleRevoke(pool, { params: { userId: "u1" }, userId: "admin1" }, res);
+  assert.equal(res._status, 200);
+  assert.equal(res._body.alreadyRevoked, true);
+});
+
+await test("Revoke a usuario inexistente → 404", async () => {
+  const pool = makePoolForRevoke({ users: [] });
+  const res = makeRes();
+  await handleRevoke(pool, { params: { userId: "missing" }, userId: "admin1" }, res);
+  assert.equal(res._status, 404);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

@@ -7997,6 +7997,30 @@ app.post("/api/admin/users/:userId/video-access", adminMiddleware, async (req, r
   }
 });
 
+// DELETE /api/admin/users/:userId/video-access — revoke access (idempotent)
+app.delete("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const u = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    const r = await pool.query(
+      `UPDATE video_access_grants
+          SET revoked_at = NOW(), revoked_by = $2
+        WHERE user_id = $1 AND revoked_at IS NULL
+        RETURNING *`,
+      [userId, req.userId]
+    );
+    if (!r.rows.length) {
+      return res.json({ alreadyRevoked: true });
+    }
+    return res.json({ data: r.rows[0] });
+  } catch (err) {
+    console.error("DELETE /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Routes: /api/videos ────────────────────────────────────────────────────
 
 // GET /api/videos/categories
