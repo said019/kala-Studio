@@ -162,5 +162,81 @@ await test("Devuelve state con planName cuando unlocked", async () => {
   assert.equal(res._body.data.state, "unlocked");
 });
 
+// ── Endpoint: GET /api/videos/:id/stream-url ────────────────────────────────
+import crypto from "node:crypto";
+const TEST_SECRET = "test_secret";
+function _signTok({ userId, fileId, exp }) {
+  return crypto.createHmac("sha256", TEST_SECRET).update(`${userId}|${fileId}|${exp}`).digest("base64url");
+}
+
+async function handleStreamUrl(pool, req, res, opts = {}) {
+  try {
+    const v = opts.video; // injected for the mock
+    if (!v) return res.status(404).json({ message: "Video no encontrado" });
+    if (!v.drive_file_id) return res.status(404).json({ message: "Video sin archivo en Drive" });
+
+    if (!v.is_trial) {
+      const access = await computeVideoAccessState(pool, req.userId);
+      if (access.state !== "unlocked") {
+        const reason = access.state === "locked_pending_grant" ? "pending_grant" : "no_plan";
+        return res.status(403).json({ message: "Acceso restringido", reason });
+      }
+    }
+
+    const exp = Date.now() + 60 * 60 * 1000;
+    const token = _signTok({ userId: req.userId, fileId: v.drive_file_id, exp });
+    const url = `/api/drive/secure-video/${v.drive_file_id}?t=${token}&exp=${exp}&u=${req.userId}`;
+    return res.json({ data: { url, expiresAt: exp } });
+  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+}
+
+console.log("\nGET /api/videos/:id/stream-url");
+
+await test("Trial siempre da 200 con URL firmada", async () => {
+  const pool = makePool({});
+  const res = makeRes();
+  await handleStreamUrl(pool, { userId: "u1" }, res, { video: { id: "v1", drive_file_id: "abc1234567", is_trial: true } });
+  assert.equal(res._status, 200);
+  assert.match(res._body.data.url, /\/api\/drive\/secure-video\/abc1234567\?t=/);
+});
+
+await test("Sin acceso (no_plan) → 403 reason=no_plan", async () => {
+  const pool = makePool({ plans: [planUnlimited] });
+  const res = makeRes();
+  await handleStreamUrl(pool, { userId: "u1" }, res, { video: { id: "v1", drive_file_id: "abc1234567", is_trial: false } });
+  assert.equal(res._status, 403);
+  assert.equal(res._body.reason, "no_plan");
+});
+
+await test("Plan elegible sin grant → 403 reason=pending_grant", async () => {
+  const pool = makePool({
+    memberships: [{ user_id: "u1", status: "active", plan: planUnlimited, end_date: "2099-01-01" }],
+    plans: [planUnlimited],
+  });
+  const res = makeRes();
+  await handleStreamUrl(pool, { userId: "u1" }, res, { video: { id: "v1", drive_file_id: "abc1234567", is_trial: false } });
+  assert.equal(res._status, 403);
+  assert.equal(res._body.reason, "pending_grant");
+});
+
+await test("Unlocked → 200 con URL firmada", async () => {
+  const pool = makePool({
+    memberships: [{ user_id: "u1", status: "active", plan: planUnlimited, end_date: "2099-01-01" }],
+    grants: [{ id: "g1", user_id: "u1", revoked_at: null }],
+    plans: [planUnlimited],
+  });
+  const res = makeRes();
+  await handleStreamUrl(pool, { userId: "u1" }, res, { video: { id: "v1", drive_file_id: "abc1234567", is_trial: false } });
+  assert.equal(res._status, 200);
+  assert.match(res._body.data.url, /t=.+&exp=/);
+});
+
+await test("Video sin drive_file_id → 404", async () => {
+  const pool = makePool({});
+  const res = makeRes();
+  await handleStreamUrl(pool, { userId: "u1" }, res, { video: { id: "v1", drive_file_id: null, is_trial: true } });
+  assert.equal(res._status, 404);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

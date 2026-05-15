@@ -8057,6 +8057,36 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/videos/:id/stream-url — gated stream URL with HMAC token
+app.get("/api/videos/:id/stream-url", authMiddleware, async (req, res) => {
+  try {
+    const v = await pool.query(
+      "SELECT id, drive_file_id, is_trial FROM videos WHERE id = $1",
+      [req.params.id]
+    );
+    if (!v.rows.length) return res.status(404).json({ message: "Video no encontrado" });
+    const video = v.rows[0];
+    if (!video.drive_file_id) return res.status(404).json({ message: "Video sin archivo en Drive" });
+
+    // Trial bypass: any logged-in user can play
+    if (!video.is_trial) {
+      const access = await computeVideoAccessState(req.userId);
+      if (access.state !== "unlocked") {
+        const reason = access.state === "locked_pending_grant" ? "pending_grant" : "no_plan";
+        return res.status(403).json({ message: "Acceso restringido", reason });
+      }
+    }
+
+    const exp = Date.now() + 60 * 60 * 1000; // 60 min
+    const token = signStreamToken({ userId: req.userId, fileId: video.drive_file_id, exp });
+    const url = `/api/drive/secure-video/${video.drive_file_id}?t=${token}&exp=${exp}&u=${req.userId}`;
+    return res.json({ data: { url, expiresAt: exp } });
+  } catch (err) {
+    console.error("GET /videos/:id/stream-url error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // POST /api/videos/:id/view
 app.post("/api/videos/:id/view", authMiddleware, async (req, res) => {
   try {
