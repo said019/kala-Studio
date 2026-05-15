@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { Film } from "lucide-react";
 
 const ClientDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -57,6 +58,32 @@ const ClientDetail = () => {
     queryKey: ["client-rings", id],
     queryFn: async () => (await api.get(`/admin/rings/users/${id}`)).data,
     enabled: !!id,
+  });
+
+  const { data: vaData } = useQuery({
+    queryKey: ["video-access", id],
+    queryFn: async () => (await api.get(`/admin/users/${id}/video-access`)).data,
+    enabled: !!id,
+  });
+  const access = vaData?.data;
+
+  const grantVideoMutation = useMutation({
+    mutationFn: () => api.post(`/admin/users/${id}/video-access`, { note: "Concedido desde ficha" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["video-access", id] });
+      qc.invalidateQueries({ queryKey: ["video-access-pending"] });
+      toast({ title: "✅ Acceso concedido. Le mandamos WA." });
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al conceder acceso", variant: "destructive" }),
+  });
+  const revokeVideoMutation = useMutation({
+    mutationFn: () => api.delete(`/admin/users/${id}/video-access`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["video-access", id] });
+      qc.invalidateQueries({ queryKey: ["video-access-pending"] });
+      toast({ title: "Acceso revocado." });
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al revocar acceso", variant: "destructive" }),
   });
 
   const adjustMutation = useMutation({
@@ -138,7 +165,7 @@ const ClientDetail = () => {
               )}
             </TabsContent>
 
-            <TabsContent value="memberships" className="mt-4">
+            <TabsContent value="memberships" className="mt-4 space-y-6">
               <Table>
                 <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Estado</TableHead><TableHead>Vence</TableHead><TableHead>Clases</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -152,6 +179,61 @@ const ClientDetail = () => {
                   ))}
                 </TableBody>
               </Table>
+
+              <div className="rounded-xl border border-border p-4 max-w-xl space-y-3">
+                <div className="flex items-center gap-2">
+                  <Film size={15} className="text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">Acceso a biblioteca de videos</h3>
+                </div>
+                {!access ? (
+                  <Skeleton className="h-12" />
+                ) : access.state === "unlocked" ? (
+                  <div className="space-y-2">
+                    <Badge className="bg-green-600 hover:bg-green-600">Activo</Badge>
+                    <p className="text-xs text-muted-foreground">Plan vigente: {access.planName}</p>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="text-xs"
+                      onClick={() => {
+                        if (window.confirm("¿Revocar acceso a la biblioteca de videos?")) {
+                          revokeVideoMutation.mutate();
+                        }
+                      }}
+                      disabled={revokeVideoMutation.isPending}
+                    >
+                      Revocar acceso
+                    </Button>
+                  </div>
+                ) : access.state === "locked_pending_grant" ? (
+                  <div className="space-y-2">
+                    <Badge className="bg-amber-500 hover:bg-amber-500">Pendiente</Badge>
+                    <p className="text-xs text-muted-foreground">Tiene {access.planName} activo, falta tu OK.</p>
+                    <Button
+                      size="sm"
+                      className="text-xs"
+                      onClick={() => grantVideoMutation.mutate()}
+                      disabled={grantVideoMutation.isPending}
+                    >
+                      ✓ Conceder acceso
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Badge variant="outline">Sin plan elegible</Badge>
+                    <p className="text-xs text-muted-foreground">Sus planes activos no incluyen videos.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs"
+                      onClick={() => grantVideoMutation.mutate()}
+                      disabled={grantVideoMutation.isPending}
+                    >
+                      Conceder de todas formas
+                    </Button>
+                  </div>
+                )}
+              </div>
             </TabsContent>
 
             <TabsContent value="bookings" className="mt-4">

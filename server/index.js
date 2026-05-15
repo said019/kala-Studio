@@ -7961,6 +7961,17 @@ app.post("/api/admin/wallet/notify/:userId", adminMiddleware, async (req, res) =
 
 // ─── Routes: /api/admin/video-access ────────────────────────────────────────
 
+// GET /api/admin/users/:userId/video-access — admin sees a user's state
+app.get("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const state = await computeVideoAccessState(req.params.userId);
+    return res.json({ data: state });
+  } catch (err) {
+    console.error("GET /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // POST /api/admin/users/:userId/video-access — grant library access (idempotent)
 app.post("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
   try {
