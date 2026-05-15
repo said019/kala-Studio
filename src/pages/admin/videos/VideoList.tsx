@@ -23,6 +23,7 @@ interface VideoItem {
   sales_enabled: boolean;
   sales_price_mxn: number | null;
   level: string;
+  is_trial?: boolean;
 }
 
 const VideoList = () => {
@@ -42,6 +43,16 @@ const VideoList = () => {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/videos/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["videos"] }); toast({ title: "Video eliminado" }); },
+  });
+
+  const updateTrialMutation = useMutation({
+    mutationFn: ({ id, is_trial }: { id: string; is_trial: boolean }) =>
+      api.put(`/admin/videos/${id}`, { is_trial }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["videos"] });
+      toast({ title: "Estado de muestra actualizado" });
+    },
+    onError: () => toast({ title: "Error al actualizar", variant: "destructive" }),
   });
 
   const formatDuration = (secs: number) => {
@@ -86,8 +97,27 @@ const VideoList = () => {
                         {v.sales_enabled && v.sales_price_mxn && (
                           <Badge variant="outline" className="text-[0.6rem]">${v.sales_price_mxn}</Badge>
                         )}
+                        {v.is_trial && (
+                          <Badge className="text-[0.6rem] bg-amber-500 hover:bg-amber-500">🎁 Clase muestra</Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">{formatDuration(v.duration_seconds ?? 0)}</p>
+                      <div className="flex items-center justify-end mt-2">
+                        <button
+                          type="button"
+                          className="text-[0.65rem] underline text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                          onClick={() => {
+                            const trialCount = videos.filter((vv: VideoItem) => vv.is_trial).length;
+                            if (!v.is_trial && trialCount >= 2) {
+                              if (!window.confirm("Ya tienes 2 clases marcadas como muestra. ¿Seguro de marcar otra? El trial funciona mejor con 1-2 videos.")) return;
+                            }
+                            updateTrialMutation.mutate({ id: v.id, is_trial: !v.is_trial });
+                          }}
+                          disabled={updateTrialMutation.isPending}
+                        >
+                          {v.is_trial ? "Quitar de muestra" : "Marcar como muestra"}
+                        </button>
+                      </div>
                       <div className="flex gap-2 mt-3">
                         <Button size="sm" variant="outline" className="flex-1 text-xs" onClick={() => navigate(`/admin/videos/upload?id=${v.id}`)}>Editar</Button>
                         <Button size="sm" variant="destructive" className="text-xs" onClick={() => { if (window.confirm("¿Eliminar este video?")) deleteMutation.mutate(v.id); }}>Eliminar</Button>

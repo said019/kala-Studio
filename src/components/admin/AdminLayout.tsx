@@ -112,6 +112,16 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
   });
   const unreadCount = unreadData?.data?.unread_count ?? 0;
 
+  // Pending video access count para badge en sidebar item 'Clientes'
+  const { data: vaPending } = useQuery<{ data: any[] }>({
+    queryKey: ["video-access-pending"],
+    queryFn: async () => (await api.get("/admin/video-access/pending")).data,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    enabled: !!user?.id,
+  });
+  const vaPendingCount = Array.isArray(vaPending?.data) ? vaPending.data.length : 0;
+
   return (
     <div className="kala-admin flex min-h-screen bg-[#FFF7F2] text-[#2E201C]">
       {mobileOpen && (
@@ -241,6 +251,16 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                             style={{ backgroundColor: "#76214D", color: "#FFF7F2" }}
                           >
                             {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        )}
+                        {/* Badge: pending video access count para 'Clientes' nav item */}
+                        {path === "/admin/clients" && vaPendingCount > 0 && (
+                          <span
+                            className="absolute -top-1.5 -right-2 grid place-items-center rounded-full text-[8px] font-bold leading-none px-1 min-w-[14px] h-[14px]"
+                            style={{ backgroundColor: "#F59E0B", color: "#FFF7F2" }}
+                            title={`${vaPendingCount} alumna${vaPendingCount === 1 ? "" : "s"} pendiente${vaPendingCount === 1 ? "" : "s"} de acceso a videos`}
+                          >
+                            {vaPendingCount > 9 ? "9+" : vaPendingCount}
                           </span>
                         )}
                       </span>

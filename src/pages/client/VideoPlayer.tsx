@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import {
@@ -25,30 +25,20 @@ import {
 
 type PurchaseStep = "idle" | "instructions" | "upload" | "done";
 
-const VideoEmbed = ({ url }: { url: string }) => {
-  if (url?.includes("youtube") || url?.includes("youtu.be")) {
-    const id = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
-    return (
-      <div className="aspect-video w-full rounded-3xl overflow-hidden" style={{ backgroundColor: KALA.ink }}>
-        <iframe
-          src={`https://www.youtube.com/embed/${id}`}
-          className="w-full h-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-        />
-      </div>
-    );
-  }
-  let videoSrc = url;
-  const m = url?.match(/drive\.google\.com\/file\/d\/([^/]+)\/preview/);
-  if (m) videoSrc = `/api/drive/video/${m[1]}`;
+/**
+ * YouTube-only embed. Drive playback is handled via the signed `/stream-url`
+ * flow inside the player itself (NEVER fall back to the public Drive proxy).
+ */
+const YouTubeEmbed = ({ url }: { url: string }) => {
+  const id = url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1];
+  if (!id) return null;
   return (
-    <div className="rounded-3xl overflow-hidden flex items-center justify-center" style={{ backgroundColor: KALA.ink }}>
-      <video
-        src={videoSrc}
-        controls
-        playsInline
-        className="max-h-[78vh] w-full object-contain"
+    <div className="aspect-video w-full rounded-3xl overflow-hidden" style={{ backgroundColor: KALA.ink }}>
+      <iframe
+        src={`https://www.youtube.com/embed/${id}`}
+        className="w-full h-full"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
       />
     </div>
   );
@@ -73,6 +63,28 @@ const VideoPlayer = () => {
   });
 
   const video = data?.data ?? data ?? null;
+
+  // Drive videos go through the signed stream URL — never the public proxy.
+  const isDriveVideo = !!video?.drive_file_id;
+  const isYouTube = typeof video?.video_url === "string" &&
+    (video.video_url.includes("youtube.com") || video.video_url.includes("youtu.be"));
+
+  const {
+    data: streamData,
+    isLoading: streamLoading,
+    error: streamError,
+  } = useQuery({
+    queryKey: ["video-stream-url", videoId],
+    queryFn: async () => (await api.get(`/videos/${videoId}/stream-url`)).data,
+    enabled: !!videoId && isDriveVideo,
+    staleTime: 30 * 60 * 1000, // 30 min — refresh at half of the 60-min token TTL
+    refetchInterval: 30 * 60 * 1000,
+    retry: false, // 403/404 are not transient
+  });
+  const streamUrl: string | undefined = streamData?.data?.url;
+  const streamErrReason: string | undefined =
+    (streamError as any)?.response?.data?.reason;
+  const streamErrStatus: number | undefined = (streamError as any)?.response?.status;
 
   const purchaseMutation = useMutation({
     mutationFn: () => api.post(`/videos/${videoId}/purchase`),
@@ -155,9 +167,73 @@ const VideoPlayer = () => {
         ) : (
           <>
             <Section>
-              {canWatch ? (
+              {isDriveVideo ? (
+                streamLoading ? (
+                  <SkeletonRow height={360} />
+                ) : streamError ? (
+                  <div
+                    className="aspect-video rounded-3xl flex flex-col items-center justify-center text-center gap-4 p-7"
+                    style={{ backgroundColor: KALA.blush }}
+                  >
+                    <span
+                      className="grid h-14 w-14 place-items-center rounded-2xl"
+                      style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                    >
+                      <Lock size={20} />
+                    </span>
+                    <div>
+                      <h3
+                        className="font-bebas leading-tight"
+                        style={{ color: KALA.ink, fontSize: "clamp(1.5rem, 2.4vw, 2rem)" }}
+                      >
+                        {streamErrReason === "pending_grant"
+                          ? "Tu acceso está en revisión"
+                          : streamErrStatus === 404
+                            ? "Video no disponible"
+                            : "No tienes acceso a este video"}
+                      </h3>
+                      <p
+                        className="mt-2 text-[0.92rem]"
+                        style={{ color: KALA.ink, opacity: 0.7 }}
+                      >
+                        {streamErrReason === "pending_grant"
+                          ? "Estamos activando tu acceso. Te avisaremos en cuanto esté listo."
+                          : streamErrStatus === 404
+                            ? "Este video aún no tiene archivo disponible."
+                            : "Adquiere un paquete que incluya videos para ver esta clase."}
+                      </p>
+                    </div>
+                    {streamErrReason !== "pending_grant" && streamErrStatus !== 404 && (
+                      <PrimaryButton to="/app/checkout">Ver paquetes</PrimaryButton>
+                    )}
+                    <Link
+                      to="/app/videos"
+                      className="text-[0.82rem] no-underline"
+                      style={{ color: KALA.ink, opacity: 0.6 }}
+                    >
+                      Volver a la biblioteca
+                    </Link>
+                  </div>
+                ) : streamUrl ? (
+                  <div
+                    className="rounded-3xl overflow-hidden flex items-center justify-center"
+                    style={{ backgroundColor: KALA.ink }}
+                    onPlay={trackView}
+                  >
+                    <video
+                      src={streamUrl}
+                      controls
+                      preload="metadata"
+                      playsInline
+                      controlsList="nodownload"
+                      onContextMenu={(e) => e.preventDefault()}
+                      className="max-h-[78vh] w-full object-contain"
+                    />
+                  </div>
+                ) : null
+              ) : canWatch && isYouTube ? (
                 <div onPlay={trackView}>
-                  <VideoEmbed url={video.video_url} />
+                  <YouTubeEmbed url={video.video_url} />
                 </div>
               ) : video.sales_unlocks_video && purchaseStep === "idle" ? (
                 <div

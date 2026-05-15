@@ -18,6 +18,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 const VideoLibrary = () => {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
+  const [lockedModal, setLockedModal] = useState<{ video: any; state: string } | null>(null);
   const debouncedSearch = useDebounce(search, 300);
 
   const { data: catsData } = useQuery({
@@ -31,8 +32,26 @@ const VideoLibrary = () => {
       (await api.get(`/videos?search=${encodeURIComponent(debouncedSearch)}&category=${category}`)).data,
   });
 
+  const { data: vaData } = useQuery({
+    queryKey: ["me-video-access"],
+    queryFn: async () => (await api.get("/me/video-access")).data,
+    staleTime: 30_000,
+  });
+  const access = vaData?.data; // { state, planName?, offers? }
+
   const categories: any[] = Array.isArray(catsData?.data) ? catsData.data : Array.isArray(catsData) ? catsData : [];
   const videos: any[] = Array.isArray(videosData?.data) ? videosData.data : Array.isArray(videosData) ? videosData : [];
+
+  const isVideoLocked = (v: any) => {
+    if (v.is_trial) return false;
+    if (v.access_type === "gratuito") return false;
+    if (v.has_access) return false;
+    return access?.state !== "unlocked";
+  };
+
+  const offerNames = Array.isArray(access?.offers)
+    ? access.offers.map((o: any) => o?.name).filter(Boolean).join(" o ")
+    : "";
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
@@ -43,6 +62,47 @@ const VideoLibrary = () => {
           titleAccent="del estudio."
           subtitle="Clases grabadas, técnica y rutinas para practicar en casa."
         />
+
+        {access?.state === "locked_pending_grant" && (
+          <Section>
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                backgroundColor: `${KALA.orange}1a`,
+                border: `1px solid ${KALA.orange}55`,
+              }}
+            >
+              <p className="text-[0.92rem] font-medium" style={{ color: KALA.ink }}>
+                Tu acceso está en revisión.
+              </p>
+              <p className="mt-1 text-[0.82rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
+                Te avisaremos en cuanto esté listo. Mientras, puedes ver las clases muestra.
+              </p>
+            </div>
+          </Section>
+        )}
+        {access?.state === "locked_no_plan" && Array.isArray(access?.offers) && access.offers.length > 0 && (
+          <Section>
+            <div
+              className="rounded-2xl p-4"
+              style={{
+                backgroundColor: KALA.blush,
+                border: `1px solid ${KALA.berry}33`,
+              }}
+            >
+              <p className="text-[0.92rem] font-medium" style={{ color: KALA.ink }}>
+                Adquiere {offerNames} para ver toda la biblioteca.
+              </p>
+              <Link
+                to="/app/checkout"
+                className="mt-2 inline-block text-[0.82rem] no-underline"
+                style={{ color: KALA.berry, fontWeight: 600 }}
+              >
+                Ver paquetes →
+              </Link>
+            </div>
+          </Section>
+        )}
 
         <Section>
           <div className="relative">
@@ -119,99 +179,204 @@ const VideoLibrary = () => {
             <ul className="grid grid-cols-2 lg:grid-cols-3 gap-4 list-none m-0 p-0">
               {videos.map((v: any, idx: number) => {
                 const aspect = idx % 5 === 0 ? "aspect-[4/5]" : "aspect-[5/6]";
-                const isLocked = v.access_type === "miembros" && !v.has_access;
+                const locked = isVideoLocked(v);
                 const isPaid = v.sales_unlocks_video && !v.has_access;
                 const minutes = Math.floor((v.duration_seconds ?? 0) / 60);
+
+                const cardInner = (
+                  <>
+                    <div
+                      className={"relative overflow-hidden rounded-2xl " + aspect}
+                      style={{ backgroundColor: KALA.blush }}
+                    >
+                      {v.thumbnail_url ? (
+                        <img
+                          src={v.thumbnail_url}
+                          alt={v.title}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                          style={locked ? { opacity: 0.55, filter: "saturate(0.85)" } : undefined}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 grid place-items-center" style={{ color: KALA.berry }}>
+                          <Play size={32} />
+                        </div>
+                      )}
+                      <div
+                        className="absolute inset-0"
+                        style={{ background: "linear-gradient(180deg, transparent 50%, rgba(46,32,28,0.55) 100%)" }}
+                      />
+
+                      {/* Lock overlay (centered) */}
+                      {locked && (
+                        <div className="absolute inset-0 grid place-items-center">
+                          <span
+                            className="grid h-12 w-12 place-items-center rounded-full"
+                            style={{
+                              backgroundColor: `${KALA.cream}f0`,
+                              color: KALA.berry,
+                              boxShadow: "0 6px 18px rgba(46,32,28,0.18)",
+                            }}
+                          >
+                            <Lock size={18} strokeWidth={2.2} />
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Top badges */}
+                      <div className="absolute top-3 left-3 right-3 flex justify-between gap-2">
+                        {v.is_trial ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[0.6rem] uppercase tracking-[0.16em]"
+                            style={{ backgroundColor: KALA.orange, color: KALA.cream, fontWeight: 600 }}
+                          >
+                            Muestra
+                          </span>
+                        ) : locked ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[0.6rem] uppercase tracking-[0.16em]"
+                            style={{ backgroundColor: KALA.cream, color: KALA.ink, opacity: 0.9 }}
+                          >
+                            <Lock size={10} /> Miembros
+                          </span>
+                        ) : (
+                          <span aria-hidden="true" />
+                        )}
+                        {isPaid && v.sales_price_mxn && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[0.6rem] uppercase tracking-[0.16em]"
+                            style={{ backgroundColor: KALA.orange, color: KALA.cream }}
+                          >
+                            <ShoppingBag size={10} /> ${v.sales_price_mxn}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Bottom meta */}
+                      <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between">
+                        <span
+                          className="font-bebas leading-tight pr-3"
+                          style={{ color: KALA.cream, fontSize: "1.1rem" }}
+                        >
+                          {minutes ? `${minutes} min` : ""}
+                        </span>
+                        <span
+                          className="grid h-9 w-9 place-items-center rounded-full transition-transform group-hover:scale-110"
+                          style={{ backgroundColor: KALA.cream, color: KALA.berry }}
+                        >
+                          {locked ? <Lock size={13} /> : <Play size={14} />}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-baseline justify-between gap-3">
+                      <h3
+                        className="text-[0.92rem] font-medium leading-tight line-clamp-2"
+                        style={{ color: KALA.ink }}
+                      >
+                        {v.title}
+                      </h3>
+                      {v.level && (
+                        <span
+                          className="text-[0.66rem] uppercase tracking-[0.18em] shrink-0"
+                          style={{ color: KALA.ink, opacity: 0.5 }}
+                        >
+                          {v.level}
+                        </span>
+                      )}
+                    </div>
+                    {v.category_name && (
+                      <p className="mt-1 text-[0.74rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                        {v.category_name}
+                        {v.instructor_name ? ` · ${v.instructor_name}` : ""}
+                      </p>
+                    )}
+                  </>
+                );
+
                 return (
                   <li key={v.id}>
-                    <Link to={`/app/videos/${v.id}`} className="group block no-underline">
-                      <div
-                        className={"relative overflow-hidden rounded-2xl " + aspect}
-                        style={{ backgroundColor: KALA.blush }}
+                    {locked ? (
+                      <button
+                        type="button"
+                        onClick={() => setLockedModal({ video: v, state: access?.state ?? "locked_no_plan" })}
+                        className="group block w-full text-left bg-transparent p-0 border-0 cursor-pointer"
                       >
-                        {v.thumbnail_url ? (
-                          <img
-                            src={v.thumbnail_url}
-                            alt={v.title}
-                            loading="lazy"
-                            className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
-                          />
-                        ) : (
-                          <div className="absolute inset-0 grid place-items-center" style={{ color: KALA.berry }}>
-                            <Play size={32} />
-                          </div>
-                        )}
-                        <div
-                          className="absolute inset-0"
-                          style={{ background: "linear-gradient(180deg, transparent 50%, rgba(46,32,28,0.55) 100%)" }}
-                        />
-
-                        {/* Top badges */}
-                        <div className="absolute top-3 left-3 right-3 flex justify-between gap-2">
-                          {isLocked && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[0.6rem] uppercase tracking-[0.16em]"
-                              style={{ backgroundColor: KALA.cream, color: KALA.ink, opacity: 0.85 }}
-                            >
-                              <Lock size={10} /> Miembros
-                            </span>
-                          )}
-                          {isPaid && v.sales_price_mxn && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[0.6rem] uppercase tracking-[0.16em]"
-                              style={{ backgroundColor: KALA.orange, color: KALA.cream }}
-                            >
-                              <ShoppingBag size={10} /> ${v.sales_price_mxn}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Bottom meta */}
-                        <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between">
-                          <span
-                            className="font-bebas leading-tight pr-3"
-                            style={{ color: KALA.cream, fontSize: "1.1rem" }}
-                          >
-                            {minutes ? `${minutes} min` : ""}
-                          </span>
-                          <span
-                            className="grid h-9 w-9 place-items-center rounded-full transition-transform group-hover:scale-110"
-                            style={{ backgroundColor: KALA.cream, color: KALA.berry }}
-                          >
-                            <Play size={14} />
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex items-baseline justify-between gap-3">
-                        <h3
-                          className="text-[0.92rem] font-medium leading-tight line-clamp-2"
-                          style={{ color: KALA.ink }}
-                        >
-                          {v.title}
-                        </h3>
-                        {v.level && (
-                          <span
-                            className="text-[0.66rem] uppercase tracking-[0.18em] shrink-0"
-                            style={{ color: KALA.ink, opacity: 0.5 }}
-                          >
-                            {v.level}
-                          </span>
-                        )}
-                      </div>
-                      {v.category_name && (
-                        <p className="mt-1 text-[0.74rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
-                          {v.category_name}
-                          {v.instructor_name ? ` · ${v.instructor_name}` : ""}
-                        </p>
-                      )}
-                    </Link>
+                        {cardInner}
+                      </button>
+                    ) : (
+                      <Link to={`/app/videos/${v.id}`} className="group block no-underline">
+                        {cardInner}
+                      </Link>
+                    )}
                   </li>
                 );
               })}
             </ul>
           )}
         </Section>
+
+        {lockedModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ backgroundColor: "rgba(46,32,28,0.55)" }}
+            onClick={() => setLockedModal(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-3xl p-6"
+              style={{
+                backgroundColor: KALA.cream,
+                border: `1px solid ${KALA.border}`,
+                boxShadow: "0 24px 60px rgba(46,32,28,0.25)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <span
+                  className="grid h-10 w-10 place-items-center rounded-2xl"
+                  style={{ backgroundColor: KALA.blush, color: KALA.berry }}
+                >
+                  <Lock size={16} />
+                </span>
+                <h3
+                  className="font-bebas leading-tight"
+                  style={{ color: KALA.ink, fontSize: "1.35rem" }}
+                >
+                  {lockedModal.video.title}
+                </h3>
+              </div>
+              {lockedModal.state === "locked_pending_grant" ? (
+                <p className="text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.78 }}>
+                  Estamos activando tu acceso. Te avisaremos en cuanto esté listo.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.78 }}>
+                    {offerNames
+                      ? `Adquiere ${offerNames} para ver esta clase y toda la biblioteca.`
+                      : "Adquiere un paquete que incluya videos para ver esta clase."}
+                  </p>
+                  <Link
+                    to="/app/checkout"
+                    onClick={() => setLockedModal(null)}
+                    className="mt-4 block w-full rounded-full py-2.5 text-center text-[0.92rem] no-underline"
+                    style={{ backgroundColor: KALA.berry, color: KALA.cream, fontWeight: 600 }}
+                  >
+                    Ver paquetes
+                  </Link>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => setLockedModal(null)}
+                className="mt-3 block w-full rounded-full py-2 text-center text-[0.82rem] cursor-pointer"
+                style={{ backgroundColor: "transparent", border: 0, color: KALA.ink, opacity: 0.6 }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        )}
       </AppShell>
     </ClientAuthGuard>
   );

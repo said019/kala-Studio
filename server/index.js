@@ -28,6 +28,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "dev_kala_secret_change_me";
+
+// ─── Video stream token helpers ───────────────────────────────────────────────
+// HMAC tokens used to gate /api/drive/secure-video/:fileId. See spec
+// docs/superpowers/specs/2026-05-14-video-library-access-design.md.
+function signStreamToken({ userId, fileId, exp }) {
+  const payload = `${userId}|${fileId}|${exp}`;
+  return crypto.createHmac("sha256", JWT_SECRET).update(payload).digest("base64url");
+}
+function verifyStreamToken({ token, userId, fileId, exp }) {
+  if (!token || !exp || Date.now() >= Number(exp)) return false;
+  const expected = signStreamToken({ userId, fileId, exp });
+  if (token.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+}
+
 const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "https://kala-barre-studio.com.mx").replace(/\/+$/, "");
 
 // ─── Evolution API (WhatsApp) config ────────────────────────────────────────
@@ -203,6 +218,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
   transfer_rejected: {
     subject: "Comprobante rechazado",
     body: "{firstName}, no pudimos aprobar tu comprobante. Motivo: {reason}. Mándanos uno nuevo desde la app o por WhatsApp.",
+  },
+  video_access_granted: {
+    subject: "Tu acceso a videos está activo",
+    body: "Hola {name}, ya tienes acceso a la biblioteca de clases en video Kala. Disfruta cuando quieras desde la app. 💜",
   },
 
   // ── Lealtad y eventos ──────────────────────────────────────────
@@ -1021,6 +1040,23 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE orders ALTER COLUMN plan_id DROP NOT NULL`).catch(() => { });
     // Make user_id nullable (walk-in POS sales may not have a user)
     await pool.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL`).catch(() => { });
+    // ── Video library access (2026-05-14) ──────────────────────────────────
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS includes_video_library BOOLEAN NOT NULL DEFAULT false`).catch(() => { });
+    await pool.query(`ALTER TABLE videos ADD COLUMN IF NOT EXISTS is_trial BOOLEAN NOT NULL DEFAULT false`).catch(() => { });
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS video_access_grants (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        granted_by  UUID NOT NULL REFERENCES users(id),
+        granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        revoked_at  TIMESTAMPTZ NULL,
+        revoked_by  UUID NULL REFERENCES users(id),
+        note        TEXT NULL
+      )
+    `).catch(() => { });
+    // UNIQUE: prevents race where two concurrent POST grants both create active rows.
+    // The POST grant handler catches code 23505 (unique violation) and treats as alreadyGranted.
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_vag_user_active ON video_access_grants(user_id) WHERE revoked_at IS NULL`).catch(() => { });
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
@@ -4278,6 +4314,17 @@ app.get("/api/me/notifications/unread-count", authMiddleware, async (req, res) =
   }
 });
 
+// GET /api/me/video-access — returns this user's library access state
+app.get("/api/me/video-access", authMiddleware, async (req, res) => {
+  try {
+    const state = await computeVideoAccessState(req.userId);
+    return res.json({ data: state });
+  } catch (err) {
+    console.error("GET /me/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 function prettyTemplateKey(key) {
   const map = {
     welcome: "Bienvenida a Kala",
@@ -4292,6 +4339,7 @@ function prettyTemplateKey(key) {
     membership_expired: "Tu paquete terminó",
     renewal_reminder: "Recordatorio de renovación",
     transfer_rejected: "Comprobante rechazado",
+    video_access_granted: "Acceso a videos otorgado",
     rings_closed: "3 anillos cerrados",
     points_earned: "Sumaste puntos",
     reward_redeemed: "Recompensa canjeada",
@@ -7911,6 +7959,123 @@ app.post("/api/admin/wallet/notify/:userId", adminMiddleware, async (req, res) =
   }
 });
 
+// ─── Routes: /api/admin/video-access ────────────────────────────────────────
+
+// GET /api/admin/users/:userId/video-access — admin sees a user's state
+app.get("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const state = await computeVideoAccessState(req.params.userId);
+    return res.json({ data: state });
+  } catch (err) {
+    console.error("GET /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/users/:userId/video-access — grant library access (idempotent)
+app.post("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const { note } = req.body || {};
+    const { userId } = req.params;
+
+    // 404 if user doesn't exist
+    const u = await pool.query("SELECT id, display_name, phone FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    // Idempotent: if active grant exists, return it
+    const existing = await pool.query(
+      "SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+      [userId]
+    );
+    if (existing.rows.length) {
+      return res.json({ data: existing.rows[0], alreadyGranted: true });
+    }
+
+    let grant;
+    try {
+      const r = await pool.query(
+        `INSERT INTO video_access_grants (user_id, granted_by, note)
+           VALUES ($1, $2, $3) RETURNING *`,
+        [userId, req.userId, note || null]
+      );
+      grant = r.rows[0];
+    } catch (err) {
+      // Race protection: if a concurrent POST won and created an active grant
+      // between our SELECT and INSERT, the partial UNIQUE index throws 23505.
+      // Re-fetch and return the existing one — same outcome as the SELECT branch above.
+      if (err && err.code === "23505") {
+        const again = await pool.query(
+          "SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+          [userId]
+        );
+        if (again.rows.length) {
+          return res.json({ data: again.rows[0], alreadyGranted: true });
+        }
+      }
+      throw err;
+    }
+
+    // Notify alumna via WA (fire-and-forget). Template added in Task 6.1.
+    if (u.rows[0].phone) {
+      sendConfiguredWhatsAppTemplate({
+        templateKey: "video_access_granted",
+        phone: u.rows[0].phone,
+        vars: { name: u.rows[0].display_name || "Alumna" },
+        fallbackMessage: `Hola ${u.rows[0].display_name || "Alumna"}, ya tienes acceso a la biblioteca de clases en video. Disfruta. 💜`,
+      }).catch((e) => console.error("[WA] video_access_granted:", e.message));
+    }
+
+    return res.status(201).json({ data: grant });
+  } catch (err) {
+    console.error("POST /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// DELETE /api/admin/users/:userId/video-access — revoke access (idempotent)
+app.delete("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const u = await pool.query("SELECT id FROM users WHERE id = $1", [userId]);
+    if (!u.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+
+    const r = await pool.query(
+      `UPDATE video_access_grants
+          SET revoked_at = NOW(), revoked_by = $2
+        WHERE user_id = $1 AND revoked_at IS NULL
+        RETURNING *`,
+      [userId, req.userId]
+    );
+    if (!r.rows.length) {
+      return res.json({ alreadyRevoked: true });
+    }
+    return res.json({ data: r.rows[0] });
+  } catch (err) {
+    console.error("DELETE /admin/users/:userId/video-access error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/video-access/pending — alumnas con plan elegible activo SIN grant activo
+app.get("/api/admin/video-access/pending", adminMiddleware, async (_req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT u.id, u.display_name, u.email, u.phone, p.name AS plan_name, m.end_date
+        FROM users u
+        JOIN memberships m ON m.user_id = u.id AND m.status = 'active'
+                            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        JOIN plans p ON p.id = m.plan_id AND p.includes_video_library = true
+        LEFT JOIN video_access_grants g ON g.user_id = u.id AND g.revoked_at IS NULL
+       WHERE g.id IS NULL
+       ORDER BY m.end_date ASC, u.display_name ASC
+    `);
+    return res.json({ data: r.rows });
+  } catch (err) {
+    console.error("GET /admin/video-access/pending error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Routes: /api/videos ────────────────────────────────────────────────────
 
 // GET /api/videos/categories
@@ -7962,14 +8127,11 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
     );
     const hasMembership = memRes.rows.length > 0;
     const rows = r.rows.map(v => {
-      // Derive video_url from drive_file_id (proxy) if available
-      let videoUrl = v.video_url;
-      if (v.drive_file_id) {
-        videoUrl = `/api/drive/video/${v.drive_file_id}`;
-      } else if (videoUrl) {
-        const m = videoUrl.match(/drive\.google\.com\/file\/d\/([^/]+)\/preview/);
-        if (m) videoUrl = `/api/drive/video/${m[1]}`;
-      }
+      // Drive-backed videos: NO leak the public proxy URL. Frontend must request a signed
+      // URL via GET /api/videos/:id/stream-url. Without this, anyone could read video_url
+      // from the JSON and curl /api/drive/video/:fileId directly (no auth on legacy proxy).
+      // Non-Drive (e.g. YouTube) videos keep their video_url for the iframe embed path.
+      let videoUrl = v.drive_file_id ? null : v.video_url;
       return { ...v, video_url: videoUrl, has_access: v.access_type === "free" || v.access_type === "gratuito" || hasMembership };
     });
     return res.json({ data: rows });
@@ -7994,12 +8156,12 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Video no encontrado" });
     const video = r.rows[0];
-    // Derive video_url from drive_file_id (proxy) if available
+    // Drive-backed videos: NO leak the public proxy URL. Frontend uses /stream-url to
+    // get a signed token and hits /api/drive/secure-video/:fileId instead. See B1 fix
+    // notes — without this, the legacy public proxy at /api/drive/video/:fileId is
+    // trivially reachable by reading video_url from the response.
     if (video.drive_file_id) {
-      video.video_url = `/api/drive/video/${video.drive_file_id}`;
-    } else if (video.video_url) {
-      const m = video.video_url.match(/drive\.google\.com\/file\/d\/([^\/]+)\/preview/);
-      if (m) video.video_url = `/api/drive/video/${m[1]}`;
+      video.video_url = null;
     }
     const memRes = await pool.query(
       "SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' LIMIT 1",
@@ -8007,11 +8169,48 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
     );
     const hasMembership = memRes.rows.length > 0;
     video.has_access = video.access_type === "free" || video.access_type === "gratuito" || hasMembership;
+    // Compute video library access state. Trial OR gratuito → always unlocked;
+    // only `miembros + !is_trial` → check state.
+    let accessState = { state: "unlocked" };
+    if (video.is_trial !== true && video.access_type === "miembros") {
+      accessState = await computeVideoAccessState(req.userId);
+    }
+    video.access_state = accessState;
     // Log view
     await pool.query("UPDATE videos SET view_count = view_count + 1 WHERE id = $1", [req.params.id]);
     return res.json({ data: video });
   } catch (err) {
     console.error("Videos/:id error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/videos/:id/stream-url — gated stream URL with HMAC token
+app.get("/api/videos/:id/stream-url", authMiddleware, async (req, res) => {
+  try {
+    const v = await pool.query(
+      "SELECT id, drive_file_id, is_trial FROM videos WHERE id = $1 AND is_published = true",
+      [req.params.id]
+    );
+    if (!v.rows.length) return res.status(404).json({ message: "Video no encontrado" });
+    const video = v.rows[0];
+    if (!video.drive_file_id) return res.status(404).json({ message: "Video sin archivo en Drive" });
+
+    // Trial bypass: any logged-in user can play
+    if (!video.is_trial) {
+      const access = await computeVideoAccessState(req.userId);
+      if (access.state !== "unlocked") {
+        const reason = access.state === "locked_pending_grant" ? "pending_grant" : "no_plan";
+        return res.status(403).json({ message: "Acceso restringido", reason });
+      }
+    }
+
+    const exp = Date.now() + 60 * 60 * 1000; // 60 min
+    const token = signStreamToken({ userId: req.userId, fileId: video.drive_file_id, exp });
+    const url = `/api/drive/secure-video/${video.drive_file_id}?t=${token}&exp=${exp}&u=${req.userId}`;
+    return res.json({ data: { url, expiresAt: exp } });
+  } catch (err) {
+    console.error("GET /videos/:id/stream-url error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
@@ -8323,6 +8522,7 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
     ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description,
+    includes_video_library,
   } = req.body;
   if (!name?.trim() || price === undefined) return res.status(400).json({ message: "name y price requeridos" });
   try {
@@ -8334,14 +8534,15 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     const constanciaGoal = Math.max(1, Number(ring_constancia_goal ?? 1));
     const esfuerzoGoal = Math.max(1, Number(ring_esfuerzo_goal ?? 1));
     const conexionGoal = Math.max(1, Number(ring_conexion_goal ?? 10));
+    const includesVideoLibrary = parseBooleanFlag(includes_video_library);
     const r = await pool.query(
       `INSERT INTO plans
-        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description, includes_video_library)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [name.trim(), description || null, price, currency || "MXN",
       duration_days || 30, class_limit || null,
       cat, JSON.stringify(features || []), is_active ?? true, sort_order ?? 0, nonTransferable, nonRepeatable, safeRepeatKey,
-      constanciaGoal, esfuerzoGoal, conexionGoal, reward_description || null]
+      constanciaGoal, esfuerzoGoal, conexionGoal, reward_description || null, includesVideoLibrary]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -8356,6 +8557,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
     ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description,
+    includes_video_library,
   } = req.body;
   try {
     const validCats = ["barre", "jumping", "pilates", "mixto", "all"];
@@ -8382,8 +8584,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          ring_esfuerzo_goal   = COALESCE($15, ring_esfuerzo_goal),
          ring_conexion_goal   = COALESCE($16, ring_conexion_goal),
          reward_description   = COALESCE($17, reward_description),
+         includes_video_library = COALESCE($18, includes_video_library),
          updated_at    = NOW()
-       WHERE id = $18 RETURNING *`,
+       WHERE id = $19 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
       duration_days || null, class_limit ?? null,
       cat, features ? JSON.stringify(features) : null,
@@ -8392,6 +8595,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
       ring_esfuerzo_goal === undefined ? null : Math.max(1, Number(ring_esfuerzo_goal)),
       ring_conexion_goal === undefined ? null : Math.max(1, Number(ring_conexion_goal)),
       reward_description || null,
+      includes_video_library ?? null,
       req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "No encontrado" });
@@ -8772,6 +8976,38 @@ async function applyCancellationRollback(client, booking, opts = {}) {
   }
 
   return result;
+}
+
+// ─── Video access state ──────────────────────────────────────────────────────
+// Single source of truth for "can this user access the video library?".
+// See docs/superpowers/specs/2026-05-14-video-library-access-design.md.
+async function computeVideoAccessState(userId) {
+  const planRes = await pool.query(
+    `SELECT p.id, p.name FROM memberships m
+       JOIN plans p ON p.id = m.plan_id
+      WHERE m.user_id = $1
+        AND m.status = 'active'
+        AND p.includes_video_library = true
+        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+      LIMIT 1`,
+    [userId]
+  );
+  const eligiblePlan = planRes.rows[0] || null;
+
+  const grantRes = await pool.query(
+    `SELECT id, granted_at FROM video_access_grants
+      WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`,
+    [userId]
+  );
+  const hasGrant = grantRes.rows.length > 0;
+
+  if (eligiblePlan && hasGrant) return { state: "unlocked", planName: eligiblePlan.name };
+  if (eligiblePlan) return { state: "locked_pending_grant", planName: eligiblePlan.name };
+
+  const offers = await pool.query(
+    `SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC`
+  );
+  return { state: "locked_no_plan", offers: offers.rows };
 }
 
 // PUT /api/classes/:id/cancel — admin cancela clase completa. Cascada:
@@ -10400,6 +10636,7 @@ const TEMPLATE_VARIABLES = {
   membership_expired: ["firstName"],
   renewal_reminder: ["firstName", "plan", "expiresAt"],
   transfer_rejected: ["firstName", "reason"],
+  video_access_granted: ["name"],
   rings_closed: ["firstName"],
   points_earned: ["firstName", "points", "totalPoints"],
   reward_redeemed: ["firstName", "rewardName", "points"],
@@ -11374,62 +11611,95 @@ app.post("/api/drive/make-public/:fileId", adminMiddleware, async (req, res) => 
   }
 });
 
-// GET /api/drive/video/:fileId — stream a public Google Drive video (proxy)
+// ── Drive proxy helper (Range requests, used by both routes) ─────────────────
+// Streams a Google Drive file with Range support. Caller is responsible for
+// authentication/authorization before invoking this helper.
+async function streamDriveFile(req, res, fileId) {
+  if (!fileId || fileId.length < 10) return res.status(400).end();
+
+  const accessToken = await getGoogleDriveAccessToken();
+
+  // First, get file metadata to know the mimeType & size
+  const metaResp = await axios.get(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,size,name`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const { mimeType, size, name } = metaResp.data;
+  const totalSize = parseInt(size, 10);
+
+  // Support Range requests for seeking
+  const rangeHeader = req.headers.range;
+  let start = 0;
+  let end = totalSize - 1;
+
+  if (rangeHeader) {
+    const parts = rangeHeader.replace(/bytes=/, "").split("-");
+    start = parseInt(parts[0], 10);
+    end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
+    if (start >= totalSize || end >= totalSize) {
+      res.writeHead(416, { "Content-Range": `bytes */${totalSize}` });
+      return res.end();
+    }
+  }
+
+  const chunkSize = end - start + 1;
+  const driveHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    Range: `bytes=${start}-${end}`,
+  };
+
+  const driveResp = await axios.get(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    { headers: driveHeaders, responseType: "stream" }
+  );
+
+  const statusCode = rangeHeader ? 206 : 200;
+  res.writeHead(statusCode, {
+    "Content-Type": mimeType || "video/mp4",
+    "Content-Length": chunkSize,
+    "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "public, max-age=86400",
+    "Content-Disposition": `inline; filename="${name || "video.mp4"}"`,
+  });
+
+  driveResp.data.pipe(res);
+  driveResp.data.on("error", (err) => {
+    console.error("[drive proxy stream error]", err.message);
+    if (!res.headersSent) res.status(500).end();
+  });
+}
+
+// GET /api/drive/video/:fileId — stream a public Google Drive video (proxy).
+// Public by design — used by homepage_video_cards. Gated alumna access goes
+// through /api/drive/secure-video/:fileId instead.
 app.get("/api/drive/video/:fileId", async (req, res) => {
   try {
-    const { fileId } = req.params;
-    if (!fileId || fileId.length < 10) return res.status(400).end();
-
-    const accessToken = await getGoogleDriveAccessToken();
-
-    // First, get file metadata to know the mimeType & size
-    const metaResp = await axios.get(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,size,name`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const { mimeType, size, name } = metaResp.data;
-    const totalSize = parseInt(size, 10);
-
-    // Support Range requests for seeking
-    const rangeHeader = req.headers.range;
-    let start = 0;
-    let end = totalSize - 1;
-
-    if (rangeHeader) {
-      const parts = rangeHeader.replace(/bytes=/, "").split("-");
-      start = parseInt(parts[0], 10);
-      end = parts[1] ? parseInt(parts[1], 10) : totalSize - 1;
-      if (start >= totalSize || end >= totalSize) {
-        res.writeHead(416, { "Content-Range": `bytes */${totalSize}` });
-        return res.end();
-      }
-    }
-
-    const chunkSize = end - start + 1;
-    const driveHeaders = {
-      Authorization: `Bearer ${accessToken}`,
-      Range: `bytes=${start}-${end}`,
-    };
-
-    const driveResp = await axios.get(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-      { headers: driveHeaders, responseType: "stream" }
-    );
-
-    const statusCode = rangeHeader ? 206 : 200;
-    res.writeHead(statusCode, {
-      "Content-Type": mimeType || "video/mp4",
-      "Content-Length": chunkSize,
-      "Content-Range": `bytes ${start}-${end}/${totalSize}`,
-      "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=86400",
-      "Content-Disposition": `inline; filename="${name || "video.mp4"}"`,
-    });
-
-    driveResp.data.pipe(res);
+    await streamDriveFile(req, res, req.params.fileId);
   } catch (err) {
     console.error("Drive video proxy error:", err?.response?.data || err.message);
     if (!res.headersSent) res.status(500).json({ message: "Error al obtener video" });
+  }
+});
+
+// GET /api/drive/secure-video/:fileId — gated proxy with HMAC token validation.
+// Token must be issued by /api/videos/:id/stream-url. Public-by-design assets
+// (homepage_video_cards) keep using /api/drive/video/:fileId.
+app.get("/api/drive/secure-video/:fileId", async (req, res) => {
+  try {
+    const { t: token, exp, u: userId } = req.query;
+    if (!token || !exp || !userId) return res.status(401).end();
+    const ok = verifyStreamToken({
+      token: String(token),
+      userId: String(userId),
+      fileId: req.params.fileId,
+      exp: Number(exp),
+    });
+    if (!ok) return res.status(401).end();
+    await streamDriveFile(req, res, req.params.fileId);
+  } catch (err) {
+    console.error("[GET /drive/secure-video] error:", err.message);
+    if (!res.headersSent) res.status(500).end();
   }
 });
 
@@ -13589,12 +13859,13 @@ app.post("/api/admin/videos", adminMiddleware, async (req, res) => {
 // PUT /api/admin/videos/:id
 app.put("/api/admin/videos/:id", adminMiddleware, async (req, res) => {
   try {
-    const { title, description, videoUrl, thumbnailUrl, classTypeId, instructorId, durationMinutes, accessType, isPublished, isFeatured, sortOrder } = req.body;
+    const { title, description, videoUrl, thumbnailUrl, classTypeId, instructorId, durationMinutes, accessType, isPublished, isFeatured, sortOrder, isTrial } = req.body;
     const r = await pool.query(
       `UPDATE videos SET title=$1, description=$2, video_url=$3, thumbnail_url=$4, class_type_id=$5,
-       instructor_id=$6, duration_minutes=$7, access_type=$8, is_published=$9, is_featured=$10, sort_order=$11, updated_at=NOW()
-       WHERE id=$12 RETURNING *`,
-      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, req.params.id]
+       instructor_id=$6, duration_minutes=$7, access_type=$8, is_published=$9, is_featured=$10, sort_order=$11,
+       is_trial=COALESCE($12, is_trial), updated_at=NOW()
+       WHERE id=$13 RETURNING *`,
+      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, isTrial ?? null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Video no encontrado" });
     return res.json({ data: r.rows[0] });

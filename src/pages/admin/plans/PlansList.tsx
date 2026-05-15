@@ -55,6 +55,7 @@ const planSchema = z.object({
   ringConexionGoal: z.coerce.number().min(1).default(10),
   rewardDescription: z.string().optional(),
   sortOrder: z.coerce.number().default(0),
+  includesVideoLibrary: z.boolean().default(false),
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -90,6 +91,7 @@ function normalizePlanRow(row: any): Plan {
     ringConexionGoal: Number(row?.ringConexionGoal ?? row?.ring_conexion_goal ?? 10),
     rewardDescription: String(row?.rewardDescription ?? row?.reward_description ?? ""),
     sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
+    includesVideoLibrary: Boolean(row?.includesVideoLibrary ?? row?.includes_video_library ?? false),
   };
 }
 
@@ -99,6 +101,7 @@ const EMPTY: PlanFormData = {
   features: "", isActive: true, isNonTransferable: false, isNonRepeatable: false, repeatKey: "",
   ringConstanciaGoal: 1, ringEsfuerzoGoal: 1, ringConexionGoal: 10, rewardDescription: "",
   sortOrder: 0,
+  includesVideoLibrary: false,
 };
 
 function serializePlan(d: PlanFormData) {
@@ -109,6 +112,7 @@ function serializePlan(d: PlanFormData) {
     features: d.features
       ? d.features.split(",").map((s) => s.trim()).filter(Boolean)
       : [],
+    includes_video_library: !!d.includesVideoLibrary,
   };
 }
 
@@ -126,6 +130,7 @@ function normalizePlan(p: Plan): PlanFormData {
     ringEsfuerzoGoal: Number((p as any).ringEsfuerzoGoal ?? (p as any).ring_esfuerzo_goal ?? 1),
     ringConexionGoal: Number((p as any).ringConexionGoal ?? (p as any).ring_conexion_goal ?? 10),
     rewardDescription: String((p as any).rewardDescription ?? (p as any).reward_description ?? ""),
+    includesVideoLibrary: Boolean((p as any).includesVideoLibrary ?? (p as any).includes_video_library ?? false),
   };
 }
 
@@ -211,10 +216,15 @@ const PlansList = () => {
                       <TableCell>{p.durationDays} días</TableCell>
                       <TableCell>{p.classLimit == null ? "Ilimitado" : p.classLimit === 0 ? "0" : p.classLimit}</TableCell>
                       <TableCell>
-                        {(() => {
-                          const cat = CATEGORIES.find((c) => c.value === (p.classCategory ?? "all")) ?? CATEGORIES[3];
-                          return <Badge className={`border ${cat.color}`}>{cat.label}</Badge>;
-                        })()}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(() => {
+                            const cat = CATEGORIES.find((c) => c.value === (p.classCategory ?? "all")) ?? CATEGORIES[3];
+                            return <Badge className={`border ${cat.color}`}>{cat.label}</Badge>;
+                          })()}
+                          {Boolean((p as any).includesVideoLibrary ?? (p as any).includes_video_library) && (
+                            <Badge variant="secondary" className="text-[0.6rem]">📹 Videos</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1.5 text-xs">
@@ -380,6 +390,18 @@ const PlansList = () => {
                   onCheckedChange={(v) => form.setValue("isActive", v)}
                 />
                 <Label>Activo</Label>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border border-border p-3">
+                <Switch
+                  checked={form.watch("includesVideoLibrary")}
+                  onCheckedChange={(v) => form.setValue("includesVideoLibrary", v)}
+                />
+                <div className="space-y-0.5">
+                  <Label className="cursor-pointer">Incluye acceso a biblioteca de videos</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Las alumnas con este plan podrán acceder a las clases grabadas (requiere conceder acceso manualmente).
+                  </p>
+                </div>
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={closeDialog}>Cancelar</Button>
