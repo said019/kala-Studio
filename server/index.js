@@ -8804,6 +8804,38 @@ async function applyCancellationRollback(client, booking, opts = {}) {
   return result;
 }
 
+// ─── Video access state ──────────────────────────────────────────────────────
+// Single source of truth for "can this user access the video library?".
+// See docs/superpowers/specs/2026-05-14-video-library-access-design.md.
+async function computeVideoAccessState(userId) {
+  const planRes = await pool.query(
+    `SELECT p.id, p.name FROM memberships m
+       JOIN plans p ON p.id = m.plan_id
+      WHERE m.user_id = $1
+        AND m.status = 'active'
+        AND p.includes_video_library = true
+        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+      LIMIT 1`,
+    [userId]
+  );
+  const eligiblePlan = planRes.rows[0] || null;
+
+  const grantRes = await pool.query(
+    `SELECT id, granted_at FROM video_access_grants
+      WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`,
+    [userId]
+  );
+  const hasGrant = grantRes.rows.length > 0;
+
+  if (eligiblePlan && hasGrant) return { state: "unlocked", planName: eligiblePlan.name };
+  if (eligiblePlan) return { state: "locked_pending_grant", planName: eligiblePlan.name };
+
+  const offers = await pool.query(
+    `SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC`
+  );
+  return { state: "locked_no_plan", offers: offers.rows };
+}
+
 // PUT /api/classes/:id/cancel — admin cancela clase completa. Cascada:
 //   1. classes.status = 'cancelled'
 //   2. Cada booking activo: status='cancelled', cancelled_at=NOW(), restaura
