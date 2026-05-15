@@ -1054,7 +1054,9 @@ async function ensureSchema() {
         note        TEXT NULL
       )
     `).catch(() => { });
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_vag_user_active ON video_access_grants(user_id) WHERE revoked_at IS NULL`).catch(() => { });
+    // UNIQUE: prevents race where two concurrent POST grants both create active rows.
+    // The POST grant handler catches code 23505 (unique violation) and treats as alreadyGranted.
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_vag_user_active ON video_access_grants(user_id) WHERE revoked_at IS NULL`).catch(() => { });
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
@@ -7978,12 +7980,29 @@ app.post("/api/admin/users/:userId/video-access", adminMiddleware, async (req, r
       return res.json({ data: existing.rows[0], alreadyGranted: true });
     }
 
-    const r = await pool.query(
-      `INSERT INTO video_access_grants (user_id, granted_by, note)
-         VALUES ($1, $2, $3) RETURNING *`,
-      [userId, req.userId, note || null]
-    );
-    const grant = r.rows[0];
+    let grant;
+    try {
+      const r = await pool.query(
+        `INSERT INTO video_access_grants (user_id, granted_by, note)
+           VALUES ($1, $2, $3) RETURNING *`,
+        [userId, req.userId, note || null]
+      );
+      grant = r.rows[0];
+    } catch (err) {
+      // Race protection: if a concurrent POST won and created an active grant
+      // between our SELECT and INSERT, the partial UNIQUE index throws 23505.
+      // Re-fetch and return the existing one — same outcome as the SELECT branch above.
+      if (err && err.code === "23505") {
+        const again = await pool.query(
+          "SELECT id, granted_at, granted_by FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+          [userId]
+        );
+        if (again.rows.length) {
+          return res.json({ data: again.rows[0], alreadyGranted: true });
+        }
+      }
+      throw err;
+    }
 
     // Notify alumna via WA (fire-and-forget). Template added in Task 6.1.
     if (u.rows[0].phone) {
