@@ -8021,6 +8021,26 @@ app.delete("/api/admin/users/:userId/video-access", adminMiddleware, async (req,
   }
 });
 
+// GET /api/admin/video-access/pending — alumnas con plan elegible activo SIN grant activo
+app.get("/api/admin/video-access/pending", adminMiddleware, async (_req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT u.id, u.display_name, u.email, u.phone, p.name AS plan_name, m.end_date
+        FROM users u
+        JOIN memberships m ON m.user_id = u.id AND m.status = 'active'
+                            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        JOIN plans p ON p.id = m.plan_id AND p.includes_video_library = true
+        LEFT JOIN video_access_grants g ON g.user_id = u.id AND g.revoked_at IS NULL
+       WHERE g.id IS NULL
+       ORDER BY m.end_date ASC, u.display_name ASC
+    `);
+    return res.json({ data: r.rows });
+  } catch (err) {
+    console.error("GET /admin/video-access/pending error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Routes: /api/videos ────────────────────────────────────────────────────
 
 // GET /api/videos/categories
