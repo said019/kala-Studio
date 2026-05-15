@@ -30,6 +30,8 @@ import {
   Award,
   ClipboardList,
   Wallet as WalletIcon,
+  Film,
+  ArrowRight,
 } from "lucide-react";
 import type { ClientMembership } from "@/types/membership";
 import type { BookingClient } from "@/types/booking";
@@ -81,6 +83,13 @@ const Dashboard = () => {
     queryKey: ["recent-videos"],
     queryFn: async () => (await api.get("/videos?limit=4")).data,
   });
+
+  const { data: vaData } = useQuery({
+    queryKey: ["me-video-access"],
+    queryFn: async () => (await api.get("/me/video-access")).data,
+    staleTime: 30_000,
+  });
+  const access = vaData?.data; // { state, planName?, offers? }
 
   const membership: ClientMembership | null = membershipData?.data ?? membershipData ?? null;
   const bookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
@@ -427,6 +436,59 @@ const Dashboard = () => {
             />
           </ListGroup>
         </Section>
+
+        {/* ── Video library access card ── */}
+        {access && access.state !== "locked_no_plan" && (
+          <Section>
+            <Link
+              to="/app/videos"
+              className="block no-underline rounded-3xl p-5 sm:p-6"
+              data-lift
+              style={{
+                backgroundColor: KALA.blush,
+                border: `1px solid ${KALA.berry}22`,
+                color: KALA.ink,
+              }}
+            >
+              <div className="flex items-center gap-4">
+                <span
+                  className="grid h-12 w-12 place-items-center rounded-2xl shrink-0"
+                  style={{
+                    backgroundColor: access.state === "unlocked" ? KALA.berry : KALA.orange,
+                    color: KALA.cream,
+                  }}
+                >
+                  <Film size={20} strokeWidth={1.8} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className="text-[0.66rem] uppercase tracking-[0.22em]"
+                    style={{ color: KALA.ink, opacity: 0.55 }}
+                  >
+                    Biblioteca de videos
+                  </p>
+                  <p
+                    className="mt-1 text-[1rem] font-medium leading-tight"
+                    style={{ color: KALA.ink }}
+                  >
+                    {access.state === "unlocked"
+                      ? "Tienes acceso a la biblioteca"
+                      : "Tu acceso está en revisión"}
+                  </p>
+                  <p
+                    className="mt-1 text-[0.82rem]"
+                    style={{ color: KALA.ink, opacity: 0.65 }}
+                  >
+                    {access.state === "unlocked"
+                      ? "Reproduce las clases cuando quieras."
+                      : "Mientras tanto, puedes ver las clases muestra."}
+                  </p>
+                </div>
+                <ArrowRight size={18} style={{ color: KALA.berry, opacity: 0.7 }} />
+              </div>
+            </Link>
+          </Section>
+        )}
 
         {/* ── Recent videos ── */}
         {videos.length > 0 && (

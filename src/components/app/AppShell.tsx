@@ -9,6 +9,7 @@ import {
   ClipboardList,
   Wallet as WalletIcon,
   User as UserIcon,
+  Film,
   Bell,
   ChevronRight,
   LogOut,
@@ -35,6 +36,7 @@ const NAV: readonly NavItem[] = [
   { to: "/app", label: "Inicio", icon: Home, exact: true },
   { to: "/app/classes", label: "Reservar", icon: CalendarDays },
   { to: "/app/bookings", label: "Mis clases", icon: ClipboardList },
+  { to: "/app/videos", label: "Videos", icon: Film },
   { to: "/app/wallet", label: "Wallet", icon: WalletIcon },
   { to: "/app/profile", label: "Perfil", icon: UserIcon },
 ];
@@ -275,7 +277,7 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
 
         {/* Mobile bottom nav */}
         <nav
-          className="lg:hidden fixed inset-x-0 bottom-0 z-40 grid grid-cols-5"
+          className="lg:hidden fixed inset-x-0 bottom-0 z-40 grid grid-cols-6"
           style={{
             backgroundColor: `${KALA.cream}f5`,
             backdropFilter: "blur(14px)",
