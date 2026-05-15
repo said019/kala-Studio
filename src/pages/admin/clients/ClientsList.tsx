@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
@@ -96,7 +96,8 @@ const ClientsList = () => {
   const pendingClients: any[] = Array.isArray(pendingData?.data) ? pendingData.data : [];
   const pendingIds = new Set(pendingClients.map((c: any) => c.id));
 
-  const [showOnlyPending, setShowOnlyPending] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [showOnlyPending, setShowOnlyPending] = useState(searchParams.get("pending") === "1");
   const filteredClients = showOnlyPending
     ? clients.filter((c: any) => pendingIds.has(c.id))
     : clients;

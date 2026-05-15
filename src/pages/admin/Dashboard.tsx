@@ -6,7 +6,8 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus, Film } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, AreaChart, Area } from "recharts";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -85,6 +86,14 @@ const Dashboard = () => {
     queryKey: ["dashboard-dormant"],
     queryFn: async () => (await api.get("/reports/dormant")).data,
   });
+
+  const { data: vaPending } = useQuery<{ data: any[] }>({
+    queryKey: ["video-access-pending"],
+    queryFn: async () => (await api.get("/admin/video-access/pending")).data,
+    staleTime: 60_000,
+  });
+  const pendingVideoList: any[] = Array.isArray(vaPending?.data) ? vaPending.data : [];
+  const pendingCount = pendingVideoList.length;
   const dorm = dormantData?.data ?? null;
   const dormantRows = dorm ? [
     { label: "≤7d", value: dorm.active_7d, color: "#778455" },
@@ -135,6 +144,31 @@ const Dashboard = () => {
             <div data-stagger-item>{metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#F58A24")}</div>
             <div data-stagger-item>{metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#F97316")}</div>
           </div>
+
+          {/* Pending video access widget */}
+          {pendingCount > 0 && (
+            <Card
+              data-lift
+              className="cursor-pointer hover:border-amber-500/60 transition-colors mb-6 border-l-4 border-l-amber-500"
+              onClick={() => navigate("/admin/clients?pending=1")}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Film size={15} className="text-amber-600" />
+                  {pendingCount} {pendingCount === 1 ? "alumna espera" : "alumnas esperan"} acceso a videos
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-xs text-muted-foreground">
+                  {pendingVideoList.slice(0, 3).map((c: any) => c.display_name).filter(Boolean).join(", ")}
+                  {pendingCount > 3 && ` y ${pendingCount - 3} más`}
+                </p>
+                <Button variant="link" size="sm" className="text-xs px-0 mt-2 h-auto text-amber-600">
+                  Ver lista →
+                </Button>
+              </CardContent>
+            </Card>
+          )}
 
           {/* ── Mini charts row ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
