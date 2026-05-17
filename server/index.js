@@ -375,9 +375,14 @@ function mergeSettingsWithDefaults(key, rawValue) {
 // ─── File upload (memory storage, max 10 MB) ────────────────────────────────
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-// ─── File upload for videos (disk storage, max 500 MB) ─────────────────────
-// Use disk storage so large videos don't fill Node.js RAM
-const VIDEO_MAX_MB = 500;
+// ─── File upload for videos (disk storage, max 8 GB) ───────────────────────
+// Disk storage (os.tmpdir) so large videos stream to disk, never into Node RAM.
+// 8 GB allows full-quality 1080p/4K class recordings without forcing the admin
+// to re-compress. The primary admin upload UI uses the chunked Drive resumable
+// path (/drive/init-upload + /drive/upload-chunk), which streams 5 MB at a time;
+// this multer limit only governs the legacy /api/videos/upload and
+// /api/homepage-video-cards/:id/upload paths.
+const VIDEO_MAX_MB = 8192;
 const uploadVideo = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, os.tmpdir()),

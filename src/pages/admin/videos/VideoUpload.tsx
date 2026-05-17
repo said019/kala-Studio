@@ -115,10 +115,12 @@ const VideoUpload = () => {
     const videoFile = e.target.files?.[0];
     if (!videoFile) return;
 
-    // Client-side size check (500 MB)
-    const MAX_MB = 500;
+    // Client-side size check (8 GB). Upload is a passthrough — Drive stores the
+    // original file, no re-compression — so this only caps file size, not quality.
+    const MAX_MB = 8192;
     if (videoFile.size > MAX_MB * 1024 * 1024) {
-      toast({ title: `El archivo es demasiado grande. Máximo ${MAX_MB} MB.`, variant: "destructive" });
+      const gb = (MAX_MB / 1024).toFixed(0);
+      toast({ title: `El archivo es demasiado grande. Máximo ${gb} GB.`, variant: "destructive" });
       return;
     }
 
@@ -265,7 +267,7 @@ const VideoUpload = () => {
                   <>
                     <Upload size={28} className="text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">Haz click para seleccionar el video</p>
-                    <p className="text-xs text-muted-foreground">MP4, MOV, AVI — máx. 500 MB</p>
+                    <p className="text-xs text-muted-foreground">MP4, MOV, AVI — máx. 8 GB · sin recompresión, sube en buena calidad</p>
                   </>
                 )}
                 <input
