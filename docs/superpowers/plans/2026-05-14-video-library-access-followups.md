@@ -116,9 +116,11 @@ of these are set:
   whole file on our server.
 - Upload time at 8 GB is long (45-90 min on typical connections). The chunked
   path resumes on interruption (Drive 308), but the in-memory session map
-  (`driveUploadSessions`) is cleared after **2 hours** (`init-upload` handler) and
-  on server restart — an upload that exceeds that window will fail. If 8 GB
-  uploads routinely time out, consider extending that TTL or persisting sessions.
+  (`driveUploadSessions`) is cleared after **6 hours** (`init-upload` handler,
+  raised from 2h in commit `f2f3aef`) and on server restart — an upload that
+  exceeds that window, or that straddles a deploy/restart, will fail. If uploads
+  still routinely time out, the next step is persisting sessions (DB/Redis)
+  rather than the in-memory `Map` so they survive restarts.
 
 ## Operational reminder
 
