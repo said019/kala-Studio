@@ -229,6 +229,21 @@ export default function Schedule() {
             Kala · Barre Studio
           </p>
 
+          <div className="mb-8 grid grid-cols-1 gap-3 rounded-3xl border border-primary/15 bg-white/70 p-5 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">Horarios</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Lunes a viernes: 7:00 AM, 8:00 AM, 7:00 PM y 8:00 PM.
+              </p>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Sábados: 7:00 AM, 8:00 AM y 9:00 AM.
+              </p>
+            </div>
+            <span className="w-fit rounded-full bg-primary/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+              Cupos de 4 a 5 alumnas
+            </span>
+          </div>
+
           {/* Month nav */}
           <div className="flex items-center gap-5 mb-8">
             <button

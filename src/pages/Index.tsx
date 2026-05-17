@@ -527,7 +527,7 @@ const Index = () => {
           <div className="flex whitespace-nowrap gap-12 py-3 animate-[scroll-left_38s_linear_infinite]">
             {[...Array(2)].map((_, dup) => (
               <div key={dup} className="flex items-center gap-12 pr-12 shrink-0">
-                {["bienestar", "comunidad", "compromiso", "barre", "energía", "cercanía", "san luis potosí"].map((w) => (
+                {["Fuerza", "Equilibrio", "Flexibilidad", "Comunidad", "Energía", "Compromiso"].map((w) => (
                   <span key={w + dup} className="flex items-center gap-12 text-[0.86rem] uppercase tracking-[0.36em] font-medium">
                     {w}
                     <span className="inline-block h-1 w-1 rounded-full" style={{ backgroundColor: KALA.cream }} />
@@ -600,12 +600,12 @@ const Index = () => {
                 Tu semana en Kala
               </span>
               <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
-                Cada clase,
-                <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>otra cosa.</span>
+                Evoluciona
+                <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>en cada clase.</span>
               </h2>
             </div>
             <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
-              Cada semana cambian los tipos de clase, no los horarios. Toca una para conocerla. Cupos de 4 a 5 alumnas.
+              Playlists y rutinas nuevas cada día. Una experiencia diferente con la misma calidad de siempre. Cupos de 4 a 5 alumnas.
             </p>
           </div>
 
@@ -742,17 +742,17 @@ const Index = () => {
               Conoce a tu coach
             </span>
             <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.4vw, 4.8rem)" }}>
-              Aquí te recibe
+              Aquí crecemos
               <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>
-                Karla.
+                juntas.
               </span>
             </h2>
             <div className="mt-7 space-y-5 text-[1rem] leading-[1.8] text-[color:var(--ink)]/76 max-w-[58ch]">
               <p>
-                Karla guía cada clase, conoce el ritmo de cada alumna y ajusta cada postura para que ningún día sea igual al anterior. Cinco lugares por clase para que de verdad reciba a cada una por su nombre.
+                Karla no solo dirige una clase; diseña una experiencia personalizada para cada cuerpo que entra al estudio. Con un enfoque profundo en la alineación y el ritmo individual, se asegura de que cada ajuste te acerque a tu mejor versión.
               </p>
               <p>
-                Su filosofía es simple: <strong style={{ color: KALA.ink, fontWeight: 600 }}>Barre es para todas</strong>, sin condición previa. Si llegas, ella te lleva. Lo que importa es venir y volver.
+                "Mi filosofía es simple: <strong style={{ color: KALA.ink, fontWeight: 600 }}>Barre es para todas, sin condiciones.</strong> No importa tu nivel de condición física actual; lo único que importa es la disposición de llegar y la constancia de volver. Si tú pones el esfuerzo, yo te guío en el camino."
               </p>
             </div>
 
@@ -891,8 +891,8 @@ const ProgresoSection = ({ onCta }: { onCta: () => void }) => {
               Tu progreso es la meta
             </span>
             <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
-              No configures tu meta,
-              <span className="block italic font-alilato font-normal" style={{ color: KALA.orange }}>gánala.</span>
+              Tu avance
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.orange }}>se ve en la app.</span>
             </h2>
           </div>
           <p className="lg:col-span-5 max-w-[44ch] text-[0.96rem] leading-[1.75] text-[color:var(--ink)]/72">
@@ -971,7 +971,7 @@ const ProgresoSection = ({ onCta }: { onCta: () => void }) => {
                 <span className="block italic font-alilato font-normal opacity-95">desbloquea algo.</span>
               </h3>
               <p className="mt-3 text-[0.9rem] leading-[1.6] opacity-90 max-w-[36ch]">
-                Una clase extra, un descuento, merch del estudio o un premio interno. Karla decide la recompensa por plan.
+                Una clase extra, un descuento, merch del estudio o un premio interno cuando cierres tus anillos.
               </p>
             </div>
             <button
@@ -1454,7 +1454,7 @@ const ContactoSection = () => {
     { icon: <MapPin size={18} />, label: "Ubicación", value: "Av. Nicolás Zapata 845 int. 4, Plaza San Martín, San Luis Potosí" },
     { icon: <Phone size={18} />, label: "Teléfono", value: "444 307 3266", href: "tel:+524443073266" },
     { icon: <Mail size={18} />, label: "Email", value: "info@kalabarre.mx", href: "mailto:info@kalabarre.mx" },
-    { icon: <Clock size={18} />, label: "Horarios", value: "Lun a Vie 7am a 3pm y 5pm a 9pm · Sáb 7am a 9am" },
+    { icon: <Clock size={18} />, label: "Horarios", value: "Lun a Vie 7:00 AM, 8:00 AM, 7:00 PM y 8:00 PM · Sáb 7:00 AM, 8:00 AM y 9:00 AM" },
   ];
   return (
     <section id="contacto" className="px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
