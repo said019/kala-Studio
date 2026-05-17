@@ -64,6 +64,62 @@ Works because both sides default to utf-8 and the token is base64url ASCII. `Buf
 - **I3** — `<video>` `onError` refresh + position restore on token expiry. Fixed in `c7ac1d1`.
 - **I4** — `ClientsList` syncs `showOnlyPending` with `?pending=1` via `useEffect`. Fixed in `c7ac1d1`.
 
+## Google Drive storage — configuration runbook (REQUIRED for uploads to work)
+
+The video upload is a **passthrough**: the file streams browser → our server (5 MB
+chunks) → Google Drive, stored as-is with **no transcoding/recompression**. Quality
+is whatever the source file is. Max size raised to **8 GB** (commit `572813c`):
+`server/index.js` `VIDEO_MAX_MB=8192` + `src/pages/admin/videos/VideoUpload.tsx`
+`MAX_MB=8192`.
+
+For uploads to work, the Drive account (the 5 TB one) must be wired via **Railway
+environment variables** (code already reads them; nothing to change in code).
+`POST /api/drive/init-upload` returns `503 "Google Drive no configurado"` until all
+of these are set:
+
+| Env var | What it is |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth client ID of a Google Cloud project with the Drive API enabled |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret for that client |
+| `GOOGLE_REFRESH_TOKEN` | Refresh token for the Google account that owns the 5 TB Drive, with scope `https://www.googleapis.com/auth/drive` |
+| `GOOGLE_DRIVE_FOLDER_ID` | ID of the destination folder in that Drive (the part after `/folders/` in the folder URL). If empty, files land in My Drive root. |
+
+### How to obtain them (one-time)
+
+1. **Google Cloud Console** → create/select a project → **APIs & Services** →
+   enable **Google Drive API**.
+2. **Credentials** → Create Credentials → **OAuth client ID** → type *Web
+   application*. Add `https://developers.google.com/oauthplayground` as an
+   authorized redirect URI. Copy the **Client ID** and **Client Secret**.
+3. **OAuth Playground** (`developers.google.com/oauthplayground`) → gear icon →
+   "Use your own OAuth credentials" → paste client ID + secret. In the scope box
+   enter `https://www.googleapis.com/auth/drive` → Authorize → sign in with the
+   **account that owns the 5 TB Drive** → Exchange authorization code for tokens →
+   copy the **Refresh token**.
+4. In the 5 TB Drive, create the destination folder (e.g. "Kala Videos"), open it,
+   copy the **folder ID** from the URL.
+5. **Railway** → the API service → **Variables** → add the 4 vars → redeploy.
+
+### Verify after setting
+
+- Admin → `/admin/videos/upload` → pick a small test clip → it should upload and
+  appear in the library, and the file should show up in the Drive folder.
+- Or hit `POST /api/drive/init-upload` with an admin JWT; a 200 with `{sessionId}`
+  means Drive is wired; 503 means a var is still missing.
+
+### Notes / risks at 8 GB
+
+- The multer path (`/api/videos/upload`, legacy homepage-card upload) writes the
+  temp file to `os.tmpdir()` on Railway's ephemeral disk. An 8 GB upload needs
+  ~8 GB free tmp space transiently. The **chunked Drive path** (what
+  `VideoUpload.tsx` uses) does NOT — it streams 5 MB at a time and never lands the
+  whole file on our server.
+- Upload time at 8 GB is long (45-90 min on typical connections). The chunked
+  path resumes on interruption (Drive 308), but the in-memory session map
+  (`driveUploadSessions`) is cleared after **2 hours** (`init-upload` handler) and
+  on server restart — an upload that exceeds that window will fail. If 8 GB
+  uploads routinely time out, consider extending that TTL or persisting sessions.
+
 ## Operational reminder
 
 The Postgres connection string used during this feature's development/testing was exposed in the build session. **Rotate it** (Railway → Postgres service → Connect → Reset Password) if not already done. The DB test reads `DATABASE_URL` from env, so no code change needed after rotation.
