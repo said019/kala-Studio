@@ -11545,8 +11545,11 @@ app.post("/api/drive/init-upload", adminMiddleware, async (req, res) => {
     // Store session in memory (short-lived) for the chunk upload endpoint
     const sessionId = crypto.randomBytes(16).toString("hex");
     driveUploadSessions.set(sessionId, { uploadUrl, accessToken, mimeType, fileSize: Number(fileSize) || 0, createdAt: Date.now() });
-    // Clean up old sessions after 2 hours
-    setTimeout(() => driveUploadSessions.delete(sessionId), 2 * 60 * 60 * 1000);
+    // Clean up old sessions after 6 hours. Long enough for an 8 GB upload on a
+    // slow connection (45-90 min typical, with room for retries/pauses). The
+    // chunk PUT goes to Drive's resumable uploadUrl which is pre-authorized, so
+    // the stored OAuth accessToken going stale (~1h) does not break late chunks.
+    setTimeout(() => driveUploadSessions.delete(sessionId), 6 * 60 * 60 * 1000);
 
     return res.json({ data: { sessionId } });
   } catch (err) {
