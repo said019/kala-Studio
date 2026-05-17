@@ -18,7 +18,6 @@ import {
 } from "lucide-react";
 
 import { KALA } from "@/components/app/tokens";
-import kalaIconUrl from "@/assets/kala/kala-icon.png";
 export { KALA };
 
 /* ═══════════════════════════════════════════════════════════
@@ -102,21 +101,13 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
         className="hidden lg:flex sticky top-0 self-start h-screen flex-col px-6 py-7"
         style={{ borderRight: `1px solid ${KALA.border}`, backgroundColor: KALA.cream }}
       >
-        <Link to="/" className="flex items-center gap-3 no-underline mb-10">
+        <Link to="/" className="flex items-center no-underline mb-10">
           <img
-            src={kalaIconUrl}
-            alt=""
-            className="h-9 w-9 object-contain"
+            src="/wallet-logo@2x.png"
+            alt="Kala Barre Studio"
+            className="h-10 w-auto object-contain"
             style={{ filter: "drop-shadow(0 1px 1px rgba(46,32,28,0.06))" }}
           />
-          <div className="flex items-baseline gap-2">
-            <span className="font-bebas text-[1.65rem] leading-none tracking-tight" style={{ color: KALA.berry }}>
-              kala
-            </span>
-            <span className="text-[0.58rem] uppercase tracking-[0.32em]" style={{ color: KALA.ink, opacity: 0.5 }}>
-              SLP
-            </span>
-          </div>
         </Link>
 
         <nav className="flex flex-col gap-1">
@@ -223,11 +214,8 @@ export const AppShell = ({ children, hideGreeting = false }: AppShellProps) => {
             borderBottom: `1px solid ${KALA.border}`,
           }}
         >
-          <Link to="/app" className="flex items-center gap-2 no-underline">
-            <img src={kalaIconUrl} alt="" className="h-7 w-7 object-contain" />
-            <span className="font-bebas text-[1.4rem] leading-none tracking-tight" style={{ color: KALA.berry }}>
-              kala
-            </span>
+          <Link to="/app" className="flex items-center no-underline">
+            <img src="/wallet-logo@2x.png" alt="Kala Barre Studio" className="h-8 w-auto object-contain" />
           </Link>
           <div className="flex items-center gap-2">
             <Link
