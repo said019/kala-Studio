@@ -18,6 +18,8 @@ import {
   Mail,
   Clock,
   MessageCircle,
+  Film,
+  CheckCircle2,
 } from "lucide-react";
 
 const IconInstagram = ({ size = 16 }: { size?: number }) => (
@@ -594,17 +596,15 @@ const Index = () => {
       {/* ═════════ CLASES ═════════ */}
       <section id="clases" className="relative px-5 sm:px-8 lg:px-12 pb-20 lg:pb-28" style={{ backgroundColor: KALA.cream }}>
         <div className="mx-auto max-w-[1320px]">
-          <div className="reveal opacity-0 translate-y-8 transition-all duration-700 flex flex-col lg:flex-row lg:items-end justify-between gap-6 mb-10 lg:mb-14">
-            <div>
-              <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
-                Tu semana en Kala
-              </span>
-              <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
-                Evoluciona
-                <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>en cada clase.</span>
-              </h2>
-            </div>
-            <p className="max-w-[40ch] text-[0.95rem] leading-[1.7] text-[color:var(--ink)]/70">
+          <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mb-10 lg:mb-14">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
+              Tu semana en Kala
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+              Evoluciona
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>en cada clase.</span>
+            </h2>
+            <p className="mt-6 max-w-[56ch] text-[1.02rem] leading-[1.75] text-[color:var(--ink)]/72">
               Playlists y rutinas nuevas cada día. Una experiencia diferente con la misma calidad de siempre. Cupos de 4 a 5 alumnas.
             </p>
           </div>
@@ -1180,6 +1180,56 @@ const PaquetesSection = ({
               </button>
             </div>
           )}
+        </div>
+
+        {/* Recorded classes benefit */}
+        <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mb-10 grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          <div className="lg:col-span-5 rounded-[24px] p-7 sm:p-9 flex flex-col justify-between gap-8" style={{ backgroundColor: KALA.olive, color: KALA.cream }}>
+            <div>
+              <span className="inline-flex items-center gap-2 text-[0.62rem] uppercase tracking-[0.24em]" style={{ color: KALA.cream, opacity: 0.78 }}>
+                <Film size={14} />
+                Clases grabadas
+              </span>
+              <h3 className="font-bebas mt-4 leading-[0.92]" style={{ fontSize: "clamp(2rem, 3.5vw, 3.2rem)" }}>
+                Algunos paquetes
+                <span className="block italic font-alilato font-normal opacity-90">también entrenan contigo en casa.</span>
+              </h3>
+            </div>
+            <p className="text-[0.94rem] leading-[1.7] opacity-85 max-w-[42ch]">
+              Los planes seleccionados pueden incluir acceso a la biblioteca de videos: clases completas, técnica y rutinas para mantener tu constancia fuera del estudio.
+            </p>
+          </div>
+
+          <div className="lg:col-span-7 rounded-[24px] p-7 sm:p-9" style={{ backgroundColor: KALA.cream, color: KALA.ink }}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {[
+                { title: "Rutinas a tu ritmo", text: "Practica cuando no alcanzas clase presencial o quieres reforzar postura." },
+                { title: "Técnica y seguimiento", text: "Repite ajustes clave de barre, alineación y activación sin improvisar." },
+                { title: "Acceso según plan", text: "Si tu paquete lo incluye, el equipo activa la biblioteca desde tu cuenta." },
+              ].map((item) => (
+                <div key={item.title} className="pt-4" style={{ borderTop: `1px solid ${KALA.border}` }}>
+                  <span className="grid h-9 w-9 place-items-center rounded-full" style={{ backgroundColor: `${KALA.olive}1a`, color: KALA.olive }}>
+                    <CheckCircle2 size={15} />
+                  </span>
+                  <h4 className="font-bebas mt-4 leading-tight" style={{ color: KALA.ink, fontSize: "1.35rem" }}>{item.title}</h4>
+                  <p className="mt-2 text-[0.86rem] leading-[1.65] text-[color:var(--ink)]/68">{item.text}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-7 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[18px] px-5 py-4" style={{ backgroundColor: KALA.blush }}>
+              <p className="text-[0.86rem] leading-[1.6] text-[color:var(--ink)]/72">
+                Busca la leyenda de biblioteca incluida al elegir tu paquete o pregúntanos por WhatsApp antes de comprar.
+              </p>
+              <button
+                onClick={onPick}
+                className="group inline-flex w-fit items-center gap-2 rounded-full px-5 py-2.5 text-[0.72rem] font-medium uppercase tracking-[0.18em] transition-transform hover:-translate-y-0.5"
+                style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+              >
+                Ver paquetes
+                <ArrowUpRight size={13} className="transition-transform group-hover:translate-x-0.5" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Monthly packages — editorial table row layout */}

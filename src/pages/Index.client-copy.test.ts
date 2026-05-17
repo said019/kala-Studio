@@ -23,4 +23,11 @@ describe("Kala landing client copy", () => {
     expect(indexSource).not.toContain("gánala.");
     expect(indexSource).not.toContain("Karla decide la recompensa por plan");
   });
+
+  it("explains the recorded classes benefit for selected packages", () => {
+    expect(indexSource).toContain("Clases grabadas");
+    expect(indexSource).toContain("Algunos paquetes");
+    expect(indexSource).toContain("Los planes seleccionados pueden incluir acceso a la biblioteca de videos");
+    expect(indexSource).toContain("Acceso según plan");
+  });
 });
