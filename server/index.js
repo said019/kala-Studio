@@ -716,13 +716,41 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MXN'`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS class_limit INTEGER`).catch(() => { });
     // weekly_class_limit: tope ISO-semanal (lun–dom hora MX). NULL = sin tope semanal.
+    // Se DERIVA del nombre ('… N Clase(s) por semana') vía trigger, así cualquier
+    // endpoint que cree/edite un plan obtiene el tope correcto sin hardcodear nombres.
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS weekly_class_limit INTEGER`).catch(() => { });
     await pool.query(`
-      UPDATE plans SET weekly_class_limit = 2 WHERE name = 'Barre — 2 Clases por semana' AND weekly_class_limit IS NULL;
-      UPDATE plans SET weekly_class_limit = 3 WHERE name = 'Barre — 3 Clases por semana' AND weekly_class_limit IS NULL;
-      UPDATE plans SET weekly_class_limit = 4 WHERE name = 'Barre — 4 Clases por semana' AND weekly_class_limit IS NULL;
-      UPDATE plans SET weekly_class_limit = 5 WHERE name = 'Barre — 5 Clases por semana' AND weekly_class_limit IS NULL;
-    `).catch(() => { });
+      CREATE OR REPLACE FUNCTION kala_set_weekly_class_limit() RETURNS trigger AS $$
+      DECLARE m text;
+      BEGIN
+        m := substring(lower(coalesce(NEW.name, '')) from '(\\d+)\\s+clases?\\s+por\\s+semana');
+        NEW.weekly_class_limit := CASE WHEN m IS NULL OR m = '' THEN NULL ELSE m::int END;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+    `).catch((e) => { console.error("weekly_class_limit fn error:", e.message); });
+    await pool.query(`
+      DROP TRIGGER IF EXISTS kala_set_weekly_class_limit_trg ON plans;
+      CREATE TRIGGER kala_set_weekly_class_limit_trg
+        BEFORE INSERT OR UPDATE ON plans
+        FOR EACH ROW EXECUTE FUNCTION kala_set_weekly_class_limit();
+    `).catch((e) => { console.error("weekly_class_limit trg error:", e.message); });
+    // Backfill: re-deriva el tope de todas las filas existentes a partir del nombre.
+    await pool.query(`
+      UPDATE plans
+         SET weekly_class_limit = CASE
+               WHEN substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana') IS NULL
+                 OR substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana') = ''
+               THEN NULL
+               ELSE (substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana'))::int
+             END
+       WHERE weekly_class_limit IS DISTINCT FROM CASE
+               WHEN substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana') IS NULL
+                 OR substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana') = ''
+               THEN NULL
+               ELSE (substring(lower(name) from '(\\d+)\\s+clases?\\s+por\\s+semana'))::int
+             END
+    `).catch((e) => { console.error("weekly_class_limit backfill error:", e.message); });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS features JSONB DEFAULT '[]'::jsonb`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0`).catch(() => { });
@@ -2981,8 +3009,9 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
 
 /**
  * Verifica el tope semanal del plan ('Barre — N por semana').
- * Cuenta reservas activas (confirmed/waitlist/checked_in) en la misma ISO-week
- * de la fecha de la clase, contra el límite del plan.
+ * Cuenta reservas activas (confirmed/checked_in) en la misma ISO-week
+ * de la fecha de la clase, contra el límite del plan. La lista de espera
+ * (waitlist) NO consume cupo semanal hasta que se confirma.
  *
  * Returns { ok: true, count, limit } si pasa, o { ok: false, count, limit, message }
  * con mensaje listo para devolver al cliente. Para planes sin tope semanal
@@ -3003,7 +3032,7 @@ async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
        JOIN classes c ON c.id = b.class_id
       WHERE b.user_id = $1
         AND b.membership_id = $2
-        AND b.status IN ('confirmed', 'waitlist', 'checked_in')
+        AND b.status IN ('confirmed', 'checked_in')
         AND date_trunc('week', c.date::date) = date_trunc('week', $3::date)`,
     [userId, membershipId, classDate],
   );
@@ -3029,7 +3058,7 @@ app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
               (SELECT COUNT(*)::int FROM bookings b
                  JOIN classes c ON c.id = b.class_id
                 WHERE b.user_id = $1 AND b.membership_id = m.id
-                  AND b.status IN ('confirmed','waitlist','checked_in')
+                  AND b.status IN ('confirmed','checked_in')
                   AND date_trunc('week', c.date::date) = date_trunc('week', $2::date)
               ) AS used
          FROM memberships m
