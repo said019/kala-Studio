@@ -229,39 +229,34 @@ const ClientDetail = () => {
                   <Skeleton className="h-12" />
                 ) : access.state === "unlocked" ? (
                   <div className="space-y-2">
-                    <Badge className="bg-green-600 hover:bg-green-600">Activo</Badge>
-                    <p className="text-xs text-muted-foreground">Plan vigente: {access.planName}</p>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      className="text-xs"
-                      onClick={() => {
-                        if (window.confirm("¿Revocar acceso a la biblioteca de videos?")) {
-                          revokeVideoMutation.mutate();
-                        }
-                      }}
-                      disabled={revokeVideoMutation.isPending}
-                    >
-                      Revocar acceso
-                    </Button>
-                  </div>
-                ) : access.state === "locked_pending_grant" ? (
-                  <div className="space-y-2">
-                    <Badge className="bg-amber-500 hover:bg-amber-500">Pendiente</Badge>
-                    <p className="text-xs text-muted-foreground">Tiene {access.planName} activo, falta tu OK.</p>
-                    <Button
-                      size="sm"
-                      className="text-xs"
-                      onClick={() => grantVideoMutation.mutate()}
-                      disabled={grantVideoMutation.isPending}
-                    >
-                      ✓ Conceder acceso
-                    </Button>
+                    <Badge className="bg-green-600 hover:bg-green-600">Con acceso</Badge>
+                    <p className="text-xs text-muted-foreground">
+                      {access.full_library
+                        ? "Tiene un plan con biblioteca completa."
+                        : "Acceso concedido manualmente (cortesía)."}
+                    </p>
+                    {access.has_grant && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        className="text-xs"
+                        onClick={() => {
+                          if (window.confirm("¿Revocar el acceso de cortesía a la biblioteca de videos?")) {
+                            revokeVideoMutation.mutate();
+                          }
+                        }}
+                        disabled={revokeVideoMutation.isPending}
+                      >
+                        Revocar acceso de cortesía
+                      </Button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Badge variant="outline">Sin plan elegible</Badge>
-                    <p className="text-xs text-muted-foreground">Sus planes activos no incluyen videos.</p>
+                    <Badge variant="outline">Sin acceso</Badge>
+                    <p className="text-xs text-muted-foreground">
+                      No tiene plan de biblioteca completa. Puedes concederle acceso de cortesía a toda la biblioteca.
+                    </p>
                     <Button
                       size="sm"
                       variant="outline"
@@ -269,7 +264,7 @@ const ClientDetail = () => {
                       onClick={() => grantVideoMutation.mutate()}
                       disabled={grantVideoMutation.isPending}
                     >
-                      Conceder de todas formas
+                      Conceder acceso de cortesía
                     </Button>
                   </div>
                 )}
