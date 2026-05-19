@@ -11242,7 +11242,7 @@ app.post("/api/videos/purchases/:id/approve", adminMiddleware, async (req, res) 
   try {
     const { admin_notes } = req.body;
     const r = await pool.query(
-      "UPDATE video_purchases SET status='active', admin_notes=$1, verified_at=NOW() WHERE id=$2 RETURNING *",
+      "UPDATE video_purchases SET status='active', has_access=true, admin_notes=$1, verified_at=NOW() WHERE id=$2 RETURNING *",
       [admin_notes || null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Compra no encontrada" });
