@@ -4357,11 +4357,22 @@ app.get("/api/me/notifications/unread-count", authMiddleware, async (req, res) =
   }
 });
 
-// GET /api/me/video-access — returns this user's library access state
+// GET /api/me/video-access — resumen de biblioteca (banner). El lock real es
+// per-video y viene en /api/videos. Aquí solo: ¿plan full-library activo?
 app.get("/api/me/video-access", authMiddleware, async (req, res) => {
   try {
-    const state = await computeVideoAccessState(req.userId);
-    return res.json({ data: state });
+    const fullLib = await pool.query(
+      `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1 AND m.status = 'active'
+          AND p.includes_video_library = true
+          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+      [req.userId]
+    );
+    if (fullLib.rows.length) return res.json({ data: { state: "unlocked" } });
+    const offers = await pool.query(
+      "SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC"
+    );
+    return res.json({ data: { state: "locked_no_plan", offers: offers.rows } });
   } catch (err) {
     console.error("GET /me/video-access error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -8004,11 +8015,22 @@ app.post("/api/admin/wallet/notify/:userId", adminMiddleware, async (req, res) =
 
 // ─── Routes: /api/admin/video-access ────────────────────────────────────────
 
-// GET /api/admin/users/:userId/video-access — admin sees a user's state
+// GET /api/admin/users/:userId/video-access — resumen de biblioteca del usuario.
+// El lock real es per-video; aquí solo: ¿plan full-library activo?
 app.get("/api/admin/users/:userId/video-access", adminMiddleware, async (req, res) => {
   try {
-    const state = await computeVideoAccessState(req.params.userId);
-    return res.json({ data: state });
+    const fullLib = await pool.query(
+      `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1 AND m.status = 'active'
+          AND p.includes_video_library = true
+          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+      [req.params.userId]
+    );
+    if (fullLib.rows.length) return res.json({ data: { state: "unlocked" } });
+    const offers = await pool.query(
+      "SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC"
+    );
+    return res.json({ data: { state: "locked_no_plan", offers: offers.rows } });
   } catch (err) {
     console.error("GET /admin/users/:userId/video-access error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -8211,14 +8233,14 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
       [req.userId]
     );
     const hasMembership = memRes.rows.length > 0;
-    video.has_access = video.access_type === "free" || video.access_type === "gratuito" || hasMembership;
-    // Compute video library access state. Trial OR gratuito → always unlocked;
-    // only `miembros + !is_trial` → check state.
-    let accessState = { state: "unlocked" };
-    if (video.is_trial !== true && video.access_type === "miembros") {
-      accessState = await computeVideoAccessState(req.userId);
-    }
+    const accessState = await computeVideoAccessState(req.userId, video.id);
     video.access_state = accessState;
+    video.has_access = accessState.state === "unlocked" || accessState.state === "free";
+    const vpRes = await pool.query(
+      "SELECT plan_id FROM video_plans WHERE video_id = $1",
+      [video.id]
+    );
+    video.plan_ids = vpRes.rows.map((r) => r.plan_id);
     // Log view
     await pool.query("UPDATE videos SET view_count = view_count + 1 WHERE id = $1", [req.params.id]);
     return res.json({ data: video });
@@ -8241,9 +8263,9 @@ app.get("/api/videos/:id/stream-url", authMiddleware, async (req, res) => {
 
     // Trial bypass: any logged-in user can play
     if (!video.is_trial) {
-      const access = await computeVideoAccessState(req.userId);
-      if (access.state !== "unlocked") {
-        const reason = access.state === "locked_pending_grant" ? "pending_grant" : "no_plan";
+      const access = await computeVideoAccessState(req.userId, video.id);
+      if (access.state !== "unlocked" && access.state !== "free") {
+        const reason = access.state === "locked_purchasable" ? "purchasable" : "no_plan";
         return res.status(403).json({ message: "Acceso restringido", reason });
       }
     }
