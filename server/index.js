@@ -8261,11 +8261,6 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
     if (video.drive_file_id) {
       video.video_url = null;
     }
-    const memRes = await pool.query(
-      "SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' LIMIT 1",
-      [req.userId]
-    );
-    const hasMembership = memRes.rows.length > 0;
     const accessState = await computeVideoAccessState(req.userId, video.id);
     video.access_state = accessState;
     video.has_access = accessState.state === "unlocked" || accessState.state === "free";
