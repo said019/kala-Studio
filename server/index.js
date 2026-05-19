@@ -1090,6 +1090,15 @@ async function ensureSchema() {
     // UNIQUE: prevents race where two concurrent POST grants both create active rows.
     // The POST grant handler catches code 23505 (unique violation) and treats as alreadyGranted.
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_vag_user_active ON video_access_grants(user_id) WHERE revoked_at IS NULL`).catch(() => { });
+    // ── video_plans: qué planes desbloquean cada video (acceso granular) ──────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS video_plans (
+        video_id  UUID NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+        plan_id   UUID NOT NULL REFERENCES plans(id)  ON DELETE CASCADE,
+        PRIMARY KEY (video_id, plan_id)
+      )
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_video_plans_plan ON video_plans(plan_id)`).catch(() => { });
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
