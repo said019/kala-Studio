@@ -11405,7 +11405,7 @@ app.post("/api/videos", adminMiddleware, async (req, res) => {
       class_type_id, instructor_id, duration_seconds,
       access_type = "free", is_published = false, is_featured = false, sort_order = 0,
       sales_enabled = false, sales_unlocks_video = false, sales_price_mxn, sales_class_credits, sales_cta_text,
-      category_id,
+      category_id, plan_ids = [],
     } = req.body;
     if (!title) return res.status(400).json({ message: "title es requerido" });
     const r = await pool.query(
@@ -11425,6 +11425,15 @@ app.post("/api/videos", adminMiddleware, async (req, res) => {
         sales_enabled, sales_unlocks_video, sales_price_mxn || null, sales_class_credits || null, sales_cta_text || null,
       ]
     );
+    const newId = r.rows[0].id;
+    if (Array.isArray(plan_ids) && plan_ids.length) {
+      for (const pid of plan_ids) {
+        await pool.query(
+          "INSERT INTO video_plans (video_id, plan_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [newId, pid]
+        );
+      }
+    }
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
     console.error("POST /videos error:", err.message);
@@ -11440,7 +11449,7 @@ app.put("/api/videos/:id", adminMiddleware, async (req, res) => {
       class_type_id, instructor_id, duration_seconds,
       access_type, is_published, is_featured, sort_order,
       sales_enabled, sales_unlocks_video, sales_price_mxn, sales_class_credits, sales_cta_text,
-      category_id,
+      category_id, plan_ids,
     } = req.body;
     const r = await pool.query(
       `UPDATE videos SET
@@ -11473,6 +11482,15 @@ app.put("/api/videos/:id", adminMiddleware, async (req, res) => {
       ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Video no encontrado" });
+    if (Array.isArray(plan_ids)) {
+      await pool.query("DELETE FROM video_plans WHERE video_id = $1", [req.params.id]);
+      for (const pid of plan_ids) {
+        await pool.query(
+          "INSERT INTO video_plans (video_id, plan_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+          [req.params.id, pid]
+        );
+      }
+    }
     return res.json({ data: r.rows[0] });
   } catch (err) {
     console.error("PUT /videos/:id error:", err.message);
