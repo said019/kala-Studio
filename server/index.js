@@ -531,6 +531,27 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS has_injury BOOLEAN`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS practiced_barre_before BOOLEAN`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS injury_details TEXT`).catch(() => { });
+    {
+      // onboarding_completed: añadir la columna y, solo la primera vez (cuando
+      // aún no existía), marcar a las usuarias YA registradas como completadas
+      // para no forzarlas al cuestionario. Registros nuevos nacen con false.
+      const colExists = await pool
+        .query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'users' AND column_name = 'onboarding_completed'`
+        )
+        .then((r) => r.rows.length > 0)
+        .catch(() => true); // ante la duda, no hacer backfill
+      await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT false`).catch(() => { });
+      if (!colExists) {
+        await pool
+          .query(`UPDATE users SET onboarding_completed = true`)
+          .catch((e) => console.warn("[migrate] onboarding backfill skipped:", e.message));
+      }
+    }
     // ── Password reset tokens ───────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -2608,6 +2629,10 @@ function mapUser(u) {
     receiveReminders: u.receive_reminders ?? true,
     receivePromotions: u.receive_promotions ?? false,
     receiveWeeklySummary: u.receive_weekly_summary ?? false,
+    hasInjury: u.has_injury ?? null,
+    practicedBarreBefore: u.practiced_barre_before ?? null,
+    injuryDetails: u.injury_details ?? null,
+    onboardingCompleted: u.onboarding_completed ?? false,
     createdAt: u.created_at,
   };
 }
@@ -2722,6 +2747,37 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Me error:", err);
     return res.status(500).json({ message: "Error interno del servidor" });
+  }
+});
+
+// POST /api/auth/onboarding — la alumna responde salud/experiencia post-registro
+app.post("/api/auth/onboarding", authMiddleware, async (req, res) => {
+  const { hasInjury, practicedBarreBefore, injuryDetails } = req.body;
+  if (typeof hasInjury !== "boolean" || typeof practicedBarreBefore !== "boolean") {
+    return res.status(400).json({ message: "Responde todas las preguntas" });
+  }
+  // Si reporta lesión, exigimos el detalle.
+  const details = typeof injuryDetails === "string" ? injuryDetails.trim() : "";
+  if (hasInjury && !details) {
+    return res.status(400).json({ message: "Describe la lesión o condición que debemos saber" });
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE users SET
+         has_injury             = $1,
+         practiced_barre_before = $2,
+         injury_details         = $3,
+         onboarding_completed   = true,
+         updated_at             = NOW()
+       WHERE id = $4
+       RETURNING *`,
+      [hasInjury, practicedBarreBefore, hasInjury ? details : null, req.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+    return res.json({ user: mapUser(r.rows[0]) });
+  } catch (err) {
+    console.error("[onboarding] FAILED:", err?.message);
+    return res.status(500).json({ message: "No pudimos guardar tus respuestas" });
   }
 });
 

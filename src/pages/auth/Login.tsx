@@ -38,6 +38,7 @@ const Login = () => {
       const returnUrl = params.get("returnUrl");
       if (returnUrl) { navigate(returnUrl); return; }
       if (["admin", "super_admin", "instructor", "reception"].includes(user.role)) navigate("/admin/dashboard");
+      else if (user.onboardingCompleted === false) navigate("/auth/onboarding");
       else navigate("/app");
     }
   }, [isAuthenticated, user]);
@@ -51,6 +52,8 @@ const Login = () => {
       if (returnUrl) { navigate(returnUrl, { replace: true }); return; }
       if (["admin", "super_admin", "instructor", "reception"].includes(authedUser?.role ?? "")) {
         navigate("/admin/dashboard", { replace: true });
+      } else if (authedUser?.onboardingCompleted === false) {
+        navigate("/auth/onboarding", { replace: true });
       } else {
         navigate("/app", { replace: true });
       }
