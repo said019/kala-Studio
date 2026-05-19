@@ -9024,33 +9024,52 @@ async function applyCancellationRollback(client, booking, opts = {}) {
 // ─── Video access state ──────────────────────────────────────────────────────
 // Single source of truth for "can this user access the video library?".
 // See docs/superpowers/specs/2026-05-14-video-library-access-design.md.
-async function computeVideoAccessState(userId) {
-  const planRes = await pool.query(
-    `SELECT p.id, p.name FROM memberships m
-       JOIN plans p ON p.id = m.plan_id
-      WHERE m.user_id = $1
-        AND m.status = 'active'
+async function computeVideoAccessState(userId, videoId) {
+  const vr = await pool.query(
+    "SELECT access_type, is_trial, sales_enabled FROM videos WHERE id = $1",
+    [videoId]
+  );
+  const video = vr.rows[0];
+  if (!video) return { state: "locked_plan_only", offers: [] };
+  if (video.access_type === "gratuito" || video.access_type === "free")
+    return { state: "free" };
+  if (video.is_trial === true) return { state: "unlocked" };
+
+  const planGranular = await pool.query(
+    `SELECT 1 FROM video_plans vp
+       JOIN memberships m ON m.plan_id = vp.plan_id
+      WHERE vp.video_id = $1 AND m.user_id = $2 AND m.status = 'active'
+        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+    [videoId, userId]
+  );
+  if (planGranular.rows.length) return { state: "unlocked" };
+
+  const fullLib = await pool.query(
+    `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+      WHERE m.user_id = $1 AND m.status = 'active'
         AND p.includes_video_library = true
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-      LIMIT 1`,
+        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
     [userId]
   );
-  const eligiblePlan = planRes.rows[0] || null;
+  if (fullLib.rows.length) return { state: "unlocked" };
 
-  const grantRes = await pool.query(
-    `SELECT id, granted_at FROM video_access_grants
-      WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1`,
+  const purch = await pool.query(
+    "SELECT has_access FROM video_purchases WHERE video_id = $1 AND user_id = $2 LIMIT 1",
+    [videoId, userId]
+  );
+  if (purch.rows[0]?.has_access === true) return { state: "unlocked" };
+
+  const grant = await pool.query(
+    "SELECT 1 FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
     [userId]
   );
-  const hasGrant = grantRes.rows.length > 0;
+  if (grant.rows.length) return { state: "unlocked" };
 
-  if (eligiblePlan && hasGrant) return { state: "unlocked", planName: eligiblePlan.name };
-  if (eligiblePlan) return { state: "locked_pending_grant", planName: eligiblePlan.name };
-
+  if (video.sales_enabled === true) return { state: "locked_purchasable" };
   const offers = await pool.query(
-    `SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC`
+    "SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC"
   );
-  return { state: "locked_no_plan", offers: offers.rows };
+  return { state: "locked_plan_only", offers: offers.rows };
 }
 
 // PUT /api/classes/:id/cancel — admin cancela clase completa. Cascada:
