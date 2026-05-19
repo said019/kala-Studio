@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload, Video, Image, CheckCircle2 } from "lucide-react";
 
@@ -40,6 +41,7 @@ const videoSchema = z.object({
   cloudinary_id: z.string().optional(),
   thumbnail_url: z.string().optional(),
   thumbnail_drive_id: z.string().optional(),
+  plan_ids: z.array(z.string()).default([]),
 });
 
 type VideoFormData = z.infer<typeof videoSchema>;
@@ -68,6 +70,12 @@ const VideoUpload = () => {
 
   const existing = existingData?.data ?? existingData ?? null;
 
+  const { data: plansData } = useQuery<{ data: { id: string; name: string; includes_video_library?: boolean; includesVideoLibrary?: boolean }[] }>({
+    queryKey: ["plans-for-video"],
+    queryFn: async () => (await api.get("/plans")).data,
+  });
+  const plans = plansData?.data ?? [];
+
   const { data: categoriesData } = useQuery<{ data: { id: string; name: string }[] }>({
     queryKey: ["video-categories"],
     queryFn: async () => (await api.get("/videos/categories")).data,
@@ -88,6 +96,7 @@ const VideoUpload = () => {
       duration_seconds: 0,
       sort_order: 0,
       brand_color: "#76214D",
+      plan_ids: [],
       ...( existing ?? {} ),
     },
   });
@@ -366,18 +375,58 @@ const VideoUpload = () => {
             {/* ── ACCESS ─────────────────────────────────────────────── */}
             <section className="space-y-4 rounded-xl border p-5">
               <h2 className="font-semibold">Acceso y publicación</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Tipo de acceso</Label>
-                  <Select value={form.watch("access_type")} onValueChange={(v) => form.setValue("access_type", v as VideoFormData["access_type"])}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gratuito">Gratuito</SelectItem>
-                      <SelectItem value="miembros">Solo miembros</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label>Acceso al video</Label>
+                <Select
+                  value={form.watch("access_type") === "gratuito" || form.watch("access_type") === "free" ? "gratuito" : "miembros"}
+                  onValueChange={(v) => form.setValue("access_type", v as VideoFormData["access_type"])}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gratuito">Gratis — cualquier alumna registrada</SelectItem>
+                    <SelectItem value="miembros">Por planes — solo ciertos planes</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+
+              {form.watch("access_type") === "miembros" && (
+                <div className="space-y-2 rounded-lg border border-border p-3">
+                  <Label className="text-sm">Planes que desbloquean este video</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-auto">
+                    {plans.map((p) => {
+                      const selected = (form.watch("plan_ids") ?? []).includes(p.id);
+                      const isFullLib = Boolean(p.includes_video_library ?? p.includesVideoLibrary);
+                      return (
+                        <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={(e) => {
+                              const cur = form.watch("plan_ids") ?? [];
+                              form.setValue(
+                                "plan_ids",
+                                e.target.checked ? [...cur, p.id] : cur.filter((x) => x !== p.id)
+                              );
+                            }}
+                          />
+                          <span>{p.name}</span>
+                          {isFullLib && (
+                            <Badge variant="secondary" className="text-[0.6rem]">biblioteca completa</Badge>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {(form.watch("plan_ids") ?? []).length === 0 &&
+                    !plans.some((p) => Boolean(p.includes_video_library ?? p.includesVideoLibrary)) &&
+                    !salesEnabled && (
+                      <p className="text-xs text-amber-600">
+                        ⚠️ Nadie podrá ver este video. Selecciona planes o activa la compra individual.
+                      </p>
+                    )}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-6">
                 <div className="flex items-center gap-3">
                   <Switch checked={form.watch("is_published")} onCheckedChange={(v) => form.setValue("is_published", v)} />
