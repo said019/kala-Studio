@@ -397,9 +397,9 @@ const PlansList = () => {
                   onCheckedChange={(v) => form.setValue("includesVideoLibrary", v)}
                 />
                 <div className="space-y-0.5">
-                  <Label className="cursor-pointer">Incluye acceso a biblioteca de videos</Label>
+                  <Label className="cursor-pointer">Biblioteca completa de videos</Label>
                   <p className="text-xs text-muted-foreground">
-                    Las alumnas con este plan podrán acceder a las clases grabadas (requiere conceder acceso manualmente).
+                    Las alumnas con este plan ven todos los videos por planes, sin asignarlo video por video.
                   </p>
                 </div>
               </div>
