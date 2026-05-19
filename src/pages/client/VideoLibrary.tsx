@@ -63,24 +63,6 @@ const VideoLibrary = () => {
           subtitle="Clases grabadas, técnica y rutinas para practicar en casa."
         />
 
-        {access?.state === "locked_pending_grant" && (
-          <Section>
-            <div
-              className="rounded-2xl p-4"
-              style={{
-                backgroundColor: `${KALA.orange}1a`,
-                border: `1px solid ${KALA.orange}55`,
-              }}
-            >
-              <p className="text-[0.92rem] font-medium" style={{ color: KALA.ink }}>
-                Tu acceso está en revisión.
-              </p>
-              <p className="mt-1 text-[0.82rem]" style={{ color: KALA.ink, opacity: 0.7 }}>
-                Te avisaremos en cuanto esté listo. Mientras, puedes ver las clases muestra.
-              </p>
-            </div>
-          </Section>
-        )}
         {access?.state === "locked_no_plan" && Array.isArray(access?.offers) && access.offers.length > 0 && (
           <Section>
             <div
@@ -294,9 +276,11 @@ const VideoLibrary = () => {
                   </>
                 );
 
+                const purchasable = v.access_state?.state === "locked_purchasable";
+
                 return (
                   <li key={v.id}>
-                    {locked ? (
+                    {locked && !purchasable ? (
                       <button
                         type="button"
                         onClick={() => setLockedModal({ video: v, state: access?.state ?? "locked_no_plan" })}
@@ -345,27 +329,21 @@ const VideoLibrary = () => {
                   {lockedModal.video.title}
                 </h3>
               </div>
-              {lockedModal.state === "locked_pending_grant" ? (
+              <>
                 <p className="text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.78 }}>
-                  Estamos activando tu acceso. Te avisaremos en cuanto esté listo.
+                  {offerNames
+                    ? `Adquiere ${offerNames} para ver esta clase y toda la biblioteca.`
+                    : "Adquiere un paquete que incluya videos para ver esta clase."}
                 </p>
-              ) : (
-                <>
-                  <p className="text-[0.92rem]" style={{ color: KALA.ink, opacity: 0.78 }}>
-                    {offerNames
-                      ? `Adquiere ${offerNames} para ver esta clase y toda la biblioteca.`
-                      : "Adquiere un paquete que incluya videos para ver esta clase."}
-                  </p>
-                  <Link
-                    to="/app/checkout"
-                    onClick={() => setLockedModal(null)}
-                    className="mt-4 block w-full rounded-full py-2.5 text-center text-[0.92rem] no-underline"
-                    style={{ backgroundColor: KALA.berry, color: KALA.cream, fontWeight: 600 }}
-                  >
-                    Ver paquetes
-                  </Link>
-                </>
-              )}
+                <Link
+                  to="/app/checkout"
+                  onClick={() => setLockedModal(null)}
+                  className="mt-4 block w-full rounded-full py-2.5 text-center text-[0.92rem] no-underline"
+                  style={{ backgroundColor: KALA.berry, color: KALA.cream, fontWeight: 600 }}
+                >
+                  Ver paquetes
+                </Link>
+              </>
               <button
                 type="button"
                 onClick={() => setLockedModal(null)}
