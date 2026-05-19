@@ -159,10 +159,48 @@ const ClientDetail = () => {
 
             <TabsContent value="profile" className="mt-4">
               {isLoading ? <Skeleton className="h-40 w-full" /> : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                  <div><span className="font-medium">Fecha de nacimiento:</span> {u?.dateOfBirth ?? "—"}</div>
-                  <div><span className="font-medium">Emergencia:</span> {u?.emergencyContactName ?? "—"} {u?.emergencyContactPhone ?? ""}</div>
-                  <div className="col-span-2"><span className="font-medium">Notas de salud:</span> {u?.healthNotes ?? "—"}</div>
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div><span className="font-medium">Fecha de nacimiento:</span> {u?.dateOfBirth ?? "—"}</div>
+                    <div><span className="font-medium">Emergencia:</span> {u?.emergencyContactName ?? "—"} {u?.emergencyContactPhone ?? ""}</div>
+                    <div className="col-span-2"><span className="font-medium">Notas de salud:</span> {u?.healthNotes ?? "—"}</div>
+                  </div>
+
+                  <div className="rounded-xl border border-border p-4 space-y-3">
+                    <h3 className="text-sm font-semibold">Cuestionario de ingreso</h3>
+                    {u?.onboardingCompleted === false ? (
+                      <p className="text-sm text-muted-foreground">
+                        La alumna aún no ha respondido el cuestionario.
+                      </p>
+                    ) : (
+                      <div className="space-y-3 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">¿Tiene lesión o condición?</span>
+                          {u?.hasInjury == null ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : u?.hasInjury ? (
+                            <Badge variant="destructive">Sí — revisar</Badge>
+                          ) : (
+                            <Badge variant="outline">No</Badge>
+                          )}
+                        </div>
+                        {u?.hasInjury && (
+                          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                            <p className="text-xs font-medium text-destructive mb-1">Lesión / condición reportada</p>
+                            <p className="whitespace-pre-wrap">{u?.injuryDetails || "Sin detalle."}</p>
+                          </div>
+                        )}
+                        <div>
+                          <span className="font-medium">¿Había practicado barre antes?</span>{" "}
+                          {u?.practicedBarreBefore == null
+                            ? "—"
+                            : u?.practicedBarreBefore
+                              ? "Sí"
+                              : "No, es nueva"}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </TabsContent>

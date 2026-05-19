@@ -11,6 +11,7 @@ import NotFound from "./pages/NotFound";
 // Auth pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
+import Onboarding from "./pages/auth/Onboarding";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 
@@ -96,6 +97,7 @@ const App = () => (
           {/* Auth */}
           <Route path="/auth/login" element={<Login />} />
           <Route path="/auth/register" element={<Register />} />
+          <Route path="/auth/onboarding" element={<Onboarding />} />
           <Route path="/auth/forgot-password" element={<ForgotPassword />} />
           <Route path="/auth/reset-password" element={<ResetPassword />} />
           {/* Legacy /auth → new login */}

@@ -96,7 +96,7 @@ const Register = () => {
         acceptsCommunications: data.acceptsCommunications,
         ...(refCode ? { referralCode: refCode } : {}),
       } as any);
-      navigate("/app");
+      navigate("/auth/onboarding");
     } catch {
       toast({
         title: "No pudimos crear tu cuenta",

@@ -26,6 +26,10 @@ export interface User {
   receive_promotions?: boolean;
   receiveWeeklySummary: boolean;
   receive_weekly_summary?: boolean;
+  hasInjury?: boolean | null;
+  practicedBarreBefore?: boolean | null;
+  injuryDetails?: string | null;
+  onboardingCompleted?: boolean;
   createdAt: string;
   created_at?: string;
   updatedAt?: string;
