@@ -8185,19 +8185,52 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
     query += " ORDER BY v.is_featured DESC, v.sort_order ASC, v.created_at DESC";
     if (limit) { params.push(parseInt(limit)); query += ` LIMIT $${params.length}`; }
     const r = await pool.query(query, params);
-    // Check membership access
-    const memRes = await pool.query(
-      "SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' LIMIT 1",
-      [req.userId]
-    );
-    const hasMembership = memRes.rows.length > 0;
-    const rows = r.rows.map(v => {
+    // Acceso per-video en un solo query agregado (vias a-e del spec 2026-05-18).
+    const ids = r.rows.map((v) => v.id);
+    const accessByVideo = new Map();
+    if (ids.length) {
+      const acc = await pool.query(
+        `SELECT v.id,
+          (v.access_type IN ('gratuito','free'))                            AS is_free,
+          v.is_trial,
+          v.sales_enabled,
+          EXISTS (SELECT 1 FROM video_plans vp
+                    JOIN memberships m ON m.plan_id = vp.plan_id
+                   WHERE vp.video_id = v.id AND m.user_id = $1
+                     AND m.status = 'active'
+                     AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)) AS via_plan,
+          EXISTS (SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+                   WHERE m.user_id = $1 AND m.status = 'active'
+                     AND p.includes_video_library = true
+                     AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)) AS via_fulllib,
+          EXISTS (SELECT 1 FROM video_purchases vpur
+                   WHERE vpur.video_id = v.id AND vpur.user_id = $1
+                     AND vpur.has_access = true)                            AS via_purchase,
+          EXISTS (SELECT 1 FROM video_access_grants g
+                   WHERE g.user_id = $1 AND g.revoked_at IS NULL)           AS via_grant
+         FROM videos v WHERE v.id = ANY($2::uuid[])`,
+        [req.userId, ids]
+      );
+      for (const a of acc.rows) {
+        let state;
+        if (a.is_free) state = "free";
+        else if (a.is_trial || a.via_plan || a.via_fulllib || a.via_purchase || a.via_grant)
+          state = "unlocked";
+        else state = a.sales_enabled ? "locked_purchasable" : "locked_plan_only";
+        accessByVideo.set(a.id, state);
+      }
+    }
+    const rows = r.rows.map((v) => {
       // Drive-backed videos: NO leak the public proxy URL. Frontend must request a signed
-      // URL via GET /api/videos/:id/stream-url. Without this, anyone could read video_url
-      // from the JSON and curl /api/drive/video/:fileId directly (no auth on legacy proxy).
-      // Non-Drive (e.g. YouTube) videos keep their video_url for the iframe embed path.
-      let videoUrl = v.drive_file_id ? null : v.video_url;
-      return { ...v, video_url: videoUrl, has_access: v.access_type === "free" || v.access_type === "gratuito" || hasMembership };
+      // URL via GET /api/videos/:id/stream-url. Non-Drive keeps video_url for the embed path.
+      const videoUrl = v.drive_file_id ? null : v.video_url;
+      const state = accessByVideo.get(v.id) || "locked_plan_only";
+      return {
+        ...v,
+        video_url: videoUrl,
+        access_state: { state },
+        has_access: state === "unlocked" || state === "free",
+      };
     });
     return res.json({ data: rows });
   } catch (err) {
