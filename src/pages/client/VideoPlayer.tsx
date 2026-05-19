@@ -180,33 +180,42 @@ const VideoPlayer = () => {
                   >
                     <span
                       className="grid h-14 w-14 place-items-center rounded-2xl"
-                      style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                      style={{ backgroundColor: streamErrReason === "purchasable" ? KALA.orange : KALA.berry, color: KALA.cream }}
                     >
-                      <Lock size={20} />
+                      {streamErrReason === "purchasable" ? <ShoppingBag size={20} /> : <Lock size={20} />}
                     </span>
                     <div>
                       <h3
                         className="font-bebas leading-tight"
                         style={{ color: KALA.ink, fontSize: "clamp(1.5rem, 2.4vw, 2rem)" }}
                       >
-                        {streamErrReason === "pending_grant"
-                          ? "Tu acceso está en revisión"
-                          : streamErrStatus === 404
-                            ? "Video no disponible"
+                        {streamErrStatus === 404
+                          ? "Video no disponible"
+                          : streamErrReason === "purchasable"
+                            ? "Acceso individual"
                             : "No tienes acceso a este video"}
                       </h3>
                       <p
                         className="mt-2 text-[0.92rem]"
                         style={{ color: KALA.ink, opacity: 0.7 }}
                       >
-                        {streamErrReason === "pending_grant"
-                          ? "Estamos activando tu acceso. Te avisaremos en cuanto esté listo."
-                          : streamErrStatus === 404
-                            ? "Este video aún no tiene archivo disponible."
-                            : "Adquiere un paquete que incluya videos para ver esta clase."}
+                        {streamErrStatus === 404
+                          ? "Este video aún no tiene archivo disponible."
+                          : streamErrReason === "purchasable"
+                            ? `Compra este video por $${formatMoneyMX(video.sales_price_mxn)} MXN para verlo cuando quieras.`
+                            : "Exclusivo de ciertos planes. Adquiere un paquete que lo incluya para ver esta clase."}
                       </p>
                     </div>
-                    {streamErrReason !== "pending_grant" && streamErrStatus !== 404 && (
+                    {streamErrStatus !== 404 && streamErrReason === "purchasable" && (
+                      <PrimaryButton
+                        onClick={() => purchaseMutation.mutate()}
+                        loading={purchaseMutation.isPending}
+                        loadingLabel="Procesando…"
+                      >
+                        {video.sales_cta_text ?? "Comprar ahora"}
+                      </PrimaryButton>
+                    )}
+                    {streamErrStatus !== 404 && streamErrReason !== "purchasable" && (
                       <PrimaryButton to="/app/checkout">Ver paquetes</PrimaryButton>
                     )}
                     <Link
