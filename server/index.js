@@ -8082,11 +8082,19 @@ app.get("/api/admin/users/:userId/video-access", adminMiddleware, async (req, re
           AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
       [req.params.userId]
     );
-    if (fullLib.rows.length) return res.json({ data: { state: "unlocked" } });
+    const grant = await pool.query(
+      "SELECT 1 FROM video_access_grants WHERE user_id = $1 AND revoked_at IS NULL LIMIT 1",
+      [req.params.userId]
+    );
+    const hasFullLib = fullLib.rows.length > 0;
+    const hasGrant = grant.rows.length > 0;
+    if (hasFullLib || hasGrant) {
+      return res.json({ data: { state: "unlocked", has_grant: hasGrant, full_library: hasFullLib } });
+    }
     const offers = await pool.query(
       "SELECT id, name, price FROM plans WHERE includes_video_library = true AND is_active = true ORDER BY price ASC"
     );
-    return res.json({ data: { state: "locked_no_plan", offers: offers.rows } });
+    return res.json({ data: { state: "locked_no_plan", has_grant: false, full_library: false, offers: offers.rows } });
   } catch (err) {
     console.error("GET /admin/users/:userId/video-access error:", err);
     return res.status(500).json({ message: "Error interno" });
