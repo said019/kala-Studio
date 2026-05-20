@@ -132,7 +132,7 @@ const Dashboard = () => {
   );
 
   return (
-    <AuthGuard requiredRoles={["admin", "instructor"]}>
+    <AuthGuard requiredRoles={["admin", "super_admin", "reception", "instructor"]}>
       <AdminLayout>
         <div className="admin-page max-w-6xl">
           <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
