@@ -305,7 +305,7 @@ const VideoUpload = () => {
       form.setValue("thumbnail_url", thumbnailUrl);
       form.setValue("thumbnail_drive_id", thumbnailDriveId);
       setUploadedEmbedUrl(`/api/drive/video/${driveFileId}`);
-      toast({ title: "✅ Video subido a Google Drive" });
+      toast({ title: "✅ Video subido" });
     } catch (err: any) {
       // Error fatal: el resume no sirve (la sesión seguramente está rota).
       try { localStorage.removeItem(UPLOAD_RESUME_KEY); } catch { /* no-op */ }
@@ -361,7 +361,7 @@ const VideoUpload = () => {
                   <>
                     <Upload size={28} className="text-muted-foreground" />
                     <p className="text-sm text-muted-foreground">Haz click para seleccionar el video</p>
-                    <p className="text-xs text-muted-foreground">MP4, MOV, AVI — máx. 8 GB · sin recompresión, sube en buena calidad</p>
+                    <p className="text-xs text-muted-foreground">MP4, MOV, AVI — máx. 12 GB · sin recompresión, sube en buena calidad</p>
                   </>
                 )}
                 <input
@@ -377,7 +377,7 @@ const VideoUpload = () => {
               {isUploading && (
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Subiendo a Google Drive…</span>
+                    <span>Subiendo video…</span>
                     <span>{uploadProgress}%</span>
                   </div>
                   <Progress value={uploadProgress} className="h-2" />
@@ -387,7 +387,7 @@ const VideoUpload = () => {
               {/* Preview embed once uploaded */}
               {uploadedEmbedUrl && !isUploading && (
                 <div className="space-y-2">
-                  <p className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 size={13} /> Video en Google Drive</p>
+                  <p className="text-xs text-green-600 font-medium flex items-center gap-1"><CheckCircle2 size={13} /> Video subido</p>
                   <video
                     src={uploadedEmbedUrl}
                     className="w-full rounded-lg border aspect-video bg-black"
@@ -408,14 +408,12 @@ const VideoUpload = () => {
                   {thumbPreview && <img src={thumbPreview} className="h-16 rounded object-cover" alt="thumb" />}
                   <input ref={thumbInputRef} type="file" accept="image/*" className="hidden" onChange={handleThumbFileChange} />
                 </div>
-                <p className="text-xs text-muted-foreground">Si no subes miniatura se genera automáticamente desde el video en Drive.</p>
+                <p className="text-xs text-muted-foreground">Si no subes miniatura se genera automáticamente desde el video.</p>
               </div>
 
-              {/* Manual Drive ID fallback */}
-              <div className="space-y-1">
-                <Label className="text-muted-foreground text-xs">ID de Google Drive (se rellena automáticamente)</Label>
-                <Input {...form.register("drive_file_id")} placeholder="1AbCdEfGhIjKlMnOpQ…" className="font-mono text-xs" />
-              </div>
+              {/* Internal: drive_file_id se rellena al subir; queda en el form pero
+                  oculto al admin (no mostrar el proveedor de almacenamiento). */}
+              <input type="hidden" {...form.register("drive_file_id")} />
             </section>
 
             {/* ── METADATA ───────────────────────────────────────────── */}
