@@ -16,7 +16,7 @@ interface VideoItem {
   id: string;
   title: string;
   description?: string;
-  access_type: "gratuito" | "miembros";
+  access_type: "gratuito" | "miembros" | "free" | "members";
   is_published: boolean;
   thumbnail_url?: string;
   duration_seconds: number;
@@ -24,6 +24,7 @@ interface VideoItem {
   sales_price_mxn: number | null;
   level: string;
   is_trial?: boolean;
+  plan_count?: number;
 }
 
 const VideoList = () => {
@@ -97,11 +98,22 @@ const VideoList = () => {
                     <div className="p-3">
                       <p className="font-medium text-sm truncate">{v.title}</p>
                       <div className="flex items-center gap-1 mt-1 flex-wrap">
-                        <Badge variant={v.access_type === "gratuito" ? "default" : "secondary"} className="text-[0.6rem]">{v.access_type}</Badge>
-                        {!v.is_published && <Badge variant="outline" className="text-[0.6rem]">Borrador</Badge>}
-                        {v.sales_enabled && v.sales_price_mxn && (
-                          <Badge variant="outline" className="text-[0.6rem]">${v.sales_price_mxn}</Badge>
+                        {(v.access_type === "gratuito" || v.access_type === "free") ? (
+                          <Badge variant="default" className="text-[0.6rem]">GRATIS</Badge>
+                        ) : (
+                          <Badge
+                            variant={(v.plan_count ?? 0) > 0 ? "secondary" : "outline"}
+                            className="text-[0.6rem]"
+                          >
+                            {(v.plan_count ?? 0) === 0
+                              ? "0 planes"
+                              : `${v.plan_count} ${v.plan_count === 1 ? "plan" : "planes"}`}
+                          </Badge>
                         )}
+                        {v.sales_enabled && v.sales_price_mxn != null && (
+                          <Badge variant="outline" className="text-[0.6rem]">+ venta ${v.sales_price_mxn}</Badge>
+                        )}
+                        {!v.is_published && <Badge variant="outline" className="text-[0.6rem]">Borrador</Badge>}
                         {v.is_trial && (
                           <Badge className="text-[0.6rem] bg-amber-500 hover:bg-amber-500">🎁 Clase muestra</Badge>
                         )}

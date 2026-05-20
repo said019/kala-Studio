@@ -8272,7 +8272,8 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
                    WHERE vpur.video_id = v.id AND vpur.user_id = $1
                      AND vpur.has_access = true)                            AS via_purchase,
           EXISTS (SELECT 1 FROM video_access_grants g
-                   WHERE g.user_id = $1 AND g.revoked_at IS NULL)           AS via_grant
+                   WHERE g.user_id = $1 AND g.revoked_at IS NULL)           AS via_grant,
+          (SELECT COUNT(*)::int FROM video_plans vp WHERE vp.video_id = v.id) AS plan_count
          FROM videos v WHERE v.id = ANY($2::uuid[])`,
         [req.userId, ids]
       );
@@ -8282,19 +8283,21 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
         else if (a.is_trial || a.via_plan || a.via_fulllib || a.via_purchase || a.via_grant)
           state = "unlocked";
         else state = a.sales_enabled ? "locked_purchasable" : "locked_plan_only";
-        accessByVideo.set(a.id, state);
+        accessByVideo.set(a.id, { state, plan_count: a.plan_count ?? 0 });
       }
     }
     const rows = r.rows.map((v) => {
       // Drive-backed videos: NO leak the public proxy URL. Frontend must request a signed
       // URL via GET /api/videos/:id/stream-url. Non-Drive keeps video_url for the embed path.
       const videoUrl = v.drive_file_id ? null : v.video_url;
-      const state = accessByVideo.get(v.id) || "locked_plan_only";
+      const entry = accessByVideo.get(v.id) || { state: "locked_plan_only", plan_count: 0 };
+      const { state, plan_count } = entry;
       return {
         ...v,
         video_url: videoUrl,
         access_state: { state },
         has_access: state === "unlocked" || state === "free",
+        plan_count,
       };
     });
     return res.json({ data: rows });
