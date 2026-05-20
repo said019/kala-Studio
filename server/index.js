@@ -22,6 +22,7 @@ import {
   sendWeeklyReminder,
   sendRenewalReminder,
   sendPasswordResetEmail,
+  sendVideoPurchaseApproved,
 } from "./emailService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -11379,8 +11380,34 @@ app.post("/api/videos/purchases/:id/approve", adminMiddleware, async (req, res) 
       [admin_notes || null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Compra no encontrada" });
-    return res.json({ data: r.rows[0] });
-  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+    const purchase = r.rows[0];
+    // Aviso a la clienta — fire-and-forget; un fallo de Resend no debe romper el approve.
+    pool
+      .query(
+        `SELECT u.email, u.display_name, v.title AS video_title, v.id AS video_id
+           FROM video_purchases vp
+           JOIN users u ON u.id = vp.user_id
+           JOIN videos v ON v.id = vp.video_id
+          WHERE vp.id = $1`,
+        [req.params.id],
+      )
+      .then((info) => {
+        const row = info.rows[0];
+        if (!row || !row.email) return;
+        return sendVideoPurchaseApproved({
+          to: row.email,
+          name: row.display_name,
+          videoTitle: row.video_title,
+          videoId: row.video_id,
+          amountMxn: purchase.amount_mxn,
+        });
+      })
+      .catch((e) => console.error("[Email] video purchase approved:", e?.message || e));
+    return res.json({ data: purchase });
+  } catch (err) {
+    console.error("POST /videos/purchases/:id/approve error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 app.post("/api/videos/purchases/:id/reject", adminMiddleware, async (req, res) => {
