@@ -5,7 +5,6 @@ import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import {
   AppShell,
-  PageHeader,
   Section,
   Tag,
   PrimaryButton,
@@ -14,6 +13,7 @@ import {
   KALA,
 } from "@/components/app/AppShell";
 import { BackLink, DataRow, formatMoneyMX } from "@/components/app/widgets";
+import { KalaVideoPlayer, KalaLoader, KalaProgressBar } from "@/components/app/KalaVideoPlayer";
 import { useToast } from "@/hooks/use-toast";
 import {
   Lock,
@@ -59,6 +59,7 @@ const VideoPlayer = () => {
   const [file, setFile] = useState<File | null>(null);
   const [proofRef, setProofRef] = useState("");
   const [proofDate, setProofDate] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const { data, isLoading } = useQuery({
     queryKey: ["video", videoId],
@@ -111,20 +112,32 @@ const VideoPlayer = () => {
       fd.append("file", file!);
       if (proofRef) fd.append("payment_reference", proofRef);
       if (proofDate) fd.append("transfer_date", proofDate);
+      setUploadProgress(0);
       return api.post(`/videos/purchases/${purchaseId}/proof`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (e) => {
+          if (!e.total) return;
+          // Llegamos al 95% con el upload; el 5% restante queda para que el
+          // server procese y respondamos onSuccess; así no parece que se
+          // congeló al final.
+          const pct = Math.round((e.loaded / e.total) * 95);
+          setUploadProgress(pct);
+        },
       });
     },
     onSuccess: () => {
+      setUploadProgress(100);
       qc.invalidateQueries({ queryKey: ["video", videoId] });
       setPurchaseStep("done");
     },
-    onError: (err: any) =>
+    onError: (err: any) => {
+      setUploadProgress(0);
       toast({
         title: "No pudimos enviar el comprobante",
         description: err.response?.data?.message,
         variant: "destructive",
-      }),
+      });
+    },
   });
 
   const canWatch =
@@ -172,7 +185,7 @@ const VideoPlayer = () => {
             <Section>
               {isDriveVideo ? (
                 streamLoading ? (
-                  <SkeletonRow height={360} />
+                  <KalaLoader label="Preparando tu clase…" sublabel="Cargando el reproductor" />
                 ) : streamError ? (
                   <div
                     className="aspect-video rounded-3xl flex flex-col items-center justify-center text-center gap-4 p-7"
@@ -227,39 +240,27 @@ const VideoPlayer = () => {
                     </Link>
                   </div>
                 ) : streamUrl ? (
-                  <div
-                    className="rounded-3xl overflow-hidden flex items-center justify-center"
-                    style={{ backgroundColor: KALA.ink }}
+                  <KalaVideoPlayer
+                    src={streamUrl}
+                    videoRef={videoElRef}
                     onPlay={trackView}
-                  >
-                    <video
-                      ref={videoElRef}
-                      src={streamUrl}
-                      controls
-                      preload="metadata"
-                      playsInline
-                      controlsList="nodownload"
-                      onContextMenu={(e) => e.preventDefault()}
-                      onTimeUpdate={(e) => {
-                        // Remember position so we can resume after a token refresh.
-                        const t = e.currentTarget.currentTime;
-                        if (t > 0) resumeAtRef.current = t;
-                      }}
-                      onLoadedMetadata={(e) => {
-                        // New signed URL loaded — jump back to where we were.
-                        if (resumeAtRef.current > 0 && e.currentTarget.duration > resumeAtRef.current) {
-                          e.currentTarget.currentTime = resumeAtRef.current;
-                        }
-                      }}
-                      onError={() => {
-                        // Most likely the 60-min HMAC token expired mid-watch (Drive
-                        // returns 401/403 on the Range request). Force a fresh signed
-                        // URL; onLoadedMetadata restores the position.
-                        qc.invalidateQueries({ queryKey: ["video-stream-url", videoId] });
-                      }}
-                      className="max-h-[78vh] w-full object-contain"
-                    />
-                  </div>
+                    onTimeUpdate={(t) => {
+                      // Remember position so we can resume after a token refresh.
+                      if (t > 0) resumeAtRef.current = t;
+                    }}
+                    onLoadedMetadata={(el) => {
+                      // New signed URL loaded — jump back to where we were.
+                      if (resumeAtRef.current > 0 && el.duration > resumeAtRef.current) {
+                        el.currentTime = resumeAtRef.current;
+                      }
+                    }}
+                    onError={() => {
+                      // Most likely the 60-min HMAC token expired mid-watch (Drive
+                      // returns 401/403 on the Range request). Force a fresh signed
+                      // URL; onLoadedMetadata restores the position.
+                      qc.invalidateQueries({ queryKey: ["video-stream-url", videoId] });
+                    }}
+                  />
                 ) : null
               ) : canWatch && isYouTube ? (
                 <div onPlay={trackView}>
@@ -401,6 +402,17 @@ const VideoPlayer = () => {
                       />
                     </div>
                   </div>
+                  {uploadProofMutation.isPending && (
+                    <KalaProgressBar
+                      value={uploadProgress}
+                      label="Subiendo comprobante"
+                      hint={
+                        uploadProgress >= 95
+                          ? "Confirmando recepción…"
+                          : "No cierres esta ventana mientras se sube tu archivo."
+                      }
+                    />
+                  )}
                   <div className="flex gap-3">
                     <PrimaryButton
                       disabled={!file || uploadProofMutation.isPending}
