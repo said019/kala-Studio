@@ -8247,7 +8247,13 @@ app.get("/api/videos/categories", async (req, res) => {
 // GET /api/videos?search=&category=&limit=
 app.get("/api/videos", authMiddleware, async (req, res) => {
   try {
-    const { search = "", category = "", limit } = req.query;
+    const { search = "", category = "", limit, all } = req.query;
+    // Admins/instructors/reception ven también borradores (is_published=false)
+    // para poder gestionarlos. Clientas solo ven publicados.
+    const callerRoleRes = await pool.query("SELECT role FROM users WHERE id = $1", [req.userId]);
+    const callerRole = callerRoleRes.rows[0]?.role || "client";
+    const isAdminCaller = ["admin", "super_admin", "instructor", "reception"].includes(callerRole);
+    const includeUnpublished = isAdminCaller && (all === "1" || all === "true" || all === undefined);
     let query = `
       SELECT v.*,
              ct.name AS category_name,
@@ -8255,8 +8261,11 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
       FROM videos v
       LEFT JOIN class_types ct ON v.class_type_id = ct.id
       LEFT JOIN instructors i ON v.instructor_id = i.id
-      WHERE v.is_published = true
+      WHERE 1=1
     `;
+    if (!includeUnpublished) {
+      query += " AND v.is_published = true";
+    }
     const params = [];
     if (search) {
       params.push(`%${search}%`);
