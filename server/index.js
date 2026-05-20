@@ -411,9 +411,28 @@ async function makeGoogleDriveFilePublic(fileId, accessToken) {
   ).catch(() => { }); // best-effort
 }
 
+/**
+ * Devuelve el folder ID de Drive ya saneado: corta cualquier basura que viene
+ * pegada cuando alguien copia el ID desde la URL del navegador (`?hl=es`,
+ * `?usp=...`, `/edit`, espacios). Drive es estricto con esto y un ID con
+ * sufijo provoca "File not found".
+ */
+function getDriveFolderId() {
+  const raw = String(process.env.GOOGLE_DRIVE_FOLDER_ID || "").trim();
+  if (!raw) return "";
+  // Si pegaron una URL completa, quédate con el último segmento.
+  let id = raw;
+  const slashIdx = id.lastIndexOf("/");
+  if (slashIdx !== -1) id = id.slice(slashIdx + 1);
+  // Recorta lo que venga después de `?` o `#` (querystring/fragmento).
+  const qIdx = id.search(/[?#]/);
+  if (qIdx !== -1) id = id.slice(0, qIdx);
+  return id.trim();
+}
+
 /** Upload a Buffer to Google Drive using simple multipart (for small files like thumbnails) */
 async function uploadBufferToDrive(buffer, fileName, mimeType, accessToken) {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
+  const folderId = getDriveFolderId();
   const metadata = { name: fileName, ...(folderId ? { parents: [folderId] } : {}) };
   // Build multipart body manually
   const boundary = "kala_boundary_" + Date.now();
@@ -442,7 +461,7 @@ async function uploadBufferToDrive(buffer, fileName, mimeType, accessToken) {
  * @returns {{ id: string, webViewLink?: string }}
  */
 async function uploadFileToDriveResumable(filePath, fileName, mimeType, accessToken) {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
+  const folderId = getDriveFolderId();
   const metadata = { name: fileName, ...(folderId ? { parents: [folderId] } : {}) };
   const fileSize = fs.statSync(filePath).size;
 
@@ -11665,7 +11684,7 @@ app.post("/api/homepage-video-cards/:id/thumbnail", adminMiddleware, upload.sing
       const boundary = "thumbnail_boundary_" + Date.now();
       const metadata = JSON.stringify({
         name: `thumbnail_card_${cardId}_${Date.now()}.${req.file.originalname.split(".").pop()}`,
-        parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+        parents: [getDriveFolderId()],
       });
       const body = Buffer.concat([
         Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${req.file.mimetype}\r\n\r\n`),
@@ -11739,7 +11758,11 @@ app.post("/api/drive/init-upload", adminMiddleware, async (req, res) => {
     }
 
     const accessToken = await getGoogleDriveAccessToken();
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "";
+    const folderId = getDriveFolderId();
+    const rawFolder = String(process.env.GOOGLE_DRIVE_FOLDER_ID || "");
+    if (rawFolder && rawFolder !== folderId) {
+      console.warn(`[drive] GOOGLE_DRIVE_FOLDER_ID tenía sufijo (${JSON.stringify(rawFolder)}); saneado a ${JSON.stringify(folderId)}`);
+    }
     const metadata = { name: fileName, ...(folderId ? { parents: [folderId] } : {}) };
 
     // Initiate a resumable upload session on Google Drive
@@ -11773,7 +11796,18 @@ app.post("/api/drive/init-upload", adminMiddleware, async (req, res) => {
     return res.json({ data: { sessionId } });
   } catch (err) {
     console.error("Drive init-upload error:", err?.response?.data || err.message);
-    return res.status(500).json({ message: "Error al iniciar subida: " + (err?.response?.data?.error?.message || err.message) });
+    const driveMsg = err?.response?.data?.error?.message || "";
+    // Caso muy común: la env var apunta a una carpeta inexistente o sin acceso
+    // por la cuenta autorizada. Damos un mensaje accionable, no el crudo de Drive.
+    if (/file not found/i.test(driveMsg)) {
+      return res.status(500).json({
+        message:
+          "La carpeta de almacenamiento configurada no existe o no es accesible. " +
+          "Verifica la variable GOOGLE_DRIVE_FOLDER_ID en Railway: debe ser solo el ID (sin ?hl=es ni /edit) " +
+          "y la carpeta debe estar compartida con la cuenta autorizada.",
+      });
+    }
+    return res.status(500).json({ message: "Error al iniciar subida: " + (driveMsg || err.message) });
   }
 });
 
@@ -13831,7 +13865,7 @@ app.post("/api/instructors/:id/photo", adminMiddleware, upload.single("photo"), 
       const boundary = "instructor_photo_" + Date.now();
       const metadata = JSON.stringify({
         name: `instructor_${instructorId}_${Date.now()}.${req.file.originalname.split(".").pop()}`,
-        parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+        parents: [getDriveFolderId()],
       });
       const body = Buffer.concat([
         Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${req.file.mimetype}\r\n\r\n`),
