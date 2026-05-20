@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
 const ADMIN_ROLES = ["admin", "super_admin", "reception", "instructor"];
@@ -10,8 +10,8 @@ interface AuthGuardProps {
 }
 
 export const AuthGuard = ({ children, requiredRoles = ADMIN_ROLES }: AuthGuardProps) => {
-  const navigate = useNavigate();
   const { user, isAuthenticated, checkAuth } = useAuthStore();
+  const location = useLocation();
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
@@ -23,23 +23,22 @@ export const AuthGuard = ({ children, requiredRoles = ADMIN_ROLES }: AuthGuardPr
     })();
   }, []);
 
-  useEffect(() => {
-    if (!checked) return;
-    if (!isAuthenticated || !user) {
-      navigate("/auth/login");
-      return;
-    }
-    if (!requiredRoles.includes(user.role)) {
-      navigate("/app");
-    }
-  }, [checked, isAuthenticated, user]);
-
-  if (!checked)
+  if (!checked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center text-foreground">
         Cargando...
       </div>
     );
+  }
+
+  // Redirección declarativa con <Navigate>: idempotente, no apila history y
+  // no dispara navigation throttling de Chrome aunque el componente re-renderice.
+  if (!isAuthenticated || !user) {
+    return <Navigate to={`/auth/login?returnUrl=${encodeURIComponent(location.pathname)}`} replace />;
+  }
+  if (!requiredRoles.includes(user.role)) {
+    return <Navigate to="/app" replace />;
+  }
 
   return <>{children}</>;
 };

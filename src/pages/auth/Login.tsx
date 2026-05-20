@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useToast } from "@/hooks/use-toast";
 import { InstallAppPrompt } from "@/components/InstallAppPrompt";
@@ -26,6 +26,7 @@ type FormValues = { email: string; password: string };
 const Login = () => {
   const { login, isLoading, error, clearError, isAuthenticated, user } = useAuthStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const [params] = useSearchParams();
   const { toast } = useToast();
 
@@ -33,15 +34,23 @@ const Login = () => {
     resolver: zodResolver(schema),
   });
 
+  // Si ya está autenticada y aterriza en /auth/login, mandarla al destino una sola vez.
+  // Uso role (string) como dep — no el objeto user — para no re-disparar por cambios
+  // de referencia que Zustand persist puede provocar y caer en navigation throttling.
+  const role = user?.role;
+  const onboardingDone = user?.onboardingCompleted;
   useEffect(() => {
-    if (isAuthenticated && user) {
-      const returnUrl = params.get("returnUrl");
-      if (returnUrl) { navigate(returnUrl); return; }
-      if (["admin", "super_admin", "instructor", "reception"].includes(user.role)) navigate("/admin/dashboard");
-      else if (user.onboardingCompleted === false) navigate("/auth/onboarding");
-      else navigate("/app");
+    if (!isAuthenticated || !role) return;
+    const returnUrl = params.get("returnUrl");
+    let target: string;
+    if (returnUrl) target = returnUrl;
+    else if (["admin", "super_admin", "instructor", "reception"].includes(role)) target = "/admin/dashboard";
+    else if (onboardingDone === false) target = "/auth/onboarding";
+    else target = "/app";
+    if (location.pathname !== target) {
+      navigate(target, { replace: true });
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, role, onboardingDone]);
 
   const onSubmit = async (data: FormValues) => {
     clearError();
