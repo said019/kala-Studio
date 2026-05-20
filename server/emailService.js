@@ -483,6 +483,40 @@ async function sendOrderRejected(opts) {
   await sendEmail({ to, subject: "Comprobante de pago no aprobado — Kala Barre Studio", html });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── 8. COMPRA DE VIDEO APROBADA ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * @param {object} opts
+ * @param {string} opts.to
+ * @param {string} opts.name
+ * @param {string} opts.videoTitle
+ * @param {string} opts.videoId
+ * @param {number|string|null} [opts.amountMxn]
+ */
+async function sendVideoPurchaseApproved(opts) {
+  const { to, name, videoTitle, videoId, amountMxn } = opts;
+  const firstName = String(name || "Clienta").trim().split(/\s+/)[0] || "Clienta";
+  const safeTitle = String(videoTitle || "tu clase");
+  const safeAmount =
+    amountMxn != null && Number(amountMxn) > 0
+      ? `$${Number(amountMxn).toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} MXN`
+      : null;
+  const content = `
+    ${h1(`¡Tu video está listo, ${firstName}! 🎬`)}
+    ${p(`Aprobamos tu compra de <strong>${safeTitle}</strong>. Ya puedes verlo cuando quieras desde la app — el acceso es <strong>permanente</strong>.`)}
+    ${safeAmount ? p(`Monto registrado: ${safeAmount}.`) : ""}
+    ${p("Si tienes cualquier duda, responde este correo o escríbenos por WhatsApp. 💜")}
+  `;
+  const html = baseLayout({
+    preheader: `Tu video "${safeTitle}" ya está desbloqueado en Kala Barre Studio`,
+    content,
+    ctaUrl: `${SITE_URL}/app/videos/${encodeURIComponent(videoId)}`,
+    ctaText: "Ver el video",
+  });
+  await sendEmail({ to, subject: `🎬 Tu video "${safeTitle}" está listo — Kala Barre Studio`, html });
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export {
   sendMembershipActivated,
@@ -492,4 +526,5 @@ export {
   sendRenewalReminder,
   sendPasswordResetEmail,
   sendOrderRejected,
+  sendVideoPurchaseApproved,
 };
