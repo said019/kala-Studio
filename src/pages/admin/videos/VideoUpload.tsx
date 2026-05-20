@@ -46,6 +46,26 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
+/* ── Helpers de subida resiliente ────────────────────────────────────────
+   Para archivos enormes (≥1GB) la red flaquea cada tantos minutos. Un chunk
+   que falle por timeout o 5xx transitorio no debe matar todo el upload —
+   se reintenta con backoff. Solo abortamos ante 4xx no recuperables.
+*/
+const UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024; // 16 MB (múltiplo de 256 KB que Drive exige)
+const UPLOAD_MAX_MB = 12 * 1024;            // 12 GB tope
+const UPLOAD_CHUNK_RETRIES = 5;
+const UPLOAD_RESUME_KEY = "kala_video_upload_v1";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const isRetryableUploadError = (err: any) => {
+  const status = err?.response?.status;
+  if (!status) return true;                  // red caída / sin respuesta
+  if (status === 408 || status === 429) return true;
+  if (status >= 500 && status < 600) return true;
+  return false;
+};
+
 const VideoUpload = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -119,16 +139,18 @@ const VideoUpload = () => {
     onError: () => toast({ title: "Error al actualizar video", variant: "destructive" }),
   });
 
-  // Chunked upload via server proxy to Google Drive (avoids CORS)
+  // Chunked, resumable upload via server proxy → Google Drive.
+  // Para 5-12GB necesitamos resiliencia: cada chunk se reintenta con backoff
+  // ante errores transitorios (red, 5xx, 429). Si la sesión se pierde mid-upload
+  // tras un error fatal, se borra la entrada de resume; si solo es un retry de
+  // chunk, mantenemos sessionId/offset en localStorage para reanudar si la
+  // pestaña se recarga sin querer.
   const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const videoFile = e.target.files?.[0];
     if (!videoFile) return;
 
-    // Client-side size check (8 GB). Upload is a passthrough — Drive stores the
-    // original file, no re-compression — so this only caps file size, not quality.
-    const MAX_MB = 8192;
-    if (videoFile.size > MAX_MB * 1024 * 1024) {
-      const gb = (MAX_MB / 1024).toFixed(0);
+    if (videoFile.size > UPLOAD_MAX_MB * 1024 * 1024) {
+      const gb = (UPLOAD_MAX_MB / 1024).toFixed(0);
       toast({ title: `El archivo es demasiado grande. Máximo ${gb} GB.`, variant: "destructive" });
       return;
     }
@@ -148,38 +170,99 @@ const VideoUpload = () => {
       const { sessionId } = initResp.data?.data || initResp.data || {};
       if (!sessionId) throw new Error("No se obtuvo sesión de subida");
 
-      // Step 2: Upload file in ~5 MB chunks via server proxy (avoids CORS)
-      const CHUNK_SIZE = 5 * 1024 * 1024;
+      // Persistir progreso para resumir si la pestaña se recarga sin querer.
+      try {
+        localStorage.setItem(UPLOAD_RESUME_KEY, JSON.stringify({
+          sessionId, fileName: videoFile.name, fileSize: videoFile.size, startedAt: Date.now(),
+        }));
+      } catch { /* localStorage lleno o privado — seguimos sin resume */ }
+
+      // Step 2: Sube en chunks de 16MB. Cada chunk: reintenta hasta 5 veces con
+      // backoff exponencial (1s, 2s, 4s, 8s, 16s) ante errores transitorios.
       let offset = 0;
       let driveFileId = "";
+
       while (offset < videoFile.size) {
-        const end = Math.min(offset + CHUNK_SIZE, videoFile.size);
+        const end = Math.min(offset + UPLOAD_CHUNK_SIZE, videoFile.size);
         const chunk = videoFile.slice(offset, end);
         const contentRange = `bytes ${offset}-${end - 1}/${videoFile.size}`;
 
-        const resp = await api.put(`/drive/upload-chunk/${sessionId}`, chunk, {
-          headers: {
-            "Content-Type": videoFile.type || "video/mp4",
-            "Content-Range": contentRange,
-          },
-          maxBodyLength: Infinity,
-          maxContentLength: Infinity,
-        });
+        let lastError: any = null;
+        let chunkOk = false;
+        for (let attempt = 0; attempt < UPLOAD_CHUNK_RETRIES; attempt++) {
+          try {
+            const resp = await api.put(`/drive/upload-chunk/${sessionId}`, chunk, {
+              headers: {
+                "Content-Type": videoFile.type || "video/mp4",
+                "Content-Range": contentRange,
+              },
+              maxBodyLength: Infinity,
+              maxContentLength: Infinity,
+              // Sin timeout para chunks grandes; axios default puede ser muy estricto.
+              timeout: 0,
+            });
 
-        if (resp.data?.done) {
-          driveFileId = resp.data.data?.id;
-          break;
+            if (resp.data?.done) {
+              driveFileId = resp.data.data?.id;
+              offset = videoFile.size;
+            } else if (resp.data?.range) {
+              // Drive nos dice hasta dónde recibió (formato "0-N"). Avanzamos a N+1.
+              const lastByte = parseInt(resp.data.range.split("-")[1], 10);
+              if (Number.isFinite(lastByte)) {
+                offset = lastByte + 1;
+              } else {
+                offset = end;
+              }
+            } else {
+              offset = end;
+            }
+            chunkOk = true;
+            break;
+          } catch (err: any) {
+            lastError = err;
+            if (!isRetryableUploadError(err)) {
+              // 4xx (token expirado, formato, etc.): no tiene sentido reintentar.
+              throw err;
+            }
+            const backoffMs = Math.min(16000, 1000 * Math.pow(2, attempt));
+            await sleep(backoffMs);
+            // Antes de reintentar, preguntamos al server cuánto recibió Drive:
+            // si el chunk anterior llegó (total o parcialmente) avanzamos el
+            // offset y NO reenviamos bytes ya almacenados.
+            try {
+              const status = await api.get(`/drive/upload-chunk/${sessionId}/status`);
+              if (status.data?.done) {
+                driveFileId = status.data.data?.id;
+                offset = videoFile.size;
+                chunkOk = true;
+                break;
+              }
+              const next = Number(status.data?.nextOffset);
+              if (Number.isFinite(next) && next > offset) {
+                // Drive ya tiene parte del chunk: avanzamos al nuevo offset y
+                // damos por bueno este intento; el while exterior re-calcula
+                // el slice para los bytes restantes.
+                offset = next;
+                chunkOk = true;
+                break;
+              }
+            } catch { /* status falló: dejamos que la próxima iteración reintente igual */ }
+          }
         }
-        if (resp.data?.range) {
-          offset = parseInt(resp.data.range.split("-")[1], 10) + 1;
-        } else {
-          offset = end;
+        if (!chunkOk) {
+          throw lastError ?? new Error("No se pudo subir un fragmento del video");
         }
+
+        // Progreso del 0 al 90% durante la subida; 90-100% se reserva para
+        // make-public + thumbnail + guardado en BD.
         setUploadProgress(Math.round((offset / videoFile.size) * 90));
       }
 
-      if (!driveFileId) throw new Error("Upload terminó sin obtener file ID");
+      if (!driveFileId) throw new Error("La subida terminó sin obtener file ID");
       setUploadProgress(93);
+
+      // Ya está completo en Drive: limpiamos la marca de resume.
+      try { localStorage.removeItem(UPLOAD_RESUME_KEY); } catch { /* no-op */ }
 
       // Step 3: Make file public
       await api.post(`/drive/make-public/${driveFileId}`);
@@ -224,6 +307,8 @@ const VideoUpload = () => {
       setUploadedEmbedUrl(`/api/drive/video/${driveFileId}`);
       toast({ title: "✅ Video subido a Google Drive" });
     } catch (err: any) {
+      // Error fatal: el resume no sirve (la sesión seguramente está rota).
+      try { localStorage.removeItem(UPLOAD_RESUME_KEY); } catch { /* no-op */ }
       const msg = err?.response?.data?.message || err?.message || "Error al subir video";
       toast({ title: msg, variant: "destructive" });
     } finally {

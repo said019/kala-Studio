@@ -11826,6 +11826,39 @@ app.put("/api/drive/upload-chunk/:sessionId", adminMiddleware, async (req, res) 
   }
 });
 
+// GET /api/drive/upload-chunk/:sessionId/status — pregunta a Drive cuántos
+// bytes ya recibió de la sesión. Lo usa el cliente al reanudar tras un error
+// transitorio para no reenviar bytes ya almacenados (PUT con Content-Length: 0
+// y Content-Range: bytes *​/{total} → 308 con Range: bytes=0-N, o 200/201 si
+// la subida estaba completa).
+app.get("/api/drive/upload-chunk/:sessionId/status", adminMiddleware, async (req, res) => {
+  const session = driveUploadSessions.get(req.params.sessionId);
+  if (!session) return res.status(404).json({ message: "Sesión de upload no encontrada o expirada" });
+  try {
+    const driveResp = await axios.put(session.uploadUrl, "", {
+      headers: {
+        "Content-Length": "0",
+        "Content-Range": `bytes */${session.fileSize ?? "*"}`,
+      },
+      validateStatus: (s) => s === 200 || s === 201 || s === 308,
+    });
+    if (driveResp.status === 200 || driveResp.status === 201) {
+      driveUploadSessions.delete(req.params.sessionId);
+      return res.json({ done: true, data: driveResp.data });
+    }
+    const range = driveResp.headers.range || "";
+    let nextOffset = 0;
+    if (range) {
+      const m = range.match(/bytes=\d+-(\d+)/);
+      if (m) nextOffset = parseInt(m[1], 10) + 1;
+    }
+    return res.json({ done: false, range, nextOffset });
+  } catch (err) {
+    console.error("Drive upload-chunk status error:", err?.response?.data || err.message);
+    return res.status(500).json({ message: "Error consultando estado: " + (err?.response?.data?.error?.message || err.message) });
+  }
+});
+
 // POST /api/drive/make-public/:fileId — make a Drive file publicly readable
 app.post("/api/drive/make-public/:fileId", adminMiddleware, async (req, res) => {
   try {
@@ -15169,9 +15202,15 @@ async function bootServer() {
   scheduleEmailCrons();
   // Initialize Google Wallet loyalty class if configured
   ensureGoogleWalletClass().catch(() => { });
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 Kala API + Frontend → http://localhost:${PORT}`);
   });
+  // Timeouts amplios para soportar la subida resumible de videos grandes
+  // (chunks de 16MB proxeados a Google Drive). Si no los subimos, Node 18+
+  // corta a los 5 min por requestTimeout y se rompen subidas largas.
+  server.requestTimeout = 30 * 60 * 1000; // 30 min por request
+  server.headersTimeout = 60 * 1000;      // 60s para recibir los headers
+  server.keepAliveTimeout = 65 * 1000;    // un pelo más que headers
 }
 
 bootServer().catch((err) => {
