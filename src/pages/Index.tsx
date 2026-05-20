@@ -132,6 +132,126 @@ const FALLBACK_TRIAL_PLANS: TrialPlanRow[] = [
   { id: "trial-barre", name: "Clase muestra Barre", classCategory: "barre", price: 50, durationDays: 7, classLimit: 1, isNonTransferable: true, isNonRepeatable: true },
 ];
 
+/* ── Programas especializados ── */
+type SpecialBenefitGroup = { title: string; items: string[] };
+type SpecialNote = { label: string; text: string };
+type SpecialProgram = {
+  id: string;
+  eyebrow: string;
+  name: string;
+  tagline: string;
+  intro: string;
+  modality: string;
+  duration: string;
+  structure: string[];
+  benefitGroups: SpecialBenefitGroup[];
+  safety?: { heading: string; notes: SpecialNote[] };
+};
+
+const SPECIAL_PROGRAMS: SpecialProgram[] = [
+  {
+    id: "prenatal",
+    eyebrow: "Maternidad",
+    name: "Kala Prenatal & Postnatal",
+    tagline: "El movimiento consciente que te acompaña en la etapa más transformadora de tu vida.",
+    intro:
+      "Un espacio seguro y guiado, diseñado para mujeres embarazadas y mamás en etapa de postparto. Honramos los cambios de tu cuerpo y te acompañamos a mantenerte fuerte, activa y en bienestar.",
+    modality: "Presencial en estudio y clases en línea",
+    duration: "55 min totales",
+    structure: [
+      "40 min · Barré adaptado (fuerza, control y movilidad de bajo impacto)",
+      "15 min · Estiramiento profundo y meditación guiada adaptada",
+    ],
+    benefitGroups: [
+      {
+        title: "Etapa prenatal (embarazo)",
+        items: [
+          "Reduce los dolores de espalda baja y pelvis.",
+          "Mejora la circulación, previniendo la retención de líquidos.",
+          "Fortalece piernas y suelo pélvico para el momento del parto.",
+          "Mantiene una postura alineada al cambiar tu centro de gravedad.",
+        ],
+      },
+      {
+        title: "Etapa postnatal (postparto)",
+        items: [
+          "Recupera la fuerza muscular de forma progresiva y segura.",
+          "Estabiliza la pelvis y el core tras el parto.",
+          "Fortalece el abdomen respetando la anatomía postparto.",
+          "Ofrece un espacio de reconexión mental, física y de autocuidado.",
+        ],
+      },
+    ],
+  },
+  {
+    id: "core-breath",
+    eyebrow: "Alta especialización",
+    name: "Kala Core & Breath",
+    tagline: "Suelo pélvico fuerte, postura alineada y recuperación profunda. Barré + Hipopresivos.",
+    intro:
+      "La combinación de la energía del Barré con la ciencia de los hipopresivos (Low Pressure Fitness). Un programa enfocado en gestionar la presión intraabdominal y fortalecer desde tu centro.",
+    modality: "Presencial en estudio y clases en línea",
+    duration: "55 min totales",
+    structure: [
+      "40 min · Barré (escultura corporal, fuerza y resistencia de bajo impacto)",
+      "15 min · Técnica de hipopresivos + estiramiento especializado y meditación",
+    ],
+    benefitGroups: [
+      {
+        title: "Beneficios de los hipopresivos",
+        items: [
+          "Apoyan la recuperación de la diástasis abdominal tras el embarazo.",
+          "Tonifican la faja abdominal profunda y el suelo pélvico de forma refleja.",
+          "Mejoran la postura, liberando tensión y reduciendo dolores de espalda.",
+          "Aumentan la capacidad pulmonar y reducen estrés y ansiedad.",
+        ],
+      },
+    ],
+    safety: {
+      heading: "Requisitos e indicaciones de seguridad",
+      notes: [
+        {
+          label: "Postparto",
+          text: "Solo de 6 a 8 semanas después del parto, con el visto bueno de tu médico ginecólogo.",
+        },
+        {
+          label: "Embarazo",
+          text: "No es apto durante ninguna etapa de la gestación. Para ese periodo, el programa ideal es Kala Prenatal & Postnatal.",
+        },
+        {
+          label: "Contraindicaciones médicas",
+          text: "No deben realizar hipopresivos personas con hipertensión arterial ni con condiciones respiratorias crónicas obstructivas (asma, EPOC).",
+        },
+      ],
+    },
+  },
+];
+
+/* ── Planes de biblioteca online ── */
+type OnlinePlan = {
+  id: string;
+  name: string;
+  price: number;
+  monthlyEquivalent?: number;
+  savingsLabel?: string;
+  benefit: string;
+  featured?: boolean;
+};
+
+const ONLINE_PLANS: OnlinePlan[] = [
+  { id: "online-monthly",   name: "Mensual",    price: 350,  benefit: "Ideal para empezar y probar el método." },
+  { id: "online-quarterly", name: "Trimestral", price: 945,  monthlyEquivalent: 315, savingsLabel: "Ahorra 10%", benefit: "Tres meses con todo el catálogo." },
+  { id: "online-semester",  name: "Semestral",  price: 1785, monthlyEquivalent: 297, savingsLabel: "Ahorra 15%", benefit: "Seis meses para construir el hábito." },
+  { id: "online-annual",    name: "Anual",      price: 3500, monthlyEquivalent: 291, savingsLabel: "Ahorra 16%", benefit: "Acceso garantizado todo el año.", featured: true },
+];
+
+const ONLINE_PLAN_BENEFITS: { title: string; description: string; soon?: boolean }[] = [
+  { title: "Biblioteca completa de Barré", description: "Rutinas nuevas cada semana con diferentes duraciones y enfoques: fuerza, flexibilidad y cardio." },
+  { title: "Clases de Hipopresivos", description: "Fortalece tu core y cuida tu salud postural.", soon: true },
+  { title: "Barré Prenatal y Posnatal", description: "Programas diseñados para acompañarte de forma segura en esta etapa.", soon: true },
+  { title: "Acceso 24/7", description: "Desde cualquier dispositivo, cuando y donde quieras." },
+];
+
 /* ── Real photos pool ── */
 const HERO_PHOTOS = [kalaHeroClass, kalaClassEnergy, kalaBarreLine] as const;
 
@@ -202,6 +322,7 @@ const Index = () => {
   const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
   const [packages, setPackages] = useState<PackageRow[]>(FALLBACK_PACKAGES);
   const [openClassId, setOpenClassId] = useState<string | null>(null);
+  const [openProgramId, setOpenProgramId] = useState<string | null>("prenatal");
   const [playingVideoId, setPlayingVideoId] = useState<number | null>(null);
   const [galleryIdx, setGalleryIdx] = useState(0);
   const videoRefs = useRef<Record<number, HTMLVideoElement | null>>({});
@@ -341,8 +462,10 @@ const Index = () => {
             {[
               { label: "Estudio", id: "estudio" },
               { label: "Clases", id: "clases" },
+              { label: "Programas", id: "programas" },
               { label: "Horario", id: "horario" },
               { label: "Progreso", id: "progreso" },
+              { label: "En línea", id: "online" },
               { label: "Paquetes", id: "paquetes" },
               { label: "Coaches", id: "coaches" },
               { label: "Galería", id: "galeria" },
@@ -412,8 +535,10 @@ const Index = () => {
               {[
                 { label: "Estudio", id: "estudio" },
                 { label: "Clases", id: "clases" },
+                { label: "Programas", id: "programas" },
                 { label: "Horario", id: "horario" },
                 { label: "Progreso", id: "progreso" },
+                { label: "En línea", id: "online" },
                 { label: "Paquetes", id: "paquetes" },
                 { label: "Coaches", id: "coaches" },
                 { label: "Galería", id: "galeria" },
@@ -693,6 +818,137 @@ const Index = () => {
         </div>
       </section>
 
+      {/* ═════════ PROGRAMAS ESPECIALIZADOS ═════════ */}
+      <section id="programas" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.blush }}>
+        <div className="mx-auto max-w-[1320px]">
+          <div className="reveal opacity-0 translate-y-8 transition-all duration-700 mb-10 lg:mb-14">
+            <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
+              Cuidado especializado
+            </span>
+            <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+              Programas
+              <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>diseñados para tu etapa.</span>
+            </h2>
+            <p className="mt-6 max-w-[58ch] text-[1.02rem] leading-[1.75] text-[color:var(--ink)]/72">
+              Acompañamiento experto para momentos que requieren un enfoque distinto. Disponibles presencial en estudio y en línea.
+            </p>
+          </div>
+
+          <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-7 list-none m-0 p-0" data-stagger>
+            {SPECIAL_PROGRAMS.map((p) => {
+              const isOpen = openProgramId === p.id;
+              return (
+                <li key={p.id} data-stagger-item>
+                  <div
+                    className="h-full rounded-[24px] overflow-hidden border"
+                    style={{ backgroundColor: KALA.cream, borderColor: KALA.border }}
+                  >
+                    <button
+                      onClick={() => setOpenProgramId(isOpen ? null : p.id)}
+                      data-press
+                      className="group block w-full text-left bg-transparent border-0 p-6 sm:p-8 cursor-pointer"
+                      aria-expanded={isOpen}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <span className="text-[0.6rem] font-medium uppercase tracking-[0.26em]" style={{ color: KALA.olive }}>
+                            {p.eyebrow}
+                          </span>
+                          <h3 className="font-bebas mt-2 leading-[0.98] text-[1.9rem] sm:text-[2.3rem]" style={{ color: KALA.ink }}>
+                            {p.name}
+                          </h3>
+                        </div>
+                        <span
+                          className="grid h-10 w-10 shrink-0 place-items-center rounded-full transition-transform group-hover:rotate-45"
+                          style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                        >
+                          {isOpen ? <Minus size={14} /> : <Plus size={14} />}
+                        </span>
+                      </div>
+                      <p className="mt-3 font-alilato italic text-[1rem] leading-[1.6]" style={{ color: KALA.berry }}>
+                        {p.tagline}
+                      </p>
+                      <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-[0.72rem] uppercase tracking-[0.18em] text-[color:var(--ink)]/55">
+                        <div className="flex items-baseline gap-2"><span>Modalidad</span><span className="font-bebas text-[0.9rem]" style={{ color: KALA.ink }}>Estudio + en línea</span></div>
+                        <div className="flex items-baseline gap-2"><span>Duración</span><span className="font-bebas text-[0.9rem]" style={{ color: KALA.ink }}>{p.duration}</span></div>
+                      </div>
+                    </button>
+
+                    <div
+                      className="grid overflow-hidden transition-[grid-template-rows] duration-500 ease-out"
+                      style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="px-6 sm:px-8 pb-8 -mt-1">
+                          <p className="text-[0.95rem] leading-[1.75] text-[color:var(--ink)]/76">
+                            {p.intro}
+                          </p>
+
+                          <div className="mt-6">
+                            <p className="text-[0.66rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.olive }}>
+                              Estructura de la sesión
+                            </p>
+                            <ul className="mt-3 space-y-2 list-none p-0 m-0">
+                              {p.structure.map((s, i) => (
+                                <li key={i} className="flex gap-3 text-[0.92rem] leading-[1.6] text-[color:var(--ink)]/80">
+                                  <span className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: KALA.coral }} />
+                                  {s}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+
+                          <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {p.benefitGroups.map((g, gi) => (
+                              <div key={gi}>
+                                <p className="font-bebas text-[1.05rem]" style={{ color: KALA.berry }}>
+                                  {g.title}
+                                </p>
+                                <ul className="mt-3 space-y-2 list-none p-0 m-0">
+                                  {g.items.map((it, ii) => (
+                                    <li key={ii} className="flex gap-3 text-[0.9rem] leading-[1.6] text-[color:var(--ink)]/76">
+                                      <span className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: KALA.olive }} />
+                                      {it}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))}
+                          </div>
+
+                          {p.safety && (
+                            <div
+                              className="mt-7 rounded-[18px] p-5 sm:p-6"
+                              style={{ backgroundColor: KALA.blush, border: `1px solid ${KALA.coral}55` }}
+                            >
+                              <p className="font-bebas text-[1.05rem] flex items-center gap-2" style={{ color: KALA.berry }}>
+                                <span aria-hidden>⚠</span> {p.safety.heading}
+                              </p>
+                              <dl className="mt-4 space-y-3">
+                                {p.safety.notes.map((n, ni) => (
+                                  <div key={ni}>
+                                    <dt className="text-[0.66rem] font-medium uppercase tracking-[0.22em]" style={{ color: KALA.coral }}>
+                                      {n.label}
+                                    </dt>
+                                    <dd className="mt-1 text-[0.9rem] leading-[1.6] text-[color:var(--ink)]/78">
+                                      {n.text}
+                                    </dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+
       {/* ═════════ HORARIO (Schedule embed) ═════════ */}
       <Schedule />
 
@@ -794,6 +1050,141 @@ const Index = () => {
 
       {/* ═════════ COACHES (Olive drench) ═════════ */}
       <CoachesSection instructors={instructors} />
+
+      {/* ═════════ BIBLIOTECA ONLINE ═════════ */}
+      <section id="online" className="relative px-5 sm:px-8 lg:px-12 py-20 lg:py-28" style={{ backgroundColor: KALA.cream }}>
+        <div className="mx-auto max-w-[1320px]">
+          <div className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 mb-12 lg:mb-16">
+            <div className="lg:col-span-7">
+              <span className="text-[0.66rem] font-medium uppercase tracking-[0.34em]" style={{ color: KALA.olive }}>
+                Entrena en línea
+              </span>
+              <h2 className="font-bebas mt-4 leading-[0.92]" style={{ color: KALA.ink, fontSize: "clamp(2.4rem, 5.2vw, 4.6rem)" }}>
+                Tu estudio,
+                <span className="block italic font-alilato font-normal" style={{ color: KALA.berry }}>donde tú quieras.</span>
+              </h2>
+              <p className="mt-6 max-w-[56ch] text-[1.02rem] leading-[1.75] text-[color:var(--ink)]/72">
+                Entrena a tu propio ritmo y desde donde quieras. Todos los planes incluyen acceso ilimitado a la biblioteca online de Kala.
+              </p>
+            </div>
+
+            <ul className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3 list-none m-0 p-0">
+              {ONLINE_PLAN_BENEFITS.map((b, i) => (
+                <li key={i} className="rounded-[18px] p-4" style={{ backgroundColor: KALA.blush, border: `1px solid ${KALA.border}` }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-bebas text-[1rem] leading-[1.1]" style={{ color: KALA.ink }}>
+                      {b.title}
+                    </p>
+                    {b.soon && (
+                      <span className="shrink-0 text-[0.55rem] uppercase tracking-[0.22em] px-2 py-1 rounded-full" style={{ backgroundColor: KALA.coral, color: KALA.cream }}>
+                        Pronto
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[0.82rem] leading-[1.55] text-[color:var(--ink)]/68">
+                    {b.description}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <ul className="reveal opacity-0 translate-y-8 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 list-none m-0 p-0" data-stagger>
+            {ONLINE_PLANS.map((plan) => {
+              const featured = !!plan.featured;
+              return (
+                <li key={plan.id} data-stagger-item className="relative flex">
+                  {featured && (
+                    <span
+                      className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 text-[0.58rem] font-medium uppercase tracking-[0.22em] px-3 py-1.5 rounded-full whitespace-nowrap"
+                      style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+                    >
+                      Mejor valor
+                    </span>
+                  )}
+                  <div
+                    className="flex flex-col w-full rounded-[24px] p-6 sm:p-7 transition-transform duration-300"
+                    style={{
+                      backgroundColor: featured ? KALA.berry : KALA.cream,
+                      color: featured ? KALA.cream : KALA.ink,
+                      border: `1px solid ${featured ? KALA.berry : KALA.border}`,
+                      boxShadow: featured ? "0 18px 40px -20px rgba(118, 33, 77, 0.55)" : "none",
+                    }}
+                    data-lift
+                  >
+                    <div>
+                      <p
+                        className="text-[0.62rem] font-medium uppercase tracking-[0.26em]"
+                        style={{ color: featured ? KALA.cream : KALA.olive, opacity: featured ? 0.75 : 1 }}
+                      >
+                        Biblioteca online
+                      </p>
+                      <h3 className="font-bebas mt-3 leading-[0.95] text-[2.1rem]">
+                        {plan.name}
+                      </h3>
+                    </div>
+
+                    <div className="mt-5 flex items-baseline gap-2">
+                      <span className="font-bebas text-[2.6rem] leading-none">
+                        ${plan.price.toLocaleString("es-MX")}
+                      </span>
+                      <span className="text-[0.74rem] uppercase tracking-[0.18em]" style={{ opacity: 0.6 }}>
+                        MXN
+                      </span>
+                    </div>
+
+                    {plan.monthlyEquivalent ? (
+                      <p className="mt-1 text-[0.82rem]" style={{ opacity: 0.75 }}>
+                        ${plan.monthlyEquivalent.toLocaleString("es-MX")} / mes
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[0.82rem]" style={{ opacity: 0.75 }}>
+                        Por mes
+                      </p>
+                    )}
+
+                    {plan.savingsLabel && (
+                      <p
+                        className="mt-3 inline-flex w-fit text-[0.62rem] uppercase tracking-[0.22em] px-2.5 py-1 rounded-full"
+                        style={{
+                          backgroundColor: featured ? "rgba(255,247,242,0.18)" : KALA.blush,
+                          color: featured ? KALA.cream : KALA.berry,
+                        }}
+                      >
+                        {plan.savingsLabel}
+                      </p>
+                    )}
+
+                    <p
+                      className="mt-4 text-[0.9rem] leading-[1.55] font-alilato italic"
+                      style={{ opacity: featured ? 0.92 : 0.75 }}
+                    >
+                      {plan.benefit}
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={() => navigate(membershipCtaPath)}
+                      data-press
+                      className="mt-6 inline-flex items-center justify-center rounded-full px-5 py-3 text-[0.82rem] font-medium uppercase tracking-[0.18em] transition-colors cursor-pointer border-0"
+                      style={{
+                        backgroundColor: featured ? KALA.cream : KALA.berry,
+                        color: featured ? KALA.berry : KALA.cream,
+                      }}
+                    >
+                      Elegir {plan.name.toLowerCase()}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+
+          <p className="reveal opacity-0 translate-y-8 transition-all duration-700 mt-10 text-center text-[0.82rem] text-[color:var(--ink)]/60">
+            Sé de las primeras en disfrutar los próximos lanzamientos · Hipopresivos · Prenatal · Posnatal
+          </p>
+        </div>
+      </section>
 
       {/* ═════════ MEMBRESÍAS (Berry drench) ═════════ */}
       <PaquetesSection
