@@ -30,6 +30,7 @@ import Profile from "./pages/client/Profile";
 import ProfileEdit from "./pages/client/ProfileEdit";
 import ProfileMembership from "./pages/client/ProfileMembership";
 import ProfilePreferences from "./pages/client/ProfilePreferences";
+import ProfileSecurity from "./pages/client/ProfileSecurity";
 import ReferFriends from "./pages/client/ReferFriends";
 import VideoLibrary from "./pages/client/VideoLibrary";
 import VideoPlayer from "./pages/client/VideoPlayer";
@@ -121,6 +122,7 @@ const App = () => (
           <Route path="/app/profile/edit" element={<ProfileEdit />} />
           <Route path="/app/profile/membership" element={<ProfileMembership />} />
           <Route path="/app/profile/preferences" element={<ProfilePreferences />} />
+          <Route path="/app/profile/security" element={<ProfileSecurity />} />
           <Route path="/app/profile/refer" element={<ReferFriends />} />
           <Route path="/app/notifications" element={<Notifications />} />
 

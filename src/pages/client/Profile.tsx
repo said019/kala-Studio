@@ -133,6 +133,13 @@ const Profile = () => {
               title="Invita a una amiga"
               description="Las dos ganan una recompensa"
             />
+            <ListRow
+              to="/app/profile/security"
+              icon={<ShieldCheck size={17} strokeWidth={1.7} />}
+              iconTint="berry"
+              title="Seguridad"
+              description="Cambia tu contraseña"
+            />
           </ListGroup>
         </Section>
 

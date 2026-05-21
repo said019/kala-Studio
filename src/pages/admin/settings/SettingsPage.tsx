@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Send, MessageSquare, RefreshCw, Wifi, WifiOff, Pencil, BellDot, Upload, Image as ImageIcon, Video, Trash2 } from "lucide-react";
+import { ChangePassword } from "@/components/account/ChangePassword";
 
 function normalizeQrDataUrl(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -621,6 +622,7 @@ const SettingsPage = () => (
             <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
             <TabsTrigger value="policies">Políticas</TabsTrigger>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+            <TabsTrigger value="security">Seguridad</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general">
@@ -659,6 +661,18 @@ const SettingsPage = () => (
 
           <TabsContent value="whatsapp">
             <WhatsAppSettings />
+          </TabsContent>
+
+          <TabsContent value="security">
+            {/* La tarjeta usa los campos claros de AuthShell; la envolvemos en
+                un contenedor cream para que se lean sobre el panel oscuro. */}
+            <div className="rounded-2xl bg-[#FFF7F2] p-6 sm:p-8 max-w-md">
+              <h2 className="font-bold text-[#2E201C] text-lg mb-1">Cambiar mi contraseña</h2>
+              <p className="text-[#2E201C]/60 text-sm mb-6">
+                Cambia la contraseña de tu cuenta de administrador. Por seguridad cerraremos tu sesión al terminar.
+              </p>
+              <ChangePassword logoutAfter />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

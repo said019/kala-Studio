@@ -2785,6 +2785,42 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/auth/change-password — cambiar contraseña estando logueado.
+// Sirve a cualquier rol (cliente, admin, super_admin). Pide la contraseña
+// actual y la nueva; valida fuerza de la nueva. No invalida el token actual
+// (la sesión sigue viva), pero el frontend puede pedir re-login si lo desea.
+app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: "Contraseña actual y nueva son requeridas" });
+  }
+  if (!isStrongPassword(newPassword)) {
+    return res.status(400).json({ message: "La nueva contraseña debe tener mínimo 8 caracteres, una mayúscula y un número" });
+  }
+  if (currentPassword === newPassword) {
+    return res.status(400).json({ message: "La nueva contraseña debe ser distinta a la actual" });
+  }
+  try {
+    const r = await pool.query("SELECT password_hash FROM users WHERE id = $1", [req.userId]);
+    if (!r.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
+    const hash = r.rows[0].password_hash;
+    // Si la cuenta no tiene contraseña aún (ej. creada por admin sin pass),
+    // permitimos establecerla sin exigir la "actual".
+    if (hash) {
+      const match = await bcrypt.compare(currentPassword, hash);
+      if (!match) return res.status(401).json({ message: "La contraseña actual no es correcta" });
+    }
+    const newHash = await bcrypt.hash(newPassword, 12);
+    await pool.query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2", [newHash, req.userId]);
+    // Invalida tokens de reset pendientes (por higiene).
+    await pool.query("UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false", [req.userId]).catch(() => {});
+    return res.json({ ok: true, message: "Contraseña actualizada" });
+  } catch (err) {
+    console.error("[change-password] FAILED:", err?.message);
+    return res.status(500).json({ message: "No pudimos cambiar la contraseña" });
+  }
+});
+
 // POST /api/auth/onboarding — la alumna responde salud/experiencia post-registro
 app.post("/api/auth/onboarding", authMiddleware, async (req, res) => {
   const { hasInjury, practicedBarreBefore, injuryDetails } = req.body;
