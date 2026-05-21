@@ -28,7 +28,6 @@ import {
   ScanQrCode,
   Sparkles,
 } from "lucide-react";
-import kalaIconUrl from "@/assets/kala/kala-icon.png";
 
 const GoogleIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -222,44 +221,32 @@ const Wallet = () => {
                     "inset 0 1px 0 rgba(255,247,242,0.16), inset 0 -40px 80px -40px rgba(46,32,28,0.35)",
                 }}
               >
-                {/* Decorative icon watermark */}
+                {/* Decorative wordmark watermark (PNG con transparencia) */}
                 <img
-                  src={kalaIconUrl}
+                  src="/wallet-logo@3x.png"
                   alt=""
                   aria-hidden="true"
-                  className="pointer-events-none absolute -right-10 -bottom-12 h-[280px] w-[280px] object-contain opacity-[0.10] select-none"
-                  style={{ filter: "brightness(0) invert(1) saturate(0)" }}
+                  className="pointer-events-none absolute -right-8 -bottom-6 h-[120px] w-auto object-contain opacity-[0.08] select-none"
+                  style={{ filter: "brightness(0) invert(1)" }}
                 />
 
                 {/* ── Header row ── */}
                 <header className="relative flex items-start justify-between gap-4 px-6 sm:px-8 pt-6 sm:pt-7">
-                  <div className="flex items-center gap-3">
-                    <span
-                      className="grid h-12 w-12 sm:h-14 sm:w-14 place-items-center rounded-2xl shrink-0"
-                      style={{
-                        backgroundColor: `${KALA.cream}15`,
-                        border: `1px solid ${KALA.cream}24`,
-                        boxShadow: "inset 0 1px 0 rgba(255,247,242,0.2)",
-                      }}
+                  <div className="min-w-0">
+                    {/* Wordmark Kala (PNG con transparencia → el filtro lo deja
+                        blanco limpio sobre el fondo vino). */}
+                    <img
+                      src="/wallet-logo@3x.png"
+                      alt="Kala"
+                      className="h-5 sm:h-6 w-auto object-contain mb-2"
+                      style={{ filter: "brightness(0) invert(1)", opacity: 0.92 }}
+                    />
+                    <h2
+                      className="font-bebas leading-none truncate"
+                      style={{ color: KALA.cream, fontSize: "clamp(1.4rem, 2.4vw, 1.85rem)", letterSpacing: "0.01em" }}
                     >
-                      <img
-                        src={kalaIconUrl}
-                        alt=""
-                        className="h-8 w-8 sm:h-9 sm:w-9 object-contain"
-                        style={{ filter: "brightness(0) invert(1)" }}
-                      />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[0.6rem] font-medium uppercase tracking-[0.32em]" style={{ color: KALA.cream, opacity: 0.7 }}>
-                        Kala Club
-                      </p>
-                      <h2
-                        className="font-bebas leading-none mt-1 truncate"
-                        style={{ color: KALA.cream, fontSize: "clamp(1.4rem, 2.4vw, 1.85rem)", letterSpacing: "0.01em" }}
-                      >
-                        {metrics.planName}
-                      </h2>
-                    </div>
+                      {metrics.planName}
+                    </h2>
                   </div>
                   <span
                     className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.6rem] font-medium uppercase tracking-[0.22em] shrink-0"
