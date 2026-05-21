@@ -7,25 +7,26 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// IMPORTANT: Use onboarding@resend.dev until kala-barre-studio.com.mx is verified in Resend dashboard
-// Once verified, change this back to: process.env.EMAIL_FROM || "Kala Barre Studio <notificaciones@kala-barre-studio.com.mx>"
-const FROM_EMAIL = "Kala Barre Studio <onboarding@resend.dev>";
+// Remitente. Configurable por env; el dominio debe estar verificado en Resend.
+const FROM_EMAIL = process.env.EMAIL_FROM || "Kala Studio <noreply@agendafull.com.mx>";
 const SITE_URL = process.env.SITE_URL || "https://kala-barre-studio.com.mx";
-const LOGO_URL = `${SITE_URL}/icon-512.png`;
+const LOGO_URL = `${SITE_URL}/wallet-logo-black@3x.png`;
 
-// ─── Brand palette ────────────────────────────────────────────────────────────
+// ─── Brand palette (Kala editorial, fondo claro) ───────────────────────────────
+// Conservamos los nombres de clave (magenta/violet/lime/cream...) usados por
+// los helpers; solo cambian los valores al look claro de Kala.
 const B = {
-  bg: "#0D0018",   // deep purple-black
-  card: "#160024",   // card background
-  border: "#3D0069",   // border
-  purple: "#211A17",
-  magenta: "#76214D",
-  violet: "#E9745F",
-  lime: "#F58A24",
-  cream: "#FFF6E6",
-  lilac: "#FCE6E1",
-  text: "#FFF6E6",   // cream / almost-white
-  muted: "#C4A8E0",   // soft lilac muted
+  bg: "#F3E7E0",     // fondo página (blush apagado)
+  card: "#FFF7F2",   // cream — fondo de la tarjeta
+  border: "#E8CAC1",  // beige rosado — bordes
+  purple: "#2E201C", // ink — espresso cálido
+  magenta: "#76214D",  // berry — primario
+  violet: "#E9745F",   // coral — acento
+  lime: "#F58A24",     // naranja
+  cream: "#2E201C",    // (ahora "cream" = texto oscuro; clave reutilizada en headings)
+  lilac: "#FCE6E1",    // blush claro
+  text: "#3B2C26",     // texto principal (ink suave)
+  muted: "#8A7A72",    // gris cálido para texto secundario
 };
 
 // ─── Base layout ──────────────────────────────────────────────────────────────
@@ -64,16 +65,16 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
       <table role="presentation" cellpadding="0" cellspacing="0" width="560"
              style="max-width:560px;width:100%;background-color:${B.card};
                     border:1px solid ${B.border};border-radius:20px;
-                    box-shadow:0 0 60px rgba(118,33,77,.15);">
+                    box-shadow:0 18px 50px -24px rgba(118,33,77,.28);">
 
         <!-- Header gradient bar -->
         <tr><td style="height:5px;background:linear-gradient(90deg,${B.magenta},${B.violet},${B.lime});
                         border-radius:20px 20px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
 
         <!-- Logo -->
-        <tr><td align="center" style="padding:32px 40px 8px;">
-          <img src="${LOGO_URL}" alt="Kala Barre Studio" width="160" height="auto"
-               style="display:block;max-width:160px;" />
+        <tr><td align="center" style="padding:34px 40px 6px;">
+          <img src="${LOGO_URL}" alt="Kala Studio" width="150" height="auto"
+               style="display:block;max-width:150px;" />
         </td></tr>
 
         <!-- Content -->

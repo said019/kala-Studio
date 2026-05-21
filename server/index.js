@@ -10184,9 +10184,15 @@ app.post("/api/admin/campaigns/preview", adminMiddleware, async (req, res) => {
 });
 
 // POST /api/admin/campaigns/send — crea campaign + dispara envío en background.
+// Tope de seguridad para envíos masivos de WhatsApp. Evita un "mandé a 500 sin
+// querer". Configurable por env; por encima del tope hace falta confirm:true
+// explícito y, para volúmenes muy grandes, ser super_admin.
+const CAMPAIGN_SOFT_LIMIT = Number(process.env.CAMPAIGN_SOFT_LIMIT) || 50;
+const CAMPAIGN_HARD_LIMIT = Number(process.env.CAMPAIGN_HARD_LIMIT) || 300;
+
 app.post("/api/admin/campaigns/send", adminMiddleware, async (req, res) => {
   try {
-    const { name, segment, message, templateKey, vars } = req.body || {};
+    const { name, segment, message, templateKey, vars, confirm } = req.body || {};
     if (!name || !segment) {
       return res.status(400).json({ message: "name y segment son requeridos" });
     }
@@ -10197,6 +10203,31 @@ app.post("/api/admin/campaigns/send", adminMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Define `message` (texto custom) o `templateKey`" });
     }
     const targets = await resolveCampaignTargets(segment);
+
+    // ── Tope de seguridad ────────────────────────────────────────────────
+    const count = targets.length;
+    // Rol del caller (para el tope alto).
+    const callerRes = await pool.query("SELECT role FROM users WHERE id = $1", [req.userId]);
+    const callerRole = callerRes.rows[0]?.role || "client";
+    const isSuperAdmin = callerRole === "super_admin";
+
+    // Por encima del tope duro, ni con confirmación: solo super_admin.
+    if (count > CAMPAIGN_HARD_LIMIT && !isSuperAdmin) {
+      return res.status(403).json({
+        message: `Esta campaña alcanza a ${count} personas, por encima del máximo permitido (${CAMPAIGN_HARD_LIMIT}). Pide a un super admin que la envíe o usa un segmento más reducido.`,
+        requiresSuperAdmin: true,
+        count,
+      });
+    }
+    // Por encima del tope blando, exige confirmación explícita.
+    if (count > CAMPAIGN_SOFT_LIMIT && !confirm) {
+      return res.status(409).json({
+        message: `Vas a enviar a ${count} personas. Confirma para continuar.`,
+        requiresConfirm: true,
+        count,
+        softLimit: CAMPAIGN_SOFT_LIMIT,
+      });
+    }
     const r = await pool.query(
       `INSERT INTO campaigns (name, segment, message, template_key, template_vars, total_targets, status, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,'queued',$7) RETURNING *`,
