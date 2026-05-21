@@ -15167,6 +15167,14 @@ app.get("*", (req, res) => {
   if (!indexHtmlExists) {
     return res.status(503).type("text/plain").send("Frontend build missing. Check Railway build logs.");
   }
+  // El index.html NUNCA se cachea: así, tras cada deploy, el navegador pide la
+  // versión fresca y referencia los hashes de assets correctos. (Los assets en
+  // sí sí se cachean — sus nombres llevan hash, cambian en cada build.) Esto
+  // evita el error "Refused to apply style ... MIME text/html" que aparece
+  // cuando un HTML viejo en caché pide un asset que el build nuevo ya renombró.
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.sendFile(path.join(distDir, "index.html"));
 });
 
