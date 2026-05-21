@@ -68,14 +68,18 @@ const isRetryableUploadError = (err: any) => {
 };
 
 /**
- * Extrae un frame del video local (en el navegador) y lo devuelve como
- * Blob JPEG, listo para subir como miniatura. Atajamos al 10% del video
- * para esquivar logos/intros y caer en una pose representativa.
+ * Carga el video en el navegador y devuelve:
+ *   - duration: duración real en segundos (entero), o null si no se pudo leer.
+ *   - thumb:    Blob JPEG con un frame al `atRatio` (default 10%), o null.
  *
- * Si algo sale mal (codec no soportado por <video>, autoplay bloqueado,
- * frame negro) devolvemos null y el caller decide qué hacer.
+ * Hacemos las dos cosas en una sola pasada para no abrir el archivo dos
+ * veces. Si el navegador no puede leer el codec/contenedor (timeout 20s)
+ * todo cae a null y el caller decide cómo seguir.
  */
-const extractVideoFrameBlob = (file: File, atRatio = 0.1): Promise<Blob | null> =>
+const probeVideoLocally = (
+  file: File,
+  atRatio = 0.1,
+): Promise<{ duration: number | null; thumb: Blob | null }> =>
   new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
@@ -83,31 +87,38 @@ const extractVideoFrameBlob = (file: File, atRatio = 0.1): Promise<Blob | null> 
     video.muted = true;
     video.playsInline = true;
     video.crossOrigin = "anonymous";
+
     let settled = false;
+    let duration: number | null = null;
     const cleanup = () => { try { URL.revokeObjectURL(url); } catch { /* no-op */ } };
-    const done = (b: Blob | null) => {
+    const done = (thumb: Blob | null) => {
       if (settled) return;
       settled = true;
       cleanup();
-      resolve(b);
+      resolve({ duration, thumb });
     };
     // Timeout duro: si el navegador no puede leer el video en 20s, abortamos.
     const timer = window.setTimeout(() => done(null), 20000);
+
     video.addEventListener("loadedmetadata", () => {
       const dur = video.duration;
+      if (Number.isFinite(dur) && dur > 0) {
+        duration = Math.round(dur);
+      }
       if (!Number.isFinite(dur) || dur <= 0) {
         window.clearTimeout(timer);
         done(null);
         return;
       }
-      // Saltamos a la posición elegida (10%). Mínimo 0.5s para evitar el frame 0
-      // que muchas veces es negro.
+      // Saltamos a la posición elegida (10%). Mínimo 0.5s para evitar el
+      // frame 0 que muchas veces es negro.
       const target = Math.max(0.5, Math.min(dur - 0.1, dur * atRatio));
       video.currentTime = target;
     });
     video.addEventListener("seeked", () => {
       try {
-        // Cap a 1280px de ancho — suficiente para una miniatura, evita JPEGs gigantes.
+        // Cap a 1280px de ancho — suficiente para una miniatura, evita
+        // JPEGs gigantes.
         const w = video.videoWidth || 1280;
         const h = video.videoHeight || 720;
         const scale = Math.min(1, 1280 / w);
@@ -223,6 +234,14 @@ const VideoUpload = () => {
     setIsUploading(true);
     setUploadProgress(0);
     setUploadedEmbedUrl(null);
+
+    // Probe local: duración real y frame para miniatura, en una sola pasada.
+    // Lo hacemos antes de pegarle a la red para que el form ya tenga la
+    // duración aunque la subida tarde minutos.
+    const probe = await probeVideoLocally(videoFile, 0.1);
+    if (probe.duration && probe.duration > 0) {
+      form.setValue("duration_seconds", probe.duration);
+    }
 
     try {
       // Step 1: Init resumable session on server (small JSON request)
@@ -342,13 +361,11 @@ const VideoUpload = () => {
       let thumbBlob: Blob | null = uploadedThumb;
       let thumbName = uploadedThumb?.name || "";
       let thumbMime = uploadedThumb?.type || "image/jpeg";
-      if (!uploadedThumb) {
-        const generated = await extractVideoFrameBlob(videoFile, 0.1);
-        if (generated) {
-          thumbBlob = generated;
-          thumbName = `auto_${videoFile.name.replace(/\.[^.]+$/, "")}.jpg`;
-          thumbMime = "image/jpeg";
-        }
+      if (!uploadedThumb && probe.thumb) {
+        // Frame al 10% extraído arriba en probeVideoLocally.
+        thumbBlob = probe.thumb;
+        thumbName = `auto_${videoFile.name.replace(/\.[^.]+$/, "")}.jpg`;
+        thumbMime = "image/jpeg";
       }
 
       let thumbnailDriveId = "";

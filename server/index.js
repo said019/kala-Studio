@@ -8338,6 +8338,11 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
 // GET /api/videos/:id
 app.get("/api/videos/:id", authMiddleware, async (req, res) => {
   try {
+    // Admin/instructor/reception ven borradores también (para poder editarlos).
+    // Cliente solo ve publicados — mismo criterio que GET /api/videos.
+    const callerRoleRes = await pool.query("SELECT role FROM users WHERE id = $1", [req.userId]);
+    const callerRole = callerRoleRes.rows[0]?.role || "client";
+    const isAdminCaller = ["admin", "super_admin", "instructor", "reception"].includes(callerRole);
     const r = await pool.query(
       `SELECT v.*,
               ct.name AS category_name,
@@ -8345,7 +8350,7 @@ app.get("/api/videos/:id", authMiddleware, async (req, res) => {
        FROM videos v
        LEFT JOIN class_types ct ON v.class_type_id = ct.id
        LEFT JOIN instructors i ON v.instructor_id = i.id
-       WHERE v.id = $1 AND v.is_published = true`,
+       WHERE v.id = $1 ${isAdminCaller ? "" : "AND v.is_published = true"}`,
       [req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Video no encontrado" });
