@@ -51,7 +51,7 @@ const GenerateClasses = () => {
 
   const form = useForm<GenerateFormData>({
     resolver: zodResolver(generateSchema),
-    defaultValues: { daysOfWeek: [], maxCapacity: 10, startTime: "09:00", endTime: "10:00" },
+    defaultValues: { daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00" },
   });
 
   const generateMutation = useMutation({

@@ -51,7 +51,7 @@ const ClassTypesList = () => {
   });
   const types = Array.isArray(data?.data) ? data.data : [];
 
-  const form = useForm<TypeFormData>({ resolver: zodResolver(typeSchema), defaultValues: { color: "#E9745F", defaultDuration: 60, maxCapacity: 10, isActive: true } });
+  const form = useForm<TypeFormData>({ resolver: zodResolver(typeSchema), defaultValues: { color: "#E9745F", defaultDuration: 60, maxCapacity: 5, isActive: true } });
 
   const createMutation = useMutation({
     mutationFn: (d: TypeFormData) => api.post("/class-types", d),
@@ -73,13 +73,13 @@ const ClassTypesList = () => {
       name: t.name,
       color: t.color,
       defaultDuration: t.defaultDuration ?? t.durationMin ?? 60,
-      maxCapacity: t.maxCapacity ?? t.capacity ?? 10,
+      maxCapacity: t.maxCapacity ?? t.capacity ?? 5,
       isActive: t.isActive,
     });
     setEditing(t);
     setOpen(true);
   };
-  const openCreate = () => { form.reset({ color: "#E9745F", defaultDuration: 60, maxCapacity: 10, isActive: true }); setEditing(null); setOpen(true); };
+  const openCreate = () => { form.reset({ color: "#E9745F", defaultDuration: 60, maxCapacity: 5, isActive: true }); setEditing(null); setOpen(true); };
 
   return (
     <AuthGuard>

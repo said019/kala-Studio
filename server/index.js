@@ -634,7 +634,7 @@ async function ensureSchema() {
         intensity    VARCHAR(20)  DEFAULT 'media' CHECK (intensity IN ('ligera','media','pesada','todas')),
         level        VARCHAR(50)  DEFAULT 'Todos los niveles',
         duration_min INTEGER      DEFAULT 50,
-        capacity     INTEGER      DEFAULT 10,
+        capacity     INTEGER      DEFAULT 5,
         color        VARCHAR(50)  DEFAULT '#c026d3',
         emoji        VARCHAR(10)  DEFAULT '🏃',
         is_active    BOOLEAN      DEFAULT true,
@@ -648,8 +648,8 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS intensity VARCHAR(20) DEFAULT 'media'`).catch(() => { });
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS level VARCHAR(50) DEFAULT 'Todos los niveles'`).catch(() => { });
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS duration_min INTEGER DEFAULT 50`).catch(() => { });
-    await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 10`).catch(() => { });
-    await pool.query(`ALTER TABLE class_types ALTER COLUMN capacity SET DEFAULT 10`).catch(() => { });
+    await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS capacity INTEGER DEFAULT 5`).catch(() => { });
+    await pool.query(`ALTER TABLE class_types ALTER COLUMN capacity SET DEFAULT 5`).catch(() => { });
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS color VARCHAR(50) DEFAULT '#c026d3'`).catch(() => { });
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS emoji VARCHAR(10) DEFAULT '🏃'`).catch(() => { });
     await pool.query(`ALTER TABLE class_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
@@ -1482,6 +1482,21 @@ async function ensureSchema() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    // Cupo del estudio: 5 lugares por clase. Backfill ÚNICO — baja a 5 los
+    // tipos de clase y las clases futuras una sola vez. Luego el admin puede
+    // editar el cupo por clase libremente sin que lo volvamos a pisar.
+    {
+      const seedKey = "capacity_5_backfill_done";
+      const seen = await pool.query("SELECT 1 FROM settings WHERE key = $1 LIMIT 1", [seedKey]).catch(() => ({ rows: [] }));
+      if (!seen.rows.length) {
+        await pool.query(`UPDATE class_types SET capacity = 5 WHERE capacity IS DISTINCT FROM 5`).catch(() => { });
+        await pool.query(`UPDATE classes SET max_capacity = 5 WHERE max_capacity > 5 AND date >= CURRENT_DATE`).catch(() => { });
+        await pool.query(
+          `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+          [seedKey, JSON.stringify({ done_at: new Date().toISOString() })]
+        ).catch(() => { });
+      }
+    }
     await pool.query(
       `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
       ["general_settings", JSON.stringify(DEFAULT_GENERAL_SETTINGS)],
@@ -1872,7 +1887,7 @@ async function ensureSchema() {
                 date: dateStr,
                 startTime: `${startH}:${startM}`,
                 endTime: `${endH}:${endM}`,
-                maxCapacity: 10,
+                maxCapacity: 5,
               });
               typeIdx++;
               instIdx++;
@@ -8566,7 +8581,7 @@ app.post("/api/admin/class-types", adminMiddleware, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [name.trim(), subtitle || null, description || null,
       category || "jumping", intensity || "media",
-      level || "Todos los niveles", duration_min || 50, capacity || 10,
+      level || "Todos los niveles", duration_min || 50, capacity || 5,
       color || "#c026d3", emoji || "🏃", sort_order ?? 0]
     );
     return res.status(201).json({ data: r.rows[0] });
@@ -9004,7 +9019,7 @@ app.post("/api/class-types", adminMiddleware, async (req, res) => {
     const r = await pool.query(
       `INSERT INTO class_types (name, color, category, duration_min, capacity, is_active, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,0) RETURNING *`,
-      [name.trim(), color || "#c026d3", cat, defaultDuration || 60, maxCapacity || 10, isActive !== false]
+      [name.trim(), color || "#c026d3", cat, defaultDuration || 60, maxCapacity || 5, isActive !== false]
     );
     return res.status(201).json({ data: camelRow(r.rows[0]) });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
@@ -9063,7 +9078,7 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
       const total = h * 60 + m + 55;
       endTimeStr = String(Math.floor(total / 60)).padStart(2, "0") + ":" + String(total % 60).padStart(2, "0");
     }
-    const cap = maxCapacity ?? capacity ?? 10;
+    const cap = maxCapacity ?? capacity ?? 5;
     const r = await pool.query(
       `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled') RETURNING *`,
@@ -9484,7 +9499,7 @@ function parseTimeSlotTo24Hour(timeValue) {
 // POST /api/classes/generate — bulk generate
 app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
   try {
-    const { startDate, endDate, classTypeId, instructorId, daysOfWeek, startTime, endTime, maxCapacity = 10 } = req.body;
+    const { startDate, endDate, classTypeId, instructorId, daysOfWeek, startTime, endTime, maxCapacity = 5 } = req.body;
     if (!startDate || !endDate) return res.status(400).json({ message: "startDate y endDate requeridos" });
     if (!classTypeId) return res.status(400).json({ message: "classTypeId requerido" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
@@ -9610,7 +9625,7 @@ app.post("/api/schedules/reset-kala", adminMiddleware, async (req, res) => {
     weeksAhead = 4,
     instructorId: bodyInstructorId,
     classTypeId: bodyClassTypeId,
-    maxCapacity = 10,
+    maxCapacity = 5,
   } = req.body || {};
 
   // Canonical slots (day_of_week, time_slot, end_time +55min)
@@ -14022,7 +14037,7 @@ app.get("/api/admin/classes", adminMiddleware, async (req, res) => {
 // POST /api/admin/classes — create a class
 app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, capacity = 10, location, notes } = req.body;
+    const { classTypeId, instructorId, startTime, endTime, capacity = 5, location, notes } = req.body;
     if (!classTypeId || !startTime) return res.status(400).json({ message: "classTypeId y startTime requeridos" });
     const r = await pool.query(
       `INSERT INTO classes (class_type_id, instructor_id, start_time, end_time, capacity, location, notes, status)

@@ -13,7 +13,7 @@ describe("Kala landing client copy", () => {
     expect(indexSource).toContain("Flexibilidad");
     expect(indexSource).toMatch(/Evoluciona[\s\S]*en cada clase\./);
     expect(indexSource).toContain("Playlists y rutinas nuevas cada día.");
-    expect(indexSource).toContain("Cupos de 4 a 5 alumnas.");
+    expect(indexSource).toContain("Cupos de 5 alumnas por clase.");
     expect(indexSource).toMatch(/Aquí crecemos[\s\S]*juntas\./);
     expect(indexSource).toContain("Barre es para todas, sin condiciones.");
   });

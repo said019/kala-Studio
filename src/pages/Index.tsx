@@ -730,7 +730,7 @@ const Index = () => {
               <span className="block italic font-alilato font-normal" style={{ color: KALA.olive }}>en cada clase.</span>
             </h2>
             <p className="mt-6 max-w-[56ch] text-[1.02rem] leading-[1.75] text-[color:var(--ink)]/72">
-              Playlists y rutinas nuevas cada día. Una experiencia diferente con la misma calidad de siempre. Cupos de 4 a 5 alumnas.
+              Playlists y rutinas nuevas cada día. Una experiencia diferente con la misma calidad de siempre. Cupos de 5 alumnas por clase.
             </p>
           </div>
 
@@ -1694,7 +1694,7 @@ const PaquetesSection = ({
 const PoliticasSection = () => {
   const items = [
     { num: "01", title: "Primera vez", text: "Si eres nueva, llega 15 minutos antes. Karla te explica la barra y te muestra el espacio sin prisa." },
-    { num: "02", title: "Reservación", text: "Todas las clases requieren reserva previa. Cupo regular de 4 a 5 lugares; eventos especiales o privados pueden llegar a 6." },
+    { num: "02", title: "Reservación", text: "Todas las clases requieren reserva previa. Cupo de 5 lugares por clase." },
     { num: "03", title: "Cancelaciones", text: "Alumnas nuevas cancelan de 4 a 5 horas antes. Comunidad Kala puede cancelar hasta 2 horas antes sin penalización." },
     { num: "04", title: "No-show", text: "Si no asistes o cancelas tarde, la clase se considera tomada y no se puede revalidar." },
     { num: "05", title: "Pagos", text: "Transferencia BBVA · Karla Cruz · CLABE 012 700 01539444488 8. También aceptamos pago físico con tarjeta o efectivo." },

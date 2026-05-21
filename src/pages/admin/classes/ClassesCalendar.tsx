@@ -290,8 +290,8 @@ function CalendarTab({
         instructorPhoto:  c.instructor_photo,
         startTime:        c.start_time,   // already full ISO from server normalisation
         endTime:          c.end_time,
-        maxCapacity:      c.max_capacity ?? c.capacity ?? 10,
-        capacity:         c.max_capacity ?? c.capacity ?? 10,
+        maxCapacity:      c.max_capacity ?? c.capacity ?? 5,
+        capacity:         c.max_capacity ?? c.capacity ?? 5,
         bookedCount:      c.current_bookings ?? 0,
         currentBookings:  c.current_bookings ?? 0,
         isCancelled:      c.status === "cancelled" || c.is_cancelled === true,
@@ -351,7 +351,7 @@ function CalendarTab({
 
   const openCreate = (date: string) => {
     setSelectedDate(date);
-    form.reset({ startTime: date + "T09:00", endTime: date + "T10:00", maxCapacity: 10 });
+    form.reset({ startTime: date + "T09:00", endTime: date + "T10:00", maxCapacity: 5 });
     setCreateOpen(true);
   };
 
@@ -653,7 +653,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
   const [editing, setEditing] = useState<ClassType | null>(null);
   const form = useForm<TypeFormData>({
     resolver: zodResolver(typeSchema),
-    defaultValues: { color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 10, isActive: true },
+    defaultValues: { color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 5, isActive: true },
   });
 
   const createMutation = useMutation({
@@ -686,14 +686,14 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
       color: t.color,
       category: (t.category === "pilates" ? "pilates" : "barre") as "barre" | "pilates",
       defaultDuration: t.defaultDuration ?? t.durationMin ?? 50,
-      maxCapacity: t.maxCapacity ?? t.capacity ?? 10,
+      maxCapacity: t.maxCapacity ?? t.capacity ?? 5,
       isActive: t.isActive ?? true,
     });
     setEditing(t);
     setOpen(true);
   };
   const openCreate = () => {
-    form.reset({ color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 10, isActive: true });
+    form.reset({ color: "#E9745F", category: "barre", defaultDuration: 50, maxCapacity: 5, isActive: true });
     setEditing(null);
     setOpen(true);
   };
@@ -894,7 +894,7 @@ function GenerateTab({
   const [endTime, setEndTime] = useState("10:00");
   const [classTypeId, setClassTypeId] = useState("");
   const [instructorId, setInstructorId] = useState("");
-  const [maxCapacity, setMaxCapacity] = useState(10);
+  const [maxCapacity, setMaxCapacity] = useState(5);
 
   const [presetInstructorId, setPresetInstructorId] = useState("");
   const [presetWeeks, setPresetWeeks] = useState(4);

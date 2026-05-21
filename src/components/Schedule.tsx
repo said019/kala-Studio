@@ -240,7 +240,7 @@ export default function Schedule() {
               </p>
             </div>
             <span className="w-fit rounded-full bg-primary/10 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
-              Cupos de 4 a 5 alumnas
+              Cupos de 5 alumnas
             </span>
           </div>
 
