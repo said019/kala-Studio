@@ -64,6 +64,38 @@ const UPLOAD_RESUME_KEY = "kala_video_upload_v1";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Sube una imagen de miniatura a Drive vía el proxy de chunks y devuelve
+ * { driveId, url } donde url apunta a nuestro proxy (no a drive.google.com,
+ * que solo carga si la carpeta es pública). Devuelve null si falla.
+ */
+const uploadThumbnail = async (
+  blob: Blob,
+  name: string,
+  mime: string,
+): Promise<{ driveId: string; url: string } | null> => {
+  const init = await api.post("/drive/init-upload", {
+    fileName: `thumb_${Date.now()}_${name || "thumbnail.jpg"}`,
+    mimeType: mime,
+    fileSize: blob.size,
+  });
+  const sessionId = init.data?.data?.sessionId;
+  if (!sessionId) return null;
+  const resp = await api.put(`/drive/upload-chunk/${sessionId}`, blob, {
+    headers: {
+      "Content-Type": mime,
+      "Content-Range": `bytes 0-${blob.size - 1}/${blob.size}`,
+    },
+    maxBodyLength: Infinity,
+  });
+  if (resp.data?.done && resp.data.data?.id) {
+    const driveId = resp.data.data.id;
+    await api.post(`/drive/make-public/${driveId}`).catch(() => { /* opcional */ });
+    return { driveId, url: `/api/drive/video/${driveId}` };
+  }
+  return null;
+};
+
 const isRetryableUploadError = (err: any) => {
   const status = err?.response?.status;
   if (!status) return true;                  // red caída / sin respuesta
@@ -380,26 +412,10 @@ const VideoUpload = () => {
       let thumbnailDriveId = "";
       let thumbnailUrl = "";
       if (thumbBlob) {
-        const thumbInit = await api.post("/drive/init-upload", {
-          fileName: `thumb_${Date.now()}_${thumbName || "thumbnail.jpg"}`,
-          mimeType: thumbMime,
-          fileSize: thumbBlob.size,
-        });
-        const thumbSessionId = thumbInit.data?.data?.sessionId;
-        if (thumbSessionId) {
-          const thumbResp = await api.put(`/drive/upload-chunk/${thumbSessionId}`, thumbBlob, {
-            headers: {
-              "Content-Type": thumbMime,
-              "Content-Range": `bytes 0-${thumbBlob.size - 1}/${thumbBlob.size}`,
-            },
-            maxBodyLength: Infinity,
-          });
-          if (thumbResp.data?.done && thumbResp.data.data?.id) {
-            thumbnailDriveId = thumbResp.data.data.id;
-            // Servir vía nuestro proxy → no dependemos de que la carpeta sea pública.
-            thumbnailUrl = `/api/drive/video/${thumbnailDriveId}`;
-            await api.post(`/drive/make-public/${thumbnailDriveId}`).catch(() => { /* opcional */ });
-          }
+        const up = await uploadThumbnail(thumbBlob, thumbName, thumbMime);
+        if (up) {
+          thumbnailDriveId = up.driveId;
+          thumbnailUrl = up.url;
         }
       }
 
@@ -430,9 +446,33 @@ const VideoUpload = () => {
     reader.readAsDataURL(file);
   };
 
-  const onSubmit = (d: VideoFormData) => {
-    if (editId) updateMutation.mutate(d);
-    else createMutation.mutate(d);
+  const [savingThumb, setSavingThumb] = useState(false);
+
+  const onSubmit = async (d: VideoFormData) => {
+    // Si la admin eligió una imagen de miniatura nueva (típico en modo
+    // edición, donde no se re-sube el video), la subimos ahora a Drive y
+    // reemplazamos el thumbnail antes de guardar.
+    let payload = d;
+    const newThumb = thumbInputRef.current?.files?.[0] || null;
+    if (newThumb) {
+      try {
+        setSavingThumb(true);
+        const up = await uploadThumbnail(newThumb, newThumb.name, newThumb.type || "image/jpeg");
+        if (up) {
+          payload = { ...d, thumbnail_url: up.url, thumbnail_drive_id: up.driveId };
+          form.setValue("thumbnail_url", up.url);
+          form.setValue("thumbnail_drive_id", up.driveId);
+        } else {
+          toast({ title: "No se pudo subir la portada", description: "Guardamos el resto igual.", variant: "destructive" });
+        }
+      } catch {
+        toast({ title: "No se pudo subir la portada", description: "Guardamos el resto igual.", variant: "destructive" });
+      } finally {
+        setSavingThumb(false);
+      }
+    }
+    if (editId) updateMutation.mutate(payload);
+    else createMutation.mutate(payload);
   };
 
   // Si react-hook-form bloquea el submit por validación, el botón parecía
@@ -712,9 +752,9 @@ const VideoUpload = () => {
             </section>
 
             <div className="flex gap-3">
-              <Button type="submit" disabled={isPending || isUploading} className="flex-1">
-                {isPending ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
-                {editId ? "Guardar cambios" : "Crear video"}
+              <Button type="submit" disabled={isPending || isUploading || savingThumb} className="flex-1">
+                {(isPending || savingThumb) ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
+                {savingThumb ? "Subiendo portada…" : editId ? "Guardar cambios" : "Crear video"}
               </Button>
             </div>
           </form>
