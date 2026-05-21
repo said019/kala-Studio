@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Play } from "lucide-react";
+import { KALA } from "@/components/app/tokens";
 import { useNavigate } from "react-router-dom";
 import { useDebounce } from "@/hooks/use-debounce";
 
@@ -26,6 +27,37 @@ interface VideoItem {
   is_trial?: boolean;
   plan_count?: number;
 }
+
+/** Miniatura del video en la lista. Si no hay URL o la imagen falla
+ *  (URL antigua de Drive sin acceso público, archivo borrado, etc.),
+ *  cae a un placeholder estilo Kala con ícono de play. */
+const VideoThumb = ({ url, title }: { url?: string | null; title?: string }) => {
+  const [broken, setBroken] = useState(false);
+  if (!url || broken) {
+    return (
+      <div
+        className="w-full h-28 flex items-center justify-center relative overflow-hidden"
+        style={{ background: `linear-gradient(135deg, ${KALA.blush} 0%, ${KALA.cream} 100%)` }}
+      >
+        <span
+          className="grid h-10 w-10 place-items-center rounded-full"
+          style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+        >
+          <Play size={14} fill={KALA.cream} className="ml-0.5" />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={title ?? "miniatura"}
+      className="w-full h-28 object-cover"
+      onError={() => setBroken(true)}
+      loading="lazy"
+    />
+  );
+};
 
 const VideoList = () => {
   const navigate = useNavigate();
@@ -91,10 +123,7 @@ const VideoList = () => {
                 ? Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)
                 : videos.map((v) => (
                   <div key={v.id} className="rounded-xl border border-border overflow-hidden bg-secondary hover:bg-muted transition-colors">
-                    {v.thumbnail_url
-                      ? <img src={v.thumbnail_url} alt={v.title} className="w-full h-28 object-cover" />
-                      : <div className="w-full h-28 bg-muted flex items-center justify-center text-muted-foreground text-xs">Sin miniatura</div>
-                    }
+                    <VideoThumb url={v.thumbnail_url} title={v.title} />
                     <div className="p-3">
                       <p className="font-medium text-sm truncate">{v.title}</p>
                       <div className="flex items-center gap-1 mt-1 flex-wrap">

@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload, Video, Image, CheckCircle2 } from "lucide-react";
+import { KALA } from "@/components/app/tokens";
 
 const videoSchema = z.object({
   title: z.string().min(1, "Título requerido"),
@@ -65,6 +66,69 @@ const isRetryableUploadError = (err: any) => {
   if (status >= 500 && status < 600) return true;
   return false;
 };
+
+/**
+ * Extrae un frame del video local (en el navegador) y lo devuelve como
+ * Blob JPEG, listo para subir como miniatura. Atajamos al 10% del video
+ * para esquivar logos/intros y caer en una pose representativa.
+ *
+ * Si algo sale mal (codec no soportado por <video>, autoplay bloqueado,
+ * frame negro) devolvemos null y el caller decide qué hacer.
+ */
+const extractVideoFrameBlob = (file: File, atRatio = 0.1): Promise<Blob | null> =>
+  new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = "anonymous";
+    let settled = false;
+    const cleanup = () => { try { URL.revokeObjectURL(url); } catch { /* no-op */ } };
+    const done = (b: Blob | null) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(b);
+    };
+    // Timeout duro: si el navegador no puede leer el video en 20s, abortamos.
+    const timer = window.setTimeout(() => done(null), 20000);
+    video.addEventListener("loadedmetadata", () => {
+      const dur = video.duration;
+      if (!Number.isFinite(dur) || dur <= 0) {
+        window.clearTimeout(timer);
+        done(null);
+        return;
+      }
+      // Saltamos a la posición elegida (10%). Mínimo 0.5s para evitar el frame 0
+      // que muchas veces es negro.
+      const target = Math.max(0.5, Math.min(dur - 0.1, dur * atRatio));
+      video.currentTime = target;
+    });
+    video.addEventListener("seeked", () => {
+      try {
+        // Cap a 1280px de ancho — suficiente para una miniatura, evita JPEGs gigantes.
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+        const scale = Math.min(1, 1280 / w);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { window.clearTimeout(timer); done(null); return; }
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          window.clearTimeout(timer);
+          done(blob);
+        }, "image/jpeg", 0.85);
+      } catch {
+        window.clearTimeout(timer);
+        done(null);
+      }
+    });
+    video.addEventListener("error", () => { window.clearTimeout(timer); done(null); });
+    video.src = url;
+  });
 
 const VideoUpload = () => {
   const { toast } = useToast();
@@ -268,31 +332,47 @@ const VideoUpload = () => {
       await api.post(`/drive/make-public/${driveFileId}`);
       setUploadProgress(96);
 
-      // Step 4: Upload thumbnail if provided (small file — also via chunked proxy)
-      const thumbFile = thumbInputRef.current?.files?.[0];
-      let thumbnailUrl = `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w640`;
+      // Step 4: Miniatura.
+      //   - Si la admin subió una, usamos esa.
+      //   - Si no, extraemos un frame del 10% del video en el navegador y la
+      //     generamos automáticamente como JPEG.
+      //   La URL final apunta a nuestro proxy /api/drive/video/{id}, no a
+      //   drive.google.com (que solo carga si la carpeta es pública).
+      const uploadedThumb = thumbInputRef.current?.files?.[0] || null;
+      let thumbBlob: Blob | null = uploadedThumb;
+      let thumbName = uploadedThumb?.name || "";
+      let thumbMime = uploadedThumb?.type || "image/jpeg";
+      if (!uploadedThumb) {
+        const generated = await extractVideoFrameBlob(videoFile, 0.1);
+        if (generated) {
+          thumbBlob = generated;
+          thumbName = `auto_${videoFile.name.replace(/\.[^.]+$/, "")}.jpg`;
+          thumbMime = "image/jpeg";
+        }
+      }
+
       let thumbnailDriveId = "";
-      if (thumbFile) {
+      let thumbnailUrl = "";
+      if (thumbBlob) {
         const thumbInit = await api.post("/drive/init-upload", {
-          fileName: `thumb_${Date.now()}_${thumbFile.name}`,
-          mimeType: thumbFile.type || "image/jpeg",
-          fileSize: thumbFile.size,
+          fileName: `thumb_${Date.now()}_${thumbName || "thumbnail.jpg"}`,
+          mimeType: thumbMime,
+          fileSize: thumbBlob.size,
         });
         const thumbSessionId = thumbInit.data?.data?.sessionId;
         if (thumbSessionId) {
-          // Thumbnail is small, send as single chunk
-          const thumbChunk = thumbFile.slice(0, thumbFile.size);
-          const thumbResp = await api.put(`/drive/upload-chunk/${thumbSessionId}`, thumbChunk, {
+          const thumbResp = await api.put(`/drive/upload-chunk/${thumbSessionId}`, thumbBlob, {
             headers: {
-              "Content-Type": thumbFile.type || "image/jpeg",
-              "Content-Range": `bytes 0-${thumbFile.size - 1}/${thumbFile.size}`,
+              "Content-Type": thumbMime,
+              "Content-Range": `bytes 0-${thumbBlob.size - 1}/${thumbBlob.size}`,
             },
             maxBodyLength: Infinity,
           });
           if (thumbResp.data?.done && thumbResp.data.data?.id) {
             thumbnailDriveId = thumbResp.data.data.id;
-            thumbnailUrl = `https://drive.google.com/thumbnail?id=${thumbnailDriveId}&sz=w640`;
-            await api.post(`/drive/make-public/${thumbnailDriveId}`);
+            // Servir vía nuestro proxy → no dependemos de que la carpeta sea pública.
+            thumbnailUrl = `/api/drive/video/${thumbnailDriveId}`;
+            await api.post(`/drive/make-public/${thumbnailDriveId}`).catch(() => { /* opcional */ });
           }
         }
       }
@@ -347,6 +427,25 @@ const VideoUpload = () => {
             <section className="space-y-4 rounded-xl border p-5">
               <h2 className="font-semibold flex items-center gap-2"><Video size={16} /> Archivo de video</h2>
 
+              {/* Aviso explícito en modo edición: el video actual sigue ahí.
+                  Si la admin solo edita metadatos NO tiene que volver a subir. */}
+              {editId && existing?.drive_file_id && !videoFileName && (
+                <div
+                  className="rounded-lg border p-3 flex items-center gap-3"
+                  style={{ borderColor: KALA.border, backgroundColor: KALA.blush }}
+                >
+                  <CheckCircle2 size={18} style={{ color: KALA.olive }} />
+                  <div className="text-sm">
+                    <p className="font-medium" style={{ color: KALA.ink }}>
+                      Ya hay un video guardado.
+                    </p>
+                    <p className="text-xs" style={{ color: KALA.ink, opacity: 0.65 }}>
+                      Puedes editar los datos sin tocar nada más. Solo sube otro archivo si quieres reemplazarlo.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Video file picker */}
               <div
                 className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-muted-foreground/30 p-8 cursor-pointer hover:border-primary/50 transition-colors"
@@ -357,6 +456,12 @@ const VideoUpload = () => {
                     {isUploading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} className="text-green-500" />}
                     {videoFileName}
                   </p>
+                ) : editId && existing?.drive_file_id ? (
+                  <>
+                    <Upload size={28} className="text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Reemplazar el video (opcional)</p>
+                    <p className="text-xs text-muted-foreground">Solo si quieres sustituir el archivo actual.</p>
+                  </>
                 ) : (
                   <>
                     <Upload size={28} className="text-muted-foreground" />
@@ -408,7 +513,7 @@ const VideoUpload = () => {
                   {thumbPreview && <img src={thumbPreview} className="h-16 rounded object-cover" alt="thumb" />}
                   <input ref={thumbInputRef} type="file" accept="image/*" className="hidden" onChange={handleThumbFileChange} />
                 </div>
-                <p className="text-xs text-muted-foreground">Si no subes miniatura se genera automáticamente desde el video.</p>
+                <p className="text-xs text-muted-foreground">Si no subes miniatura tomamos un fotograma del video al 10% de duración.</p>
               </div>
 
               {/* Internal: drive_file_id se rellena al subir; queda en el form pero
