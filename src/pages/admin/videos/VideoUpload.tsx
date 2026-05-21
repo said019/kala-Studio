@@ -18,15 +18,19 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload, Video, Image, CheckCircle2 } from "lucide-react";
 import { KALA } from "@/components/app/tokens";
 
+// String opcional que NO se rompe si la BD manda null (Zod .optional() solo
+// admite undefined). Convertimos null → "" para que el form nunca bloquee.
+const optStr = z.preprocess((v) => (v == null ? "" : v), z.string()).optional();
+
 const videoSchema = z.object({
   title: z.string().min(1, "Título requerido"),
-  description: z.string().optional(),
-  tagline: z.string().optional(),
-  subtitle: z.string().optional(),
-  days: z.string().optional(),
+  description: optStr,
+  tagline: optStr,
+  subtitle: optStr,
+  days: optStr,
   // Tolerantes: un valor inesperado guardado en BD no debe bloquear el submit.
-  level: z.string().optional().default("todos"),
-  access_type: z.string().optional().default("gratuito"),
+  level: optStr,
+  access_type: optStr,
   is_published: z.boolean().default(false),
   is_featured: z.boolean().default(false),
   duration_seconds: z.coerce.number().default(0),
@@ -34,15 +38,15 @@ const videoSchema = z.object({
   sales_enabled: z.boolean().default(false),
   sales_unlocks_video: z.boolean().default(false),
   sales_price_mxn: z.coerce.number().nullable().optional(),
-  sales_class_credits: z.coerce.number().optional(),
-  sales_cta_text: z.string().optional(),
-  category_id: z.string().optional(),
-  brand_color: z.string().optional(),
+  sales_class_credits: z.coerce.number().nullable().optional(),
+  sales_cta_text: optStr,
+  category_id: optStr,
+  brand_color: optStr,
   // set by upload response
-  drive_file_id: z.string().optional(),
-  cloudinary_id: z.string().optional(),
-  thumbnail_url: z.string().optional(),
-  thumbnail_drive_id: z.string().optional(),
+  drive_file_id: optStr,
+  cloudinary_id: optStr,
+  thumbnail_url: optStr,
+  thumbnail_drive_id: optStr,
   plan_ids: z.array(z.string()).default([]),
 });
 
@@ -193,7 +197,11 @@ const VideoUpload = () => {
       sort_order: 0,
       brand_color: "#76214D",
       plan_ids: [],
-      ...( existing ?? {} ),
+      // Saneamos lo que viene de la BD: quitamos los null para no pisar los
+      // defaults de arriba (un null en un Select/Input lo deja descontrolado).
+      ...Object.fromEntries(
+        Object.entries(existing ?? {}).filter(([, v]) => v !== null && v !== undefined)
+      ),
     },
   });
 
