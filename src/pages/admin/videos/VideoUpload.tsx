@@ -24,8 +24,9 @@ const videoSchema = z.object({
   tagline: z.string().optional(),
   subtitle: z.string().optional(),
   days: z.string().optional(),
-  level: z.enum(["principiante", "intermedio", "avanzado", "todos"]).default("todos"),
-  access_type: z.enum(["gratuito", "miembros", "free", "members"]).default("gratuito"),
+  // Tolerantes: un valor inesperado guardado en BD no debe bloquear el submit.
+  level: z.string().optional().default("todos"),
+  access_type: z.string().optional().default("gratuito"),
   is_published: z.boolean().default(false),
   is_featured: z.boolean().default(false),
   duration_seconds: z.coerce.number().default(0),
@@ -426,6 +427,24 @@ const VideoUpload = () => {
     else createMutation.mutate(d);
   };
 
+  // Si react-hook-form bloquea el submit por validación, el botón parecía
+  // "muerto" sin feedback. Aquí avisamos exactamente qué campo falla.
+  const onInvalid = (errors: Record<string, { message?: string }>) => {
+    const first = Object.entries(errors)[0];
+    const field = first?.[0] ?? "";
+    const labels: Record<string, string> = {
+      title: "Título", duration_seconds: "Duración", access_type: "Acceso al video",
+      sales_price_mxn: "Precio", level: "Nivel",
+    };
+    toast({
+      title: "Revisa el formulario",
+      description: first?.[1]?.message
+        ? `${labels[field] ?? field}: ${first[1].message}`
+        : `Hay un campo con error: ${labels[field] ?? field}`,
+      variant: "destructive",
+    });
+  };
+
   const salesEnabled = form.watch("sales_enabled");
   const isPending = createMutation.isPending || updateMutation.isPending;
 
@@ -438,7 +457,7 @@ const VideoUpload = () => {
             <Button variant="outline" onClick={() => navigate("/admin/videos")}>Cancelar</Button>
           </div>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-8">
 
             {/* ── UPLOAD ─────────────────────────────────────────────── */}
             <section className="space-y-4 rounded-xl border p-5">
@@ -549,12 +568,29 @@ const VideoUpload = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1"><Label>Días de clase</Label><Input {...form.register("days")} placeholder="Lunes, Miércoles y Viernes" /></div>
-                <div className="space-y-1"><Label>Duración (segundos)</Label><Input type="number" {...form.register("duration_seconds")} /></div>
+                <div className="space-y-1">
+                  <Label>Duración (minutos)</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    placeholder="Se detecta al subir"
+                    value={(() => {
+                      const s = Number(form.watch("duration_seconds")) || 0;
+                      return s > 0 ? Math.round((s / 60) * 10) / 10 : "";
+                    })()}
+                    onChange={(e) => {
+                      const min = parseFloat(e.target.value);
+                      form.setValue("duration_seconds", Number.isFinite(min) ? Math.round(min * 60) : 0);
+                    }}
+                  />
+                  <p className="text-[0.7rem] text-muted-foreground">Se llena solo al subir el video; puedes ajustarlo.</p>
+                </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label>Nivel</Label>
-                  <Select value={form.watch("level")} onValueChange={(v) => form.setValue("level", v as VideoFormData["level"])}>
+                  <Select value={form.watch("level")} onValueChange={(v) => form.setValue("level", v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {["principiante", "intermedio", "avanzado", "todos"].map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
@@ -564,11 +600,12 @@ const VideoUpload = () => {
                 <div className="space-y-1">
                   <Label>Categoría</Label>
                   <Select value={form.watch("category_id") || ""} onValueChange={(v) => form.setValue("category_id", v)}>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Sin categoría" /></SelectTrigger>
                     <SelectContent>
                       {(Array.isArray(categoriesData?.data) ? categoriesData.data : []).map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  <p className="text-[0.7rem] text-muted-foreground">Agrupa el video en la biblioteca (ej. Fuerza, Estiramiento). Opcional.</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
