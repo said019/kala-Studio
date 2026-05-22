@@ -174,10 +174,17 @@ async function sendEmail({ to, subject, html }) {
     return;
   }
   try {
+    // BCC opcional vía env EMAIL_BCC (coma-separado). Por defecto NINGUNO:
+    // antes copiaba TODO a saidromero19@gmail.com, lo que hacía llegar copias
+    // de correos de las clientas (incluidos resets de contraseña) a ese buzón.
+    const bccList = String(process.env.EMAIL_BCC || "")
+      .split(",")
+      .map((e) => e.trim())
+      .filter(Boolean);
     const { data, error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: Array.isArray(to) ? to : [to],
-      bcc: ["saidromero19@gmail.com"], // Copy all notifications to admin
+      ...(bccList.length ? { bcc: bccList } : {}),
       subject,
       html,
     });
