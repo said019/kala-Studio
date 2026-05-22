@@ -30,6 +30,7 @@ import {
   Tag as TagIcon,
   Upload,
   ArrowLeft,
+  Film,
 } from "lucide-react";
 
 type Step = "select" | "method" | "bank" | "cash" | "upload" | "done";
@@ -76,6 +77,11 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
   const isUnlimited = Number(classLimit) >= 900;
   const nonTransferable = flag(plan.isNonTransferable ?? plan.is_non_transferable);
   const nonRepeatable = flag(plan.isNonRepeatable ?? plan.is_non_repeatable);
+  // Plan presencial que regala la biblioteca online (ej. 5 clases/semana).
+  // El plan online en sí también la incluye, pero ahí es obvio por el nombre.
+  const includesVideos =
+    flag(plan.includesVideoLibrary ?? plan.includes_video_library) &&
+    String(plan.classCategory ?? plan.class_category ?? "").toLowerCase() !== "online";
 
   return (
     <button
@@ -93,12 +99,20 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
         }}
       >
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
             <Tag tint={tint}>{CATEGORY_LABEL[category]}</Tag>
             {isUnlimited && <Tag tint="orange">Ilimitado</Tag>}
             {!isUnlimited && Number(classLimit) > 0 && (
               <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
                 {classLimit} clases
+              </span>
+            )}
+            {includesVideos && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-[0.14em]"
+                style={{ backgroundColor: `${KALA.olive}1f`, color: KALA.olive }}
+              >
+                <Film size={10} /> Incluye videos
               </span>
             )}
           </div>
@@ -110,6 +124,11 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
               {durationDays} días de vigencia
               {nonTransferable && " · No transferible"}
               {nonRepeatable && " · No repetible"}
+            </p>
+          )}
+          {includesVideos && (
+            <p className="text-[0.74rem] mt-0.5 font-medium" style={{ color: KALA.olive }}>
+              ✓ Incluye la membresía online (biblioteca completa de videos)
             </p>
           )}
         </div>
