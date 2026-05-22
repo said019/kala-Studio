@@ -1587,7 +1587,7 @@ const PaquetesSection = ({
               </h3>
             </div>
             <p className="text-[0.94rem] leading-[1.7] opacity-85 max-w-[42ch]">
-              Los planes seleccionados pueden incluir acceso a la biblioteca de videos: clases completas, técnica y rutinas para mantener tu constancia fuera del estudio.
+              El paquete de <strong>5 clases por semana</strong> incluye gratis el plan online: biblioteca completa de videos —clases completas, técnica y rutinas— para mantener tu constancia fuera del estudio.
             </p>
           </div>
 
@@ -1654,7 +1654,18 @@ const PaquetesSection = ({
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <div>
-                    <h4 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.15rem, 1.5vw, 1.35rem)" }}>{p.name}</h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.15rem, 1.5vw, 1.35rem)" }}>{p.name}</h4>
+                      {/* El paquete top (5/semana) incluye el plan online de videos sin costo extra. */}
+                      {Number(p.num_classes) >= 20 && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[0.58rem] font-medium uppercase tracking-[0.16em]"
+                          style={{ backgroundColor: `${KALA.olive}1f`, color: KALA.olive }}
+                        >
+                          <Film size={10} /> Incluye videos online
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[0.76rem] uppercase tracking-[0.16em] text-[color:var(--ink)]/55 mt-0.5">
                       {p.num_classes} {Number(p.num_classes) === 1 ? "clase" : "clases"} · {p.validity_days ?? 30} días
                     </p>
