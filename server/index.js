@@ -137,8 +137,11 @@ function normalizeBankInfo(rawValue) {
 
 async function getConfiguredBankInfo(dbClient = pool) {
   try {
+    // La config vive en la tabla `settings` (key 'bank_info'). Antes esto
+    // consultaba `system_settings` —tabla inexistente— así que SIEMPRE caía al
+    // catch y devolvía los datos hardcodeados. Por eso editar no se reflejaba.
     const settingsRes = await dbClient.query(
-      "SELECT value FROM system_settings WHERE key = 'bank_info' LIMIT 1"
+      "SELECT value FROM settings WHERE key = 'bank_info' LIMIT 1"
     );
     const raw = settingsRes.rows.length > 0 ? settingsRes.rows[0].value : null;
     return normalizeBankInfo(raw);
@@ -10926,6 +10929,51 @@ app.put("/api/settings/:key", adminMiddleware, async (req, res) => {
     );
     return res.json({ data: { key: req.params.key, value: merged } });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// ── Datos de transferencia (SPEI) — editables por el admin ───────────────────
+// GET devuelve los datos actuales (ya normalizados); el cliente los usa en el
+// checkout. PUT valida y guarda en settings.key='bank_info'.
+app.get("/api/admin/bank-info", adminMiddleware, async (_req, res) => {
+  try {
+    const info = await getConfiguredBankInfo(pool);
+    return res.json({ data: info });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.put("/api/admin/bank-info", adminMiddleware, async (req, res) => {
+  try {
+    const { bank, account_holder, clabe, account_number } = req.body || {};
+    const clabeDigits = digitsOnly(clabe);
+    if (!String(bank || "").trim()) {
+      return res.status(400).json({ message: "El banco es requerido" });
+    }
+    if (!String(account_holder || "").trim()) {
+      return res.status(400).json({ message: "El titular es requerido" });
+    }
+    if (clabeDigits.length !== 18) {
+      return res.status(400).json({ message: "La CLABE debe tener exactamente 18 dígitos" });
+    }
+    // Guardamos en limpio (sin formato); normalizeBankInfo lo formatea al leer.
+    const value = {
+      bank: String(bank).trim(),
+      account_holder: String(account_holder).trim(),
+      clabe: clabeDigits,
+      account_number: digitsOnly(account_number),
+    };
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('bank_info', $1) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(value)]
+    );
+    // Devolvemos ya normalizado para que el admin vea exactamente lo que verá la clienta.
+    const info = await getConfiguredBankInfo(pool);
+    return res.json({ data: info });
+  } catch (err) {
+    console.error("[bank-info] PUT failed:", err?.message);
+    return res.status(500).json({ message: "No pudimos guardar los datos de transferencia" });
+  }
 });
 
 // ── WhatsApp templates (admin-friendly wrapper around notification_templates) ──

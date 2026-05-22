@@ -96,6 +96,102 @@ const SettingsSection = ({ settingKey, fields }: { settingKey: string; fields: {
 };
 
 // WhatsApp Evolution API
+// ── Datos de transferencia SPEI (editables) ──────────────────────────────────
+const BankInfoSettings = () => {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [bank, setBank] = useState("");
+  const [holder, setHolder] = useState("");
+  const [clabe, setClabe] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [loaded, setLoaded] = useState(false);
+
+  const { data } = useQuery({
+    queryKey: ["bank-info"],
+    queryFn: async () => (await api.get("/admin/bank-info")).data,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    const info = data?.data;
+    if (info && !loaded) {
+      setBank(info.bank ?? "");
+      setHolder(info.account_holder ?? "");
+      setClabe(String(info.clabe ?? "").replace(/\D/g, ""));
+      setAccountNumber(String(info.account_number ?? "").replace(/\D/g, ""));
+      setLoaded(true);
+    }
+  }, [data, loaded]);
+
+  const clabeDigits = clabe.replace(/\D/g, "");
+  const clabeValid = clabeDigits.length === 18;
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.put("/admin/bank-info", {
+        bank: bank.trim(),
+        account_holder: holder.trim(),
+        clabe: clabeDigits,
+        account_number: accountNumber.replace(/\D/g, ""),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bank-info"] });
+      setLoaded(false);
+      toast({ title: "✅ Datos de transferencia guardados" });
+    },
+    onError: (e: any) =>
+      toast({ title: e?.response?.data?.message ?? "Error al guardar", variant: "destructive" }),
+  });
+
+  const canSave = bank.trim() && holder.trim() && clabeValid && !save.isPending;
+
+  return (
+    <div className="space-y-5 max-w-md">
+      <p className="text-sm text-white/50">
+        Estos datos se muestran a las clientas en la pantalla de pago por transferencia (SPEI).
+      </p>
+
+      <div className="space-y-1">
+        <Label>Banco</Label>
+        <Input value={bank} onChange={(e) => setBank(e.target.value)} placeholder="BBVA" />
+      </div>
+
+      <div className="space-y-1">
+        <Label>Titular de la cuenta</Label>
+        <Input value={holder} onChange={(e) => setHolder(e.target.value)} placeholder="Karla Cruz" />
+      </div>
+
+      <div className="space-y-1">
+        <Label>CLABE interbancaria (18 dígitos)</Label>
+        <Input
+          value={clabe}
+          onChange={(e) => setClabe(e.target.value.replace(/\D/g, "").slice(0, 18))}
+          placeholder="012700015394444888"
+          inputMode="numeric"
+        />
+        <p className="text-xs" style={{ color: clabeValid || clabeDigits.length === 0 ? undefined : "#f87171" }}>
+          {clabeDigits.length}/18 dígitos{!clabeValid && clabeDigits.length > 0 ? " — debe tener 18" : ""}
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <Label>Número de cuenta (opcional)</Label>
+        <Input
+          value={accountNumber}
+          onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, ""))}
+          placeholder="Opcional"
+          inputMode="numeric"
+        />
+      </div>
+
+      <Button onClick={() => save.mutate()} disabled={!canSave}>
+        {save.isPending ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
+        Guardar datos de transferencia
+      </Button>
+    </div>
+  );
+};
+
 const WhatsAppSettings = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -619,6 +715,7 @@ const SettingsPage = () => (
         <Tabs defaultValue="general">
           <TabsList className="flex-wrap h-auto gap-1 mb-6">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="payments">Pagos</TabsTrigger>
             <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
             <TabsTrigger value="policies">Políticas</TabsTrigger>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
@@ -642,6 +739,10 @@ const SettingsPage = () => (
               />
               <VenueMediaSettings />
             </div>
+          </TabsContent>
+
+          <TabsContent value="payments">
+            <BankInfoSettings />
           </TabsContent>
 
           <TabsContent value="notifications">
