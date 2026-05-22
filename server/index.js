@@ -1927,7 +1927,16 @@ async function ensureSchema() {
 // ─── Middleware ──────────────────────────────────────────────────────────────
 const CORS_ALLOWED_ORIGINS = String(
   process.env.CORS_ALLOWED_ORIGINS ||
-  "https://kala-barre-studio.com.mx,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
+  [
+    "https://kala-barre-studio.com.mx",
+    "https://www.kala-barre-studio.com.mx",
+    "https://kalastudioslp.com.mx",
+    "https://www.kalastudioslp.com.mx",
+    "https://kala-studio-production.up.railway.app",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+  ].join(","),
 )
   .split(",")
   .map((origin) => origin.trim())
@@ -1944,7 +1953,12 @@ app.use(cors({
     // Allow non-browser / same-origin server requests (no Origin header).
     if (!origin) return callback(null, true);
     if (CORS_ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    return callback(new Error("Origen no permitido por CORS"));
+    // Origen no listado: NO lanzar Error (eso se convertía en 500 con HTML y
+    // rompía la carga de /assets cuando el navegador los pide con crossorigin).
+    // En su lugar respondemos sin headers CORS — la petición sigue su curso y
+    // los archivos estáticos se sirven igual. Las rutas /api con credenciales
+    // seguirán protegidas por authMiddleware.
+    return callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
