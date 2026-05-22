@@ -43,10 +43,12 @@ const flag = (value: unknown): boolean => {
   return false;
 };
 
-const detectCategory = (plan: any): "barre" | "all" => {
+const detectCategory = (plan: any): "barre" | "all" | "online" => {
   const raw = String(plan.classCategory ?? plan.class_category ?? "").toLowerCase();
+  if (raw === "online") return "online";
   if (["barre", "pilates", "mixto", "all"].includes(raw)) return raw as any;
   const byName = String(plan.name ?? "").toLowerCase();
+  if (byName.includes("online")) return "online";
   if (byName.includes("jump")) return "barre";
   if (byName.includes("pilates")) return "pilates";
   if (byName.includes("mixto")) return "mixto";
@@ -58,6 +60,7 @@ const CATEGORY_TINT: Record<string, keyof typeof KALA> = {
   pilates: "coral",
   mixto: "orange",
   all: "olive",
+  online: "coral",
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -65,6 +68,7 @@ const CATEGORY_LABEL: Record<string, string> = {
   pilates: "Pilates",
   mixto: "Mixto",
   all: "Suelta",
+  online: "En línea",
 };
 
 /* ── PlanRow ─────────────────────────────────────────────── */
@@ -72,9 +76,12 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
   const category = detectCategory(plan);
   const tint = CATEGORY_TINT[category];
   const c = KALA[tint];
+  const isOnline = category === "online";
   const durationDays = Number(plan.durationDays ?? plan.duration_days ?? 0);
   const classLimit = plan.classLimit ?? plan.class_limit ?? null;
-  const isUnlimited = Number(classLimit) >= 900;
+  // "Ilimitado" solo aplica a planes presenciales con clases ilimitadas; un
+  // plan online NO da clases presenciales (es solo acceso a videos).
+  const isUnlimited = !isOnline && Number(classLimit) >= 900;
   const nonTransferable = flag(plan.isNonTransferable ?? plan.is_non_transferable);
   const nonRepeatable = flag(plan.isNonRepeatable ?? plan.is_non_repeatable);
   // Plan presencial que regala la biblioteca online (ej. 5 clases/semana).
@@ -101,19 +108,27 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
             <Tag tint={tint}>{CATEGORY_LABEL[category]}</Tag>
-            {isUnlimited && <Tag tint="orange">Ilimitado</Tag>}
-            {!isUnlimited && Number(classLimit) > 0 && (
-              <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
-                {classLimit} clases
+            {isOnline ? (
+              <span className="inline-flex items-center gap-1 text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                <Film size={11} /> Solo videos
               </span>
-            )}
-            {includesVideos && (
-              <span
-                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-[0.14em]"
-                style={{ backgroundColor: `${KALA.olive}1f`, color: KALA.olive }}
-              >
-                <Film size={10} /> Incluye videos
-              </span>
+            ) : (
+              <>
+                {isUnlimited && <Tag tint="orange">Ilimitado</Tag>}
+                {!isUnlimited && Number(classLimit) > 0 && (
+                  <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
+                    {classLimit} clases
+                  </span>
+                )}
+                {includesVideos && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.58rem] font-medium uppercase tracking-[0.14em]"
+                    style={{ backgroundColor: `${KALA.olive}1f`, color: KALA.olive }}
+                  >
+                    <Film size={10} /> Incluye videos
+                  </span>
+                )}
+              </>
             )}
           </div>
           <h3 className="font-bebas leading-tight" style={{ color: KALA.ink, fontSize: "clamp(1.1rem, 1.6vw, 1.35rem)" }}>
@@ -126,6 +141,11 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
               {nonRepeatable && " · No repetible"}
             </p>
           )}
+          {isOnline && (
+            <p className="text-[0.74rem] mt-0.5" style={{ color: KALA.coral }}>
+              Acceso a la biblioteca de videos. No incluye clases presenciales.
+            </p>
+          )}
           {includesVideos && (
             <p className="text-[0.74rem] mt-0.5 font-medium" style={{ color: KALA.olive }}>
               ✓ Incluye la membresía online (biblioteca completa de videos)
@@ -133,7 +153,7 @@ const PlanRow = ({ plan, selected, onSelect }: { plan: any; selected: boolean; o
           )}
         </div>
         <div className="text-right hidden sm:block">
-          {!isUnlimited && Number(plan.price) > 0 && Number(classLimit) > 0 && (
+          {!isOnline && !isUnlimited && Number(plan.price) > 0 && Number(classLimit) > 0 && Number(classLimit) < 900 && (
             <p className="text-[0.72rem]" style={{ color: KALA.ink, opacity: 0.45 }}>
               ${formatMoneyMX(Math.round(Number(plan.price) / Number(classLimit)))}/clase
             </p>

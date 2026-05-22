@@ -2109,6 +2109,8 @@ async function selectMembershipForClass({ userId, classCategory, client = null }
       WHERE m.user_id = $1
         AND m.status = 'active'
         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        -- Los planes online son solo videos: nunca sirven para reservar clases.
+        AND COALESCE(p.class_category, 'all') <> 'online'
         AND (
           COALESCE(p.class_category, 'all') IN ('all', 'mixto')
           OR COALESCE(p.class_category, 'all') = $2
@@ -3310,6 +3312,20 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     });
     if (!membership) {
       await client.query("ROLLBACK");
+      // Si su única membresía activa es online, el mensaje debe ser claro:
+      // ese plan es solo para videos, no incluye clases presenciales.
+      const onlineOnly = await client.query(
+        `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+          WHERE m.user_id = $1 AND m.status = 'active'
+            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND COALESCE(p.class_category,'all') = 'online' LIMIT 1`,
+        [req.userId]
+      );
+      if (onlineOnly.rows.length) {
+        return res.status(403).json({
+          message: "Tu plan en línea es solo para la biblioteca de videos y no incluye clases presenciales. Adquiere un paquete de clases para reservar.",
+        });
+      }
       const label = clsCategory === "jumping" ? "Jumping" : clsCategory === "pilates" ? "Pilates" : "esta";
       return res.status(403).json({
         message: `No tienes membresía activa con créditos para clases de ${label}.`,
