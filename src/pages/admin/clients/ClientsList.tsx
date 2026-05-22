@@ -46,6 +46,7 @@ const manualSchema = z.object({
   paymentMethod: z.enum(["cash", "card", "transfer"]).optional(),
   startDate: z.string().optional(),
   notes: z.string().optional(),
+  discountCode: z.string().optional(),
 });
 
 type EditFormData = z.infer<typeof editSchema>;
@@ -504,6 +505,19 @@ const ClientsList = () => {
                     <div className="space-y-1">
                       <Label className="text-white/60 text-xs">Fecha de inicio</Label>
                       <DatePicker value={manualForm.watch("startDate")} onChange={(v) => manualForm.setValue("startDate", v)} />
+                    </div>
+                  )}
+
+                  {/* Discount code — only if plan selected */}
+                  {selectedPlanId && selectedPlanId !== "none" && (
+                    <div className="space-y-1">
+                      <Label className="text-white/60 text-xs">Cupón de descuento (opcional)</Label>
+                      <Input
+                        className="bg-white/[0.04] border-white/[0.08] text-white placeholder:text-white/20 uppercase"
+                        placeholder="Ej: ONLINE75"
+                        {...manualForm.register("discountCode")}
+                      />
+                      <p className="text-[10px] text-white/35">Se valida contra el plan elegido y queda anotado en la membresía.</p>
                     </div>
                   )}
                 </div>

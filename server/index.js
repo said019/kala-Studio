@@ -3046,6 +3046,47 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/memberships/mine/all — TODAS las membresías activas/pendientes del
+// usuario. Permite mostrar presencial + online a la vez (la clienta puede tener
+// un paquete de clases y, como complemento, el plan online de videos).
+app.get("/api/memberships/mine/all", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT m.id, m.user_id, m.plan_id, m.status, m.start_date, m.end_date,
+              m.classes_remaining, m.payment_method, m.created_at, m.updated_at,
+              m.order_id, m.cancellations_used,
+              COALESCE(m.plan_name_override, '') AS plan_name_override,
+              m.class_limit_override,
+              COALESCE(p.name, m.plan_name_override, 'Membresía') AS plan_name,
+              COALESCE(p.class_limit, m.class_limit_override)      AS class_limit,
+              COALESCE(p.duration_days, 30)                        AS duration_days,
+              COALESCE(p.includes_video_library, false)           AS includes_video_library,
+              p.features,
+              COALESCE(p.class_category, 'all')                    AS class_category
+       FROM memberships m
+       LEFT JOIN plans p ON m.plan_id = p.id
+       WHERE m.user_id = $1
+         AND m.status IN ('active','pending_activation','pending_payment')
+         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+       ORDER BY
+         CASE m.status WHEN 'active' THEN 1 WHEN 'pending_activation' THEN 2 ELSE 3 END,
+         (COALESCE(p.class_category,'all') = 'online') ASC,  -- presencial primero, online después
+         m.end_date ASC NULLS LAST,
+         m.created_at DESC`,
+      [req.userId]
+    );
+    const rows = camelRows(r.rows).map((row) => {
+      if (row.classesRemaining >= 9999) row.classesRemaining = null;
+      if (row.classLimit >= 9999) row.classLimit = null;
+      return row;
+    });
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error("Memberships/mine/all error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Routes: /api/classes ───────────────────────────────────────────────────
 
 // GET /api/classes?start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -13203,7 +13244,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       displayName, email, phone, dateOfBirth,
       emergencyContactName, emergencyContactPhone, healthNotes,
       planId, paymentMethod = "cash", startDate,
-      notes,
+      notes, discountCode,
     } = req.body;
     if (!displayName || !email) return res.status(400).json({ message: "Nombre y email son requeridos" });
 
@@ -13240,6 +13281,31 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       const start = startDate ? new Date(startDate) : new Date();
       const end = new Date(start);
       end.setDate(end.getDate() + plan.duration_days);
+
+      // Cupón opcional: valida y calcula el precio final que pagó la clienta
+      // (queda registrado en las notas para control del admin). Si el cupón es
+      // inválido para este plan, abortamos para que el admin lo sepa.
+      let priceNote = "";
+      if (discountCode) {
+        const dc = await findApplicableDiscountCode({
+          code: discountCode,
+          planId: plan.id,
+          classCategory: plan.class_category,
+          channel: "membership",
+          client,
+        });
+        if (!dc) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "El cupón no es válido para este plan" });
+        }
+        const subtotal = Number(plan.price) || 0;
+        const discount = calculateDiscountAmount(dc.discount_type, Number(dc.discount_value), subtotal);
+        const finalPrice = Math.max(0, subtotal - discount);
+        priceNote = ` · Cupón ${dc.code}: $${subtotal} → $${finalPrice}`;
+        // Incrementa el uso del cupón.
+        await client.query("UPDATE discount_codes SET uses_count = uses_count + 1 WHERE id = $1", [dc.id]).catch(() => {});
+      }
+
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
           classes_remaining, notes)
@@ -13247,7 +13313,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         [user.id, plan.id, paymentMethod, start.toISOString().split("T")[0],
         end.toISOString().split("T")[0],
         plan.class_limit === 0 ? null : plan.class_limit,
-        notes || `Alta manual por admin`]
+        (notes || `Alta manual por admin`) + priceNote]
       );
       membership = camelRow(memRes.rows[0]);
     }

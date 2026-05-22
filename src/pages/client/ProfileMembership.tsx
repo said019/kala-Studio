@@ -41,6 +41,13 @@ const ProfileMembership = () => {
     queryFn: async () => (await api.get("/memberships/my")).data,
   });
 
+  // Todas las membresías activas (para mostrar presencial + online a la vez).
+  const { data: allData } = useQuery({
+    queryKey: ["my-memberships-all"],
+    queryFn: async () => (await api.get("/memberships/mine/all")).data,
+  });
+  const allMemberships: any[] = Array.isArray(allData?.data) ? allData.data : [];
+
   const membership: (ClientMembership & { cancellationsUsed?: number; classCategory?: string }) | null =
     data?.data ?? data ?? null;
 
@@ -91,6 +98,47 @@ const ProfileMembership = () => {
               title={membership.planName ?? membership.plan_name ?? "Plan Kala"}
               actions={status ? <Tag tint={status.tone}>{status.label}</Tag> : null}
             />
+
+            {/* Si tiene más de una membresía activa (ej. paquete presencial +
+                plan online de videos), las mostramos todas aquí. */}
+            {allMemberships.length > 1 && (
+              <Section title="Tus membresías activas">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {allMemberships.map((m) => {
+                    const isOnline = String(m.classCategory) === "online" || m.includesVideoLibrary;
+                    const st = STATUS[m.status] ?? { label: m.status, tone: "berry" as const };
+                    const unlimited = m.classLimit === null || Number(m.classLimit) >= 9999;
+                    return (
+                      <div
+                        key={m.id}
+                        className="rounded-2xl p-4"
+                        style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-[0.6rem] font-medium uppercase tracking-[0.22em]" style={{ color: isOnline ? KALA.coral : KALA.olive }}>
+                            {isOnline ? "En línea · videos" : "Presencial · clases"}
+                          </span>
+                          <Tag tint={st.tone}>{st.label}</Tag>
+                        </div>
+                        <p className="font-bebas mt-1.5 leading-tight text-[1.15rem]" style={{ color: KALA.ink }}>
+                          {m.planName}
+                        </p>
+                        <div className="mt-2 flex items-baseline gap-3 text-[0.78rem]" style={{ color: KALA.ink, opacity: 0.62 }}>
+                          {isOnline ? (
+                            <span>Biblioteca completa</span>
+                          ) : (
+                            <span>{unlimited ? "∞" : Number(m.classesRemaining ?? 0)} clases por usar</span>
+                          )}
+                          {m.endDate && (
+                            <span>· vence {format(safeParse(m.endDate), "d MMM", { locale: es })}</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+            )}
 
             <Section>
               <div className="rounded-3xl p-5 sm:p-7" style={{ backgroundColor: KALA.blush }}>
