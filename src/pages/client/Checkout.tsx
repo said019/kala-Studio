@@ -194,6 +194,7 @@ const Checkout = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
   const [discountCode, setDiscountCode] = useState("");
   const [discountResult, setDiscountResult] = useState<any>(null);
+  const [addOnline, setAddOnline] = useState(false); // complemento biblioteca online +$75
   const [orderId, setOrderId] = useState<string | null>(null);
   const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<any>(null);
@@ -226,6 +227,24 @@ const Checkout = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plansData]);
 
+  // ── Complemento online ──────────────────────────────────────────────
+  const ADDON_ONLINE_PRICE = 75;
+  const onlineMonthlyPlan = useMemo(() => {
+    return activePlans.find((p) => {
+      const cat = String(p.classCategory ?? p.class_category ?? "").toLowerCase();
+      const name = String(p.name ?? "").toLowerCase();
+      return cat === "online" && name.includes("mensual");
+    }) ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plansData]);
+
+  // El plan seleccionado admite complemento online si es presencial y aún no
+  // incluye videos (no tiene sentido sobre un plan online o uno que ya los trae).
+  const selectedIsOnline = String(selectedPlan?.classCategory ?? selectedPlan?.class_category ?? "").toLowerCase() === "online";
+  const selectedHasVideos = (selectedPlan?.includesVideoLibrary ?? selectedPlan?.includes_video_library) === true;
+  const canAddOnline = !!selectedPlan && !selectedIsOnline && !selectedHasVideos && !!onlineMonthlyPlan;
+  const showAddon = canAddOnline && addOnline;
+
   const validateCodeMutation = useMutation({
     mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: selectedPlan?.id }),
     onSuccess: (res) => setDiscountResult(res.data?.data ?? res.data),
@@ -238,6 +257,7 @@ const Checkout = () => {
         planId: selectedPlan.id,
         discountCode: discountResult?.code,
         paymentMethod,
+        ...(showAddon && onlineMonthlyPlan ? { addonPlanId: onlineMonthlyPlan.id } : {}),
       }),
     onSuccess: (res) => {
       const data = res.data?.data ?? res.data;
@@ -272,9 +292,10 @@ const Checkout = () => {
       }),
   });
 
-  const finalAmount = discountResult
+  const baseAfterDiscount = discountResult
     ? (selectedPlan?.price ?? 0) - (discountResult.discount_amount ?? 0)
     : selectedPlan?.price ?? 0;
+  const finalAmount = baseAfterDiscount + (showAddon ? ADDON_ONLINE_PRICE : 0);
 
   const STEPS: { id: Step; label: string }[] = [
     { id: "select", label: "Plan" },
@@ -310,7 +331,7 @@ const Checkout = () => {
                 <PlanRow
                   plan={singleClassPlan}
                   selected={selectedPlan?.id === singleClassPlan.id}
-                  onSelect={() => setSelectedPlan(singleClassPlan)}
+                  onSelect={() => { setSelectedPlan(singleClassPlan); setAddOnline(false); setDiscountResult(null); }}
                 />
               ) : (
                 <p className="text-[0.86rem]" style={{ color: KALA.ink, opacity: 0.55 }}>
@@ -335,7 +356,7 @@ const Checkout = () => {
                       key={plan.id}
                       plan={plan}
                       selected={selectedPlan?.id === plan.id}
-                      onSelect={() => setSelectedPlan(plan)}
+                      onSelect={() => { setSelectedPlan(plan); setAddOnline(false); setDiscountResult(null); }}
                     />
                   ))}
                 </div>
@@ -375,6 +396,54 @@ const Checkout = () => {
                       <CheckCircle2 size={14} />
                       Descuento ${formatMoneyMX(discountResult.discount_amount)} MXN aplicado
                     </p>
+                  )}
+
+                  {/* Complemento: agregar la biblioteca online por +$75 */}
+                  {canAddOnline && (
+                    <button
+                      type="button"
+                      onClick={() => setAddOnline((v) => !v)}
+                      className="w-full text-left rounded-2xl p-4 flex items-start gap-3 transition-colors cursor-pointer"
+                      style={{
+                        backgroundColor: showAddon ? `${KALA.olive}14` : KALA.cream,
+                        border: `1px solid ${showAddon ? KALA.olive : KALA.border}`,
+                      }}
+                    >
+                      <span
+                        className="grid h-6 w-6 shrink-0 place-items-center rounded-md mt-0.5"
+                        style={{
+                          backgroundColor: showAddon ? KALA.olive : "transparent",
+                          border: showAddon ? "0" : `1.5px solid ${KALA.border}`,
+                          color: KALA.cream,
+                        }}
+                      >
+                        {showAddon && <Check size={13} strokeWidth={3} />}
+                      </span>
+                      <span className="flex-1">
+                        <span className="flex items-center gap-1.5 font-medium text-[0.92rem]" style={{ color: KALA.ink }}>
+                          <Film size={13} style={{ color: KALA.olive }} />
+                          Agrega la biblioteca online
+                        </span>
+                        <span className="block text-[0.8rem] mt-0.5" style={{ color: KALA.ink, opacity: 0.6 }}>
+                          Acceso a todos los videos por 30 días. Normalmente $350 — con tu paquete, solo
+                          <strong style={{ color: KALA.olive }}> +${ADDON_ONLINE_PRICE}</strong>.
+                        </span>
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Desglose cuando hay complemento */}
+                  {showAddon && (
+                    <div className="space-y-1 text-[0.82rem] pt-1" style={{ color: KALA.ink, opacity: 0.7 }}>
+                      <div className="flex justify-between">
+                        <span>{selectedPlan.name}</span>
+                        <span>${formatMoneyMX(baseAfterDiscount)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Biblioteca online (complemento)</span>
+                        <span>+${formatMoneyMX(ADDON_ONLINE_PRICE)}</span>
+                      </div>
+                    </div>
                   )}
 
                   <div className="flex items-baseline justify-between pt-3" style={{ borderTop: `1px solid ${KALA.border}` }}>

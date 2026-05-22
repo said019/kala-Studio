@@ -1146,6 +1146,12 @@ async function ensureSchema() {
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
+    // ── orders: complemento online (add-on) ──────────────────────────────
+    // Permite comprar un paquete presencial + el plan online en la misma orden.
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS addon_plan_id UUID`).catch(() => { });
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS addon_amount DECIMAL(10,2)`).catch(() => { });
+    // Para distinguir cuál membresía vino como add-on de una orden.
+    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS is_addon BOOLEAN NOT NULL DEFAULT false`).catch(() => { });
     // ── memberships: add fallback name/limit override columns ─────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS plan_name_override VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS class_limit_override INTEGER`).catch(() => { });
@@ -3817,7 +3823,7 @@ async function generateOrderNumber(client) {
 
 // POST /api/orders
 app.post("/api/orders", authMiddleware, async (req, res) => {
-  const { planId, discountCode, paymentMethod = "transfer" } = req.body;
+  const { planId, discountCode, paymentMethod = "transfer", addonPlanId } = req.body;
   if (!planId) return res.status(400).json({ message: "planId requerido" });
   const client = await pool.connect();
   try {
@@ -3829,6 +3835,29 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Plan no encontrado" });
     }
     const plan = planRes.rows[0];
+
+    // ── Complemento online (add-on) ──────────────────────────────────────
+    // Solo válido si el plan principal NO es online (no tiene sentido un add-on
+    // online sobre un plan online), si el plan principal aún no incluye videos,
+    // y si el add-on es efectivamente un plan online. Precio fijo promocional.
+    const ADDON_ONLINE_PRICE = Number(process.env.ADDON_ONLINE_PRICE) || 75;
+    let addonPlan = null;
+    let addonAmount = 0;
+    if (addonPlanId) {
+      const mainIsOnline = String(plan.class_category || "").toLowerCase() === "online";
+      const mainHasVideos = plan.includes_video_library === true;
+      if (mainIsOnline || mainHasVideos) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "Este plan no admite el complemento online (ya incluye videos o es online)." });
+      }
+      const addRes = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [addonPlanId]);
+      if (!addRes.rows.length || String(addRes.rows[0].class_category || "").toLowerCase() !== "online") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "El complemento debe ser un plan en línea válido." });
+      }
+      addonPlan = addRes.rows[0];
+      addonAmount = ADDON_ONLINE_PRICE;
+    }
     const nonRepeatableConflict = await findNonRepeatablePlanConflict({ userId: req.userId, plan, client });
     if (nonRepeatableConflict) {
       await client.query("ROLLBACK");
@@ -3862,13 +3891,13 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       appliedDiscountCode = discountResult.code;
     }
 
-    const total = subtotal - discount;
+    const total = subtotal - discount + addonAmount;
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
     const orderNumber = await generateOrderNumber(client);
     const orderRes = await client.query(
-      `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, tax_amount, total_amount, discount_amount, discount_code_id, bank_info, expires_at, order_number)
-       VALUES ($1, $2, 'pending_payment', $3, $4, 0, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, tax_amount, total_amount, discount_amount, discount_code_id, bank_info, expires_at, order_number, addon_plan_id, addon_amount)
+       VALUES ($1, $2, 'pending_payment', $3, $4, 0, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         req.userId,
@@ -3881,6 +3910,8 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
         JSON.stringify(bankInfo),
         expires,
         orderNumber,
+        addonPlan?.id ?? null,
+        addonAmount || null,
       ]
     );
 
@@ -3891,6 +3922,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       data: {
         ...order,
         plan_name: plan.name,
+        addon_plan_name: addonPlan?.name ?? null,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
@@ -13428,18 +13460,20 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
 
       // Activate membership if this order is for a plan
       if (order.plan_id && plan && order.user_id) {
-        // Option A: sum remaining credits from any active membership
+        // Carry-over: suma créditos de membresías PRESENCIALES activas (las
+        // online no tienen clases que transferir y NO deben cancelarse).
         let carryOver = 0;
         const activeMemberships = await client.query(
-          `SELECT id, classes_remaining FROM memberships
-           WHERE user_id = $1 AND status = 'active' AND classes_remaining > 0`,
+          `SELECT m.id, m.classes_remaining
+             FROM memberships m LEFT JOIN plans p ON p.id = m.plan_id
+            WHERE m.user_id = $1 AND m.status = 'active' AND m.classes_remaining > 0
+              AND COALESCE(p.class_category,'all') <> 'online'`,
           [order.user_id]
         );
         if (activeMemberships.rows.length > 0) {
           for (const m of activeMemberships.rows) {
             carryOver += (Number(m.classes_remaining) || 0);
           }
-          // Mark old memberships as renewed
           const oldIds = activeMemberships.rows.map((m) => m.id);
           await client.query(
             `UPDATE memberships SET status = 'cancelled', cancellation_reason = 'Renovación: créditos transferidos a nueva membresía', cancelled_at = NOW(), end_date = NOW()
@@ -13452,14 +13486,13 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
         const end = new Date();
         end.setDate(end.getDate() + (plan.duration_days || 30));
 
-        // Check if membership already exists for this order (upsert manually for partial unique index)
         const existing = await client.query(
-          `SELECT id FROM memberships WHERE order_id = $1`, [order.id]
+          `SELECT id FROM memberships WHERE order_id = $1 AND COALESCE(is_addon,false) = false`, [order.id]
         );
         if (existing.rows.length > 0) {
           await client.query(
-            `UPDATE memberships SET status = 'active', classes_remaining = $1 WHERE order_id = $2`,
-            [newCredits, order.id]
+            `UPDATE memberships SET status = 'active', classes_remaining = $1 WHERE id = $2`,
+            [newCredits, existing.rows[0].id]
           );
         } else {
           await client.query(
@@ -13467,6 +13500,28 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
              VALUES ($1,$2,'active',$3,NOW(),$4,$5,$6)`,
             [order.user_id, order.plan_id, order.payment_method || "transfer", end.toISOString(), newCredits, order.id]
           );
+        }
+      }
+
+      // ── Complemento online (add-on): crea una SEGUNDA membresía online ───
+      if (order.addon_plan_id && order.user_id) {
+        const addRes = await client.query("SELECT * FROM plans WHERE id = $1", [order.addon_plan_id]);
+        if (addRes.rows.length) {
+          const addonPlan = addRes.rows[0];
+          const addEnd = new Date();
+          addEnd.setDate(addEnd.getDate() + (addonPlan.duration_days || 30));
+          // Evita duplicar si ya se creó (re-verificación).
+          const existsAddon = await client.query(
+            `SELECT id FROM memberships WHERE order_id = $1 AND is_addon = true`, [order.id]
+          );
+          if (!existsAddon.rows.length) {
+            await client.query(
+              `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id, is_addon)
+               VALUES ($1,$2,'active',$3,NOW(),$4,$5,$6,true)`,
+              [order.user_id, addonPlan.id, order.payment_method || "transfer", addEnd.toISOString(),
+               addonPlan.class_limit === 0 ? null : addonPlan.class_limit, order.id]
+            );
+          }
         }
       }
 
