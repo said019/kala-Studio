@@ -16,6 +16,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Film, Pencil } from "lucide-react";
 
+// Formatea fecha de nacimiento sin que el timezone corra un día: toma solo
+// la parte YYYY-MM-DD y la muestra en es-MX (ej. "19 abr 2000").
+const fmtBirthdate = (value?: string | null) => {
+  if (!value) return "—";
+  const ymd = String(value).slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return value;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return d.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+};
+
 const ClientDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -194,7 +205,7 @@ const ClientDetail = () => {
               {isLoading ? <Skeleton className="h-40 w-full" /> : (
                 <div className="space-y-5">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <div><span className="font-medium">Fecha de nacimiento:</span> {u?.dateOfBirth ?? "—"}</div>
+                    <div><span className="font-medium">Fecha de nacimiento:</span> {fmtBirthdate(u?.dateOfBirth)}</div>
                     <div><span className="font-medium">Emergencia:</span> {u?.emergencyContactName ?? "—"} {u?.emergencyContactPhone ?? ""}</div>
                     <div className="col-span-2"><span className="font-medium">Notas de salud:</span> {u?.healthNotes ?? "—"}</div>
                   </div>
