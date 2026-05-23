@@ -11,8 +11,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Film } from "lucide-react";
+import { Film, Pencil } from "lucide-react";
 
 const ClientDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +25,12 @@ const ClientDetail = () => {
   const [communityPoints, setCommunityPoints] = useState("1");
   const [communityType, setCommunityType] = useState("story");
   const [communityDescription, setCommunityDescription] = useState("");
+
+  // Edición de membresía (créditos / estado / vencimiento)
+  const [editMem, setEditMem] = useState<any | null>(null);
+  const [editCredits, setEditCredits] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
 
   const { data: user, isLoading } = useQuery({
     queryKey: ["client", id],
@@ -129,6 +137,31 @@ const ClientDetail = () => {
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al sumar conexión", variant: "destructive" }),
   });
 
+  const openEditMem = (m: any) => {
+    setEditMem(m);
+    setEditCredits(m.classesRemaining == null ? "" : String(m.classesRemaining));
+    setEditStatus(m.status ?? "active");
+    setEditEndDate(m.endDate ? String(m.endDate).slice(0, 10) : "");
+  };
+
+  const editMemMutation = useMutation({
+    mutationFn: () => {
+      const body: any = { status: editStatus };
+      // Vacío = sin tope (ilimitado). El backend trata null como "no cambiar",
+      // así que enviamos 9999 para representar ilimitado de forma consistente.
+      body.classesRemaining = editCredits.trim() === "" ? 9999 : Math.max(0, Number(editCredits));
+      if (editEndDate) body.endDate = editEndDate;
+      return api.put(`/memberships/${editMem.id}`, body);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["client-memberships", id] });
+      qc.invalidateQueries({ queryKey: ["client", id] });
+      toast({ title: "✅ Membresía actualizada" });
+      setEditMem(null);
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al actualizar", variant: "destructive" }),
+  });
+
   const u = user?.data ?? user;
   const ringData = rings?.data ?? rings ?? {};
   const currentRing = ringData.current ?? null;
@@ -207,16 +240,24 @@ const ClientDetail = () => {
 
             <TabsContent value="memberships" className="mt-4 space-y-6">
               <Table>
-                <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Estado</TableHead><TableHead>Vence</TableHead><TableHead>Clases</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Estado</TableHead><TableHead>Vence</TableHead><TableHead>Clases</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
                   {(Array.isArray(memberships?.data) ? memberships.data : []).map((m: any) => (
                     <TableRow key={m.id}>
                       <TableCell>{m.planName ?? m.planId}</TableCell>
                       <TableCell><Badge>{m.status}</Badge></TableCell>
                       <TableCell>{m.endDate ? new Date(m.endDate).toLocaleDateString("es-MX") : "—"}</TableCell>
-                      <TableCell>{m.classesRemaining}</TableCell>
+                      <TableCell>{m.classesRemaining == null || Number(m.classesRemaining) >= 9999 ? "∞" : m.classesRemaining}</TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openEditMem(m)}>
+                          <Pencil size={12} className="mr-1" /> Editar
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
+                  {(!Array.isArray(memberships?.data) || memberships.data.length === 0) && (
+                    <TableRow><TableCell colSpan={5} className="text-sm text-muted-foreground py-6 text-center">Sin membresías.</TableCell></TableRow>
+                  )}
                 </TableBody>
               </Table>
 
@@ -435,6 +476,79 @@ const ClientDetail = () => {
             </TabsContent>
           </Tabs>
         </div>
+
+        {/* ── Editar membresía (créditos / estado / vencimiento) ── */}
+        <Dialog open={!!editMem} onOpenChange={(v) => !v && setEditMem(null)}>
+          <DialogContent className="bg-[#0f0518] border-white/10 text-white max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white">Editar membresía</DialogTitle>
+            </DialogHeader>
+            {editMem && (
+              <div className="space-y-4">
+                <p className="text-sm text-white/55">
+                  {editMem.planName ?? editMem.planId}
+                </p>
+
+                <div className="space-y-1">
+                  <Label className="text-white/60 text-xs">Clases restantes</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    inputMode="numeric"
+                    placeholder="Vacío = ilimitado"
+                    className="bg-white/[0.04] border-white/[0.08] text-white"
+                    value={editCredits}
+                    onChange={(e) => setEditCredits(e.target.value)}
+                  />
+                  <p className="text-[10px] text-white/35">
+                    Ajusta los créditos de la alumna (sirve para paquetes por semana o por mes). Déjalo vacío para ilimitado.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-white/60 text-xs">Estado</Label>
+                  <Select value={editStatus} onValueChange={setEditStatus}>
+                    <SelectTrigger className="bg-white/[0.04] border-white/[0.08] text-white"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-[#0f0518] border-white/10">
+                      {[
+                        ["active", "Activa"],
+                        ["paused", "Pausada"],
+                        ["expired", "Vencida"],
+                        ["cancelled", "Cancelada"],
+                        ["pending_activation", "Por activar"],
+                        ["pending_payment", "Pago pendiente"],
+                      ].map(([v, label]) => (
+                        <SelectItem key={v} value={v} className="text-white">{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-white/60 text-xs">Vence (opcional)</Label>
+                  <Input
+                    type="date"
+                    className="bg-white/[0.04] border-white/[0.08] text-white"
+                    value={editEndDate}
+                    onChange={(e) => setEditEndDate(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" className="border-white/10 text-white/60 hover:bg-white/5" onClick={() => setEditMem(null)}>
+                Cancelar
+              </Button>
+              <Button
+                className="bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white border-0"
+                disabled={editMemMutation.isPending}
+                onClick={() => editMemMutation.mutate()}
+              >
+                {editMemMutation.isPending ? "Guardando…" : "Guardar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AdminLayout>
     </AuthGuard>
   );
