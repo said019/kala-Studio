@@ -68,6 +68,11 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   const [manualCode, setManualCode] = useState("");
   const [manualSending, setManualSending] = useState(false);
   const [needsTap, setNeedsTap] = useState(false);
+  // streamReady marca cuando el <video> ya está reproduciendo el stream y por
+  // lo tanto debemos quitar el placeholder "Iniciando cámara…" que cubre el
+  // negro inicial. Sin esto, en Android se ve un flash del cuadro negro que
+  // parece un glitch antes del error o del primer frame.
+  const [streamReady, setStreamReady] = useState(false);
   // Ref al cancelledRef vivo para que Reintentar respete cualquier cierre del modal.
   const activeCancelledRef = useRef<{ cancelled: boolean } | null>(null);
   const platform = detectPlatform();
@@ -105,6 +110,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     if (videoRef.current) {
       try { videoRef.current.srcObject = null; } catch { /* noop */ }
     }
+    setStreamReady(false);
   };
 
   // Inicia stream + play() — separado para poder llamarlo tras un tap del
@@ -160,6 +166,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     // mostramos botón "Iniciar cámara" para que el usuario lo dispare con tap.
     try {
       await video.play();
+      setStreamReady(true);
     } catch {
       setNeedsTap(true);
       return;
@@ -235,6 +242,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     try {
       await v.play();
       setNeedsTap(false);
+      setStreamReady(true);
       if (!controlsRef.current) {
         const reader = new BrowserQRCodeReader();
         const controls = reader.decodeFromVideoElement(v, (result) => {
@@ -254,65 +262,75 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
           <DialogTitle>Pasar lista (cámara)</DialogTitle>
         </DialogHeader>
 
-        {error ? (
-          (() => {
-            // Reintentar tiene sentido salvo que el entorno sea irrecuperable:
-            // sin HTTPS o sin API mediaDevices. En esos casos, solo modo manual.
-            const secure =
-              typeof window === "undefined" || window.isSecureContext !== false;
-            const hasApi = !!navigator.mediaDevices?.getUserMedia;
-            const canRetry = secure && hasApi;
-            return (
-              <div className="space-y-3 rounded-lg bg-destructive/10 px-4 py-4 text-sm text-destructive">
-                <p className="font-medium">{error}</p>
-                {permissionBlocked && (
-                  <p className="text-[12px] leading-relaxed text-destructive/85">
-                    {platformPermissionHint(platform)}
-                  </p>
-                )}
-                {canRetry && (
-                  <Button
-                    type="button"
-                    onClick={handleRetryCamera}
-                    className="w-full"
-                    variant="secondary"
-                  >
-                    <CameraIcon size={14} className="mr-1.5" />
-                    Reintentar cámara
-                  </Button>
-                )}
+        {/*
+          Mantenemos el <video> SIEMPRE montado (aunque haya error) para que el
+          ref no se pierda y "Reintentar cámara" funcione sin race conditions.
+          Cuando hay error, ocultamos visualmente el contenedor de la cámara.
+        */}
+        <div className="space-y-3" style={error ? { display: "none" } : undefined}>
+          <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
+            <video
+              ref={videoRef}
+              className="h-full w-full object-cover"
+              muted
+              playsInline
+              autoPlay
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-40 w-40 rounded-2xl border-2 border-white/80 shadow-[0_0_0_4000px_rgba(0,0,0,0.25)]" />
+            </div>
+            {/* Placeholder mientras la cámara arranca: evita el flash del cuadro negro */}
+            {!streamReady && !needsTap && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black text-white/80 text-xs font-medium">
+                <CameraIcon size={22} className="animate-pulse" />
+                <span>Iniciando cámara…</span>
               </div>
-            );
-          })()
-        ) : (
-          <div className="space-y-3">
-            <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
-              <video
-                ref={videoRef}
-                className="h-full w-full object-cover"
-                muted
-                playsInline
-                autoPlay
-              />
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-40 w-40 rounded-2xl border-2 border-white/80 shadow-[0_0_0_4000px_rgba(0,0,0,0.25)]" />
-              </div>
-              {needsTap && (
-                <button
+            )}
+            {needsTap && (
+              <button
+                type="button"
+                onClick={handleTapToStart}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white text-sm font-semibold"
+              >
+                <CameraIcon size={28} />
+                Tocar para iniciar la cámara
+              </button>
+            )}
+          </div>
+          <p className="text-center text-xs text-muted-foreground">
+            Apunta al <strong>QR del pase</strong> de la clienta para registrar su asistencia.
+          </p>
+        </div>
+
+        {error && (() => {
+          // Reintentar tiene sentido salvo que el entorno sea irrecuperable:
+          // sin HTTPS o sin API mediaDevices. En esos casos, solo modo manual.
+          const secure =
+            typeof window === "undefined" || window.isSecureContext !== false;
+          const hasApi = !!navigator.mediaDevices?.getUserMedia;
+          const canRetry = secure && hasApi;
+          return (
+            <div className="space-y-3 rounded-lg bg-destructive/10 px-4 py-4 text-sm text-destructive">
+              <p className="font-medium">{error}</p>
+              {permissionBlocked && (
+                <p className="text-[12px] leading-relaxed text-destructive/85">
+                  {platformPermissionHint(platform)}
+                </p>
+              )}
+              {canRetry && (
+                <Button
                   type="button"
-                  onClick={handleTapToStart}
-                  className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white text-sm font-semibold"
+                  onClick={handleRetryCamera}
+                  className="w-full"
+                  variant="secondary"
                 >
-                  <CameraIcon size={28} />
-                  Tocar para iniciar la cámara
-                </button>
+                  <CameraIcon size={14} className="mr-1.5" />
+                  Reintentar cámara
+                </Button>
               )}
             </div>
-            <p className="text-center text-xs text-muted-foreground">
-              Apunta al <strong>QR del pase</strong> de la clienta para registrar su asistencia.
-            </p>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── Modo manual: pegar/escribir el código ─────────────────────────── */}
         <form onSubmit={handleManualSubmit} className="space-y-2 border-t border-border pt-3">
