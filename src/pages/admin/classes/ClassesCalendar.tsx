@@ -271,6 +271,14 @@ function CalendarTab({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
 
+  // Roster (alumnas inscritas) de la clase seleccionada, para mostrarlo en el
+  // panel lateral. Solo corre cuando el sheet está abierto.
+  const { data: rosterData } = useQuery<{ data: { class: any; roster: any[] } }>({
+    queryKey: ["class-roster-sheet", selectedClass?.id],
+    enabled: sheetOpen && !!selectedClass?.id,
+    queryFn: async () => (await api.get(`/classes/${selectedClass!.id}/roster`)).data,
+  });
+
   const start = format(weekStart, "yyyy-MM-dd");
   const end = format(addDays(weekStart, 6), "yyyy-MM-dd");
 
@@ -628,6 +636,59 @@ function CalendarTab({
               <div><span className="font-medium">Inicio:</span> {selectedClass.startTime ? new Date(selectedClass.startTime).toLocaleString("es-MX", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
               <div><span className="font-medium">Cupo:</span> {(selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0) + " / " + (selectedClass.maxCapacity ?? selectedClass.capacity ?? "?")}</div>
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
+
+              {/* ── Inscritas ── */}
+              {(() => {
+                const roster: any[] = rosterData?.data?.roster ?? [];
+                const activos = roster.filter((r) => r.status === "confirmed" || r.status === "checked_in");
+                const espera = roster.filter((r) => r.status === "waitlist");
+                const noShow = roster.filter((r) => r.status === "no_show");
+                return (
+                  <div className="pt-1">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Inscritas ({activos.length})
+                      {espera.length > 0 && <span className="ml-1 font-normal opacity-70">· {espera.length} en espera</span>}
+                      {noShow.length > 0 && <span className="ml-1 font-normal opacity-70">· {noShow.length} no asistió</span>}
+                    </div>
+                    {roster.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                        Sin reservas aún
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {roster.map((r) => {
+                          const isWalkIn = !r.userId && !r.user_id;
+                          const name = r.displayName ?? r.display_name ?? r.guestName ?? r.guest_name ?? "—";
+                          const planLabel = isWalkIn ? "Walk-in" : (r.planName ?? r.plan_name ?? "");
+                          const status = r.status;
+                          const statusLabel =
+                            status === "confirmed" ? "Confirmada"
+                            : status === "checked_in" ? "Check-in"
+                            : status === "waitlist" ? "En espera"
+                            : status === "no_show" ? "No asistió"
+                            : status;
+                          const statusClr =
+                            status === "checked_in" ? "bg-emerald-500/10 text-emerald-700 border-emerald-500/30"
+                            : status === "waitlist" ? "bg-amber-500/10 text-amber-700 border-amber-500/30"
+                            : status === "no_show" ? "bg-red-500/10 text-red-700 border-red-500/30"
+                            : "bg-secondary text-secondary-foreground border-border";
+                          return (
+                            <li key={r.bookingId ?? r.booking_id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium text-foreground truncate">{name}</p>
+                                {planLabel && <p className="text-[11px] text-muted-foreground truncate">{planLabel}</p>}
+                              </div>
+                              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClr}`}>
+                                {statusLabel}
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="pt-4 flex flex-col gap-2">
                 {!selectedClass.isCancelled && (
                   <Button variant="destructive" onClick={() => cancelMutation.mutate(selectedClass.id)} disabled={cancelMutation.isPending}>
