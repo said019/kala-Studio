@@ -12700,7 +12700,7 @@ app.delete("/api/users/:id", adminMiddleware, async (req, res) => {
 // GET /api/memberships — admin list all
 app.get("/api/memberships", adminMiddleware, async (req, res) => {
   try {
-    const { status, limit = 100 } = req.query;
+    const { status, userId, limit = 100 } = req.query;
     let q = `SELECT m.*, u.display_name AS user_name, p.name AS plan_name,
                     p.class_limit, p.duration_days, p.class_category
              FROM memberships m
@@ -12709,6 +12709,10 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
              WHERE 1=1`;
     const params = [];
     if (status) { params.push(status); q += ` AND m.status = $${params.length}`; }
+    // Filtro por user_id — la ficha del cliente (ClientDetail) llama a este
+    // endpoint con ?userId=<uuid>; sin este filtro el admin veía las 100
+    // membresías más recientes globales en cada ficha individual.
+    if (userId) { params.push(userId); q += ` AND m.user_id = $${params.length}`; }
     params.push(parseInt(limit)); q += ` ORDER BY m.created_at DESC LIMIT $${params.length}`;
     const r = await pool.query(q, params);
     return res.json({
@@ -13168,7 +13172,7 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
 // GET /api/bookings — admin sees all
 app.get("/api/bookings", adminMiddleware, async (req, res) => {
   try {
-    const { status, classId, limit = 100 } = req.query;
+    const { status, classId, userId, limit = 100 } = req.query;
     let q = `SELECT b.*, u.display_name AS user_name, (c.date || 'T' || c.start_time) AS start_time, ct.name AS class_name
              FROM bookings b
              LEFT JOIN users u ON b.user_id = u.id
@@ -13178,6 +13182,10 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
     const params = [];
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
     if (classId) { params.push(classId); q += ` AND b.class_id = $${params.length}`; }
+    // Filtro por user_id — la ficha del cliente (ClientDetail) llama a este
+    // endpoint con ?userId=<uuid>; sin este filtro veía las 100 reservas más
+    // recientes globales en la pestaña Reservas de cada cliente.
+    if (userId) { params.push(userId); q += ` AND b.user_id = $${params.length}`; }
     params.push(parseInt(limit)); q += ` ORDER BY b.created_at DESC LIMIT $${params.length}`;
     const r = await pool.query(q, params);
     return res.json({ data: r.rows.map(b => ({ ...b, userName: b.user_name, className: b.class_name, startTime: b.start_time })) });
@@ -13953,12 +13961,18 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
 // GET /api/payments
 app.get("/api/payments", adminMiddleware, async (req, res) => {
   try {
-    const { startDate, endDate, limit = 200 } = req.query;
+    const { startDate, endDate, userId, limit = 200 } = req.query;
     const params = [];
     let startIdx = null;
     let endIdx = null;
+    let userIdx = null;
     if (startDate) { params.push(startDate); startIdx = params.length; }
     if (endDate) { params.push(endDate); endIdx = params.length; }
+    // Filtro por user_id — la ficha del cliente (ClientDetail) llama a este
+    // endpoint con ?userId=<uuid>; sin este filtro veía pagos/membresías
+    // globales en la pestaña Pagos de cada cliente. Se aplica a ambas
+    // subqueries del UNION (orders y memberships).
+    if (userId) { params.push(userId); userIdx = params.length; }
     // Include approved orders AND manually-assigned memberships
     let q = `
       SELECT
@@ -13977,6 +13991,7 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
       WHERE o.status = 'approved'`;
     if (startIdx) q += ` AND o.created_at >= $${startIdx}`;
     if (endIdx) q += ` AND o.created_at <= $${endIdx}`;
+    if (userIdx) q += ` AND o.user_id = $${userIdx}`;
 
     // Also fetch memberships assigned directly (cash/card/transfer)
     let mq = `
@@ -13996,6 +14011,7 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
       WHERE m.status = 'active'`;
     if (startIdx) mq += ` AND m.created_at >= $${startIdx}`;
     if (endIdx) mq += ` AND m.created_at <= $${endIdx}`;
+    if (userIdx) mq += ` AND m.user_id = $${userIdx}`;
 
     const combined = `(${q}) UNION ALL (${mq}) ORDER BY created_at DESC LIMIT $${params.length + 1}`;
     params.push(parseInt(limit));
