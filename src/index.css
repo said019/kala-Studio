@@ -152,6 +152,11 @@
 
 @layer base {
   :root {
+    /* La app es de tema claro únicamente. Esto evita que el "modo oscuro
+       automático" del navegador/sistema invierta el texto de inputs y
+       botones (causa de fechas/valores que se veían en blanco). */
+    color-scheme: light;
+
     --background: 23 100% 97%;           /* #FFF7F2 */
     --foreground: 13 24% 15%;            /* #2E201C */
 

@@ -246,6 +246,7 @@ async function sendMembershipActivated(opts) {
  */
 async function sendBookingConfirmed(opts) {
   const { to, name, className, date, startTime, instructor, classesLeft, isWaitlist } = opts;
+  const cancelHours = Number(opts.cancelHours) > 0 ? Number(opts.cancelHours) : 8;
 
   const statusPill = isWaitlist
     ? pill("Lista de espera", B.lime)
@@ -276,7 +277,7 @@ async function sendBookingConfirmed(opts) {
     ...(classesLeftText ? [infoRow("Tu paquete", classesLeftText)] : []),
   ])}
     ${waitlistNote}
-    ${p("Recuerda que puedes cancelar tu reserva hasta <strong>2 horas antes</strong> para recuperar tu crédito de clase.")}
+    ${p(`Recuerda que puedes cancelar tu reserva hasta <strong>${cancelHours} horas antes</strong> para recuperar tu crédito de clase.`)}
   `;
   const html = baseLayout({
     preheader: isWaitlist ? `Estás en lista de espera para ${className}` : `Reserva confirmada para ${className} el ${fmtDate(date)}`,

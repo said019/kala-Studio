@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
@@ -5,10 +6,11 @@ import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus, Film } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus, Film, Camera } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, AreaChart, Area } from "recharts";
+import CheckinScanner from "@/components/admin/CheckinScanner";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
@@ -46,6 +48,7 @@ interface Stats {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const [scanOpen, setScanOpen] = useState(false);
   const { data: stats, isLoading } = useQuery<Stats>({
     queryKey: ["admin-stats"],
     queryFn: async () => (await api.get("/admin/stats")).data,
@@ -135,7 +138,14 @@ const Dashboard = () => {
     <AuthGuard requiredRoles={["admin", "super_admin", "reception", "instructor"]}>
       <AdminLayout>
         <div className="admin-page max-w-6xl">
-          <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+            <Button onClick={() => setScanOpen(true)} className="gap-2">
+              <Camera size={16} />
+              Pasar lista (cámara)
+            </Button>
+          </div>
+          <CheckinScanner open={scanOpen} onOpenChange={setScanOpen} />
 
           {/* Metric cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" data-stagger>

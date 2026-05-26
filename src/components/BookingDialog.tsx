@@ -68,6 +68,17 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
 
   const accentColor = classData.color ?? "#778455";
 
+  // Las reservas cierran 2 h antes del inicio (debe coincidir con el backend).
+  const BOOKING_LEAD_MS = 2 * 60 * 60 * 1000;
+  const startsAt = (() => {
+    if (!classData.date) return null;
+    const [h, m] = (classData.time || "00:00").split(":").map(Number);
+    const d = new Date(classData.date);
+    d.setHours(h || 0, m || 0, 0, 0);
+    return d;
+  })();
+  const bookingClosed = startsAt ? startsAt.getTime() - Date.now() < BOOKING_LEAD_MS : false;
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!loading) { setDone(false); onOpenChange(v); } }}>
       <DialogContent className="max-w-sm">
@@ -111,6 +122,13 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
               </div>
             </div>
 
+            {bookingClosed && (
+              <div className="rounded-lg bg-destructive/10 border border-destructive/30 px-4 py-3 text-xs text-destructive">
+                Las reservas cierran <strong>2 horas antes</strong> del inicio de la clase.
+              </div>
+            )}
+
+
             {!user && (
               <p className="text-xs text-muted-foreground text-center -mt-1">
                 Necesitas iniciar sesión para reservar
@@ -126,12 +144,13 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
             </Button>
             <Button
               onClick={handleBook}
-              disabled={loading || classData.spots === 0}
+              disabled={loading || classData.spots === 0 || bookingClosed}
               style={{ background: accentColor, color: "#fff", border: "none" }}
               className="hover:opacity-90"
             >
               {loading
                 ? <><Loader2 size={14} className="animate-spin mr-2" />Reservando…</>
+                : bookingClosed ? "Reservas cerradas"
                 : user ? "Confirmar reserva" : "Iniciar sesión para reservar"
               }
             </Button>

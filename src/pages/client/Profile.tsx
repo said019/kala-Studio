@@ -1,4 +1,5 @@
 import { useNavigate } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 import { useAuthStore } from "@/stores/authStore";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import {
@@ -101,6 +102,20 @@ const Profile = () => {
             </div>
           </div>
         </div>
+
+        {/* ── Mi código de acceso (check-in en recepción) ── */}
+        {user?.id && (
+          <Section title="Mi código de acceso">
+            <div className="flex flex-col items-center gap-3 rounded-3xl bg-white/80 p-6 text-center">
+              <div className="rounded-2xl bg-white p-3" style={{ colorScheme: "light" }}>
+                <QRCodeSVG value={btoa(user.id)} size={168} level="M" />
+              </div>
+              <p className="text-xs" style={{ color: KALA.ink, opacity: 0.55 }}>
+                Muéstralo en recepción para registrar tu asistencia.
+              </p>
+            </div>
+          </Section>
+        )}
 
         {/* ── Cuenta ── */}
         <Section title="Cuenta">

@@ -330,9 +330,19 @@ const MembershipsList = () => {
                 <Label>Fecha de inicio</Label>
                 <DatePicker value={form.watch("startDate")} onChange={(v) => form.setValue("startDate", v)} />
               </div>
+              {createMutation.isError && (
+                <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {(createMutation.error as any)?.response?.data?.message
+                    || (createMutation.error as any)?.response?.data?.error
+                    || (createMutation.error as any)?.message
+                    || "No se pudo asignar la membresía. Inténtalo de nuevo."}
+                </p>
+              )}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={createMutation.isPending}>Asignar</Button>
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "Asignando…" : "Asignar"}
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>

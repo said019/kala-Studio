@@ -84,6 +84,7 @@ export const DatePicker = ({
           value={value ?? ""}
           disabled={disabled}
           onChange={(e) => onChange?.(e.target.value)}
+          style={{ colorScheme: "light", color: "#1A1A1A" }}
           className={cn(
             "w-full rounded-xl border border-white/[0.08] bg-white/[0.03] py-2.5 pl-9 pr-3 text-sm text-white/90",
             "focus:border-[#76214D]/40 focus:bg-[#76214D]/[0.03] focus:outline-none",
@@ -102,6 +103,7 @@ export const DatePicker = ({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
+        style={{ colorScheme: "light" }}
         className={cn(
           "flex w-full items-center gap-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-sm transition-all",
           "hover:border-[#76214D]/30 focus:outline-none",
@@ -110,7 +112,8 @@ export const DatePicker = ({
         )}
       >
         <CalendarDays size={14} className="shrink-0 text-[#76214D]/60" />
-        <span className={cn("flex-1 text-left", selected ? "text-white/90 font-medium" : "text-white/30")}>
+        <span className={cn("flex-1 text-left", selected ? "text-foreground font-semibold" : "text-muted-foreground")}>
+
           {selected
             ? format(selected, "d 'de' MMMM yyyy", { locale: es })
             : placeholder}

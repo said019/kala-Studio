@@ -553,6 +553,9 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_promotions BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
+    // Videoteca: acceso temporal (regalo de cumpleaños) y guard anual idempotente.
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS video_library_access_until TIMESTAMPTZ`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_gift_year INTEGER`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS has_injury BOOLEAN`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS practiced_barre_before BOOLEAN`).catch(() => { });
@@ -1226,6 +1229,67 @@ async function ensureSchema() {
     await pool.query(`UPDATE discount_codes SET class_category = NULL WHERE class_category NOT IN ('all','jumping','pilates','mixto')`).catch(() => { });
     // ── bookings: add checked_in_at column ────────────────────────────────
     await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
+
+    // ── Limpieza de reservas ACTIVAS duplicadas (mismo user_id + class_id) ──
+    // Necesario ANTES de crear el índice único: si ya existen duplicados, el
+    // CREATE UNIQUE INDEX falla. Conserva la mejor fila (checked_in > confirmada
+    // > más antigua), devuelve el crédito consumido por la duplicada y luego
+    // recalcula el cupo (current_bookings) de las clases de hoy en adelante.
+    await pool.query(`
+      DO $$
+      DECLARE v_removed INT := 0;
+      BEGIN
+        CREATE TEMP TABLE _dup_bookings ON COMMIT DROP AS
+          SELECT id, membership_id, status
+          FROM (
+            SELECT id, membership_id, status,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY user_id, class_id
+                     ORDER BY CASE status WHEN 'checked_in' THEN 0 WHEN 'confirmed' THEN 1 ELSE 2 END,
+                              created_at ASC, id ASC
+                   ) AS rn
+            FROM bookings
+            WHERE user_id IS NOT NULL AND status NOT IN ('cancelled')
+          ) t
+          WHERE t.rn > 1;
+
+        SELECT COUNT(*) INTO v_removed FROM _dup_bookings;
+        IF v_removed = 0 THEN RETURN; END IF;
+
+        UPDATE memberships m
+           SET classes_remaining = classes_remaining + sub.cnt,
+               updated_at = NOW()
+          FROM (
+            SELECT membership_id, COUNT(*) AS cnt
+              FROM _dup_bookings
+             WHERE membership_id IS NOT NULL
+               AND status IN ('confirmed','checked_in')
+             GROUP BY membership_id
+          ) sub
+         WHERE m.id = sub.membership_id
+           AND m.classes_remaining IS NOT NULL
+           AND m.classes_remaining < 9999;
+
+        DELETE FROM bookings WHERE id IN (SELECT id FROM _dup_bookings);
+        RAISE NOTICE '[dedup bookings] % reserva(s) duplicada(s) eliminada(s)', v_removed;
+      END $$;
+    `).catch((e) => console.warn("[dedup bookings]", e.message));
+
+    await pool.query(`
+      UPDATE classes c
+         SET current_bookings = COALESCE((
+           SELECT COUNT(*) FROM bookings b
+            WHERE b.class_id = c.id AND b.status IN ('confirmed','checked_in')
+         ), 0)
+       WHERE c.date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date
+    `).catch(() => { });
+
+    // Índice único para impedir reservas activas duplicadas (mismo user+clase).
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_user_class_active
+      ON bookings (user_id, class_id)
+      WHERE status NOT IN ('cancelled')
+    `).catch(() => { });
     // ── Kala progress rings: weekly goals, community actions, risk and wallet sync ──
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ring_states (
@@ -2467,6 +2531,57 @@ async function awardBirthdayBonusIfEligible(userId, client = null) {
   return inserted.rows[0] ?? null;
 }
 
+// Regalo de cumpleaños: 1 mes de acceso a la videoteca. Idempotente por año
+// (birthday_gift_year). No toca créditos de clases ni Membresías.
+async function grantBirthdayVideotecaIfEligible(userId, client = null) {
+  if (!userId) return null;
+  const q = client ?? pool;
+  const userRes = await q.query(
+    "SELECT date_of_birth, birthday_gift_year FROM users WHERE id = $1 LIMIT 1",
+    [userId]
+  );
+  const row = userRes.rows[0];
+  const dob = row?.date_of_birth;
+  if (!dob) return null;
+
+  const today = new Date();
+  const birth = new Date(dob);
+  const isBirthdayToday =
+    birth.getUTCDate() === today.getUTCDate() &&
+    birth.getUTCMonth() === today.getUTCMonth();
+  if (!isBirthdayToday) return null;
+
+  const year = today.getUTCFullYear();
+  if (Number(row.birthday_gift_year) === year) return null; // ya otorgado este año
+
+  const upd = await q.query(
+    `UPDATE users
+        SET video_library_access_until = GREATEST(COALESCE(video_library_access_until, NOW()), NOW()) + INTERVAL '1 month',
+            birthday_gift_year = $2
+      WHERE id = $1
+      RETURNING video_library_access_until`,
+    [userId, year]
+  );
+  return upd.rows[0]?.video_library_access_until ?? null;
+}
+
+// Acceso a la videoteca: socia con membresía activa O regalo de cumpleaños vigente.
+async function hasVideoLibraryAccess(userId, client = null) {
+  if (!userId) return false;
+  const q = client ?? pool;
+  const r = await q.query(
+    `SELECT 1 FROM users u
+      WHERE u.id = $1
+        AND (
+          (u.video_library_access_until IS NOT NULL AND u.video_library_access_until > NOW())
+          OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.status = 'active')
+        )
+      LIMIT 1`,
+    [userId]
+  );
+  return r.rows.length > 0;
+}
+
 const NON_REPEATABLE_ORDER_BLOCK_STATUSES = ["pending_payment", "pending_verification", "approved"];
 
 function parseBooleanFlag(value) {
@@ -2787,6 +2902,7 @@ app.post("/api/auth/login", async (req, res) => {
     if (!match) return res.status(401).json({ message: "Credenciales incorrectas" });
     try {
       await awardBirthdayBonusIfEligible(user.id);
+      await grantBirthdayVideotecaIfEligible(user.id);
     } catch (bonusErr) {
       console.error("[Loyalty] birthday bonus login:", bonusErr?.message || bonusErr);
     }
@@ -3165,7 +3281,11 @@ app.get("/api/classes/:id", async (req, res) => {
       [req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Clase no encontrada" });
-    return res.json({ data: r.rows[0] });
+    const row = r.rows[0];
+    // Usar el conteo real de lugares ocupados (no el contador guardado, que
+    // puede estar desfasado y mostrar la clase como "llena" sin estarlo).
+    row.current_bookings = await liveBookingCount(req.params.id);
+    return res.json({ data: row });
   } catch (err) {
     console.error("Class/:id error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -3282,6 +3402,23 @@ app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
 
+// Las reservas de clientas cierran este número de horas antes del inicio de la
+// clase (da tiempo de preparar la lista del día). El admin sí puede registrar
+// walk-ins de último momento desde el roster.
+const BOOKING_LEAD_HOURS = 2;
+const BOOKING_LEAD_MS = BOOKING_LEAD_HOURS * 60 * 60 * 1000;
+
+// Conteo REAL de lugares ocupados (confirmadas + check-in). Fuente de verdad
+// del cupo, en lugar del contador denormalizado classes.current_bookings, que
+// puede desfasarse (y hacía que una clase con lugar se viera "llena").
+async function liveBookingCount(classId, db = pool) {
+  const r = await db.query(
+    "SELECT COUNT(*)::int AS cnt FROM bookings WHERE class_id = $1 AND status IN ('confirmed','checked_in')",
+    [classId]
+  );
+  return r.rows[0]?.cnt ?? 0;
+}
+
 // POST /api/bookings
 app.post("/api/bookings", authMiddleware, async (req, res) => {
   const { classId } = req.body;
@@ -3293,6 +3430,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
       `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+              (c.date || 'T' || c.start_time || '-06:00')::timestamptz AS starts_at,
               ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -3308,6 +3446,20 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     if (cls.status === "cancelled") {
       await client.query("ROLLBACK");
       return res.status(400).json({ message: "Esta clase fue cancelada" });
+    }
+
+    // ── Cierre de reservas: las clientas no pueden reservar dentro de las
+    //    2 h previas al inicio de la clase. (El admin sí puede registrar
+    //    walk-ins de último momento desde el roster.)
+    if (cls.starts_at) {
+      const msToStart = new Date(cls.starts_at).getTime() - Date.now();
+      if (msToStart < BOOKING_LEAD_MS) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "BOOKING_WINDOW_CLOSED",
+          message: `Las reservas cierran ${BOOKING_LEAD_HOURS} horas antes del inicio de la clase.`,
+        });
+      }
     }
 
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
@@ -3380,7 +3532,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       return res.status(403).json({ message: weeklyCheck.message });
     }
 
-    const isWaitlist = cls.current_bookings >= cls.max_capacity;
+    const isWaitlist = (await liveBookingCount(classId, client)) >= cls.max_capacity;
     const status = isWaitlist ? "waitlist" : "confirmed";
     const result = await client.query(
       `INSERT INTO bookings (class_id, user_id, membership_id, status)
@@ -8438,6 +8590,12 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
     // Acceso per-video en un solo query agregado (vias a-e del spec 2026-05-18).
     const ids = r.rows.map((v) => v.id);
     const accessByVideo = new Map();
+    // Vía f: regalo de cumpleaños (1 mes de videoteca) — desbloquea todos los videos.
+    const giftRes = await pool.query(
+      "SELECT 1 FROM users WHERE id = $1 AND video_library_access_until IS NOT NULL AND video_library_access_until > NOW() LIMIT 1",
+      [req.userId]
+    );
+    const viaBirthdayGift = giftRes.rows.length > 0;
     if (ids.length) {
       const acc = await pool.query(
         `SELECT v.id,
@@ -8465,7 +8623,7 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
       for (const a of acc.rows) {
         let state;
         if (a.is_free) state = "free";
-        else if (a.is_trial || a.via_plan || a.via_fulllib || a.via_purchase || a.via_grant)
+        else if (a.is_trial || a.via_plan || a.via_fulllib || a.via_purchase || a.via_grant || viaBirthdayGift)
           state = "unlocked";
         else state = a.sales_enabled ? "locked_purchasable" : "locked_plan_only";
         accessByVideo.set(a.id, { state, plan_count: a.plan_count ?? 0 });
@@ -9372,6 +9530,13 @@ async function computeVideoAccessState(userId, videoId) {
     [userId]
   );
   if (grant.rows.length) return { state: "unlocked" };
+
+  // Regalo de cumpleaños: 1 mes de videoteca completa.
+  const birthdayGift = await pool.query(
+    "SELECT 1 FROM users WHERE id = $1 AND video_library_access_until IS NOT NULL AND video_library_access_until > NOW() LIMIT 1",
+    [userId]
+  );
+  if (birthdayGift.rows.length) return { state: "unlocked" };
 
   if (video.sales_enabled === true) return { state: "locked_purchasable" };
   const offers = await pool.query(
@@ -13080,7 +13245,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       });
     }
 
-    const isWaitlist = cls.current_bookings >= cls.max_capacity;
+    const isWaitlist = (await liveBookingCount(classId, client)) >= cls.max_capacity;
     const bookingStatus = isWaitlist ? "waitlist" : "confirmed";
     const result = await client.query(
       `INSERT INTO bookings (class_id, user_id, membership_id, status)
@@ -13227,6 +13392,87 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
       message: "Error interno",
       error: err?.message?.slice(0, 160) || null,
     });
+  }
+});
+
+// POST /api/admin/checkin/scan — check-in por QR del pase (wallet).
+// El QR del pase codifica base64(userId). Ubica la reserva confirmada de la
+// clienta para la clase de HOY más cercana a la hora actual y la marca asistida.
+app.post("/api/admin/checkin/scan", adminMiddleware, async (req, res) => {
+  try {
+    const raw = String(req.body?.code ?? "").trim();
+    if (!raw) return res.status(400).json({ status: "error", message: "Código vacío" });
+
+    const isUuid = (s) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+    let userId = null;
+    if (isUuid(raw)) {
+      userId = raw;
+    } else {
+      try {
+        const decoded = Buffer.from(raw, "base64").toString("utf8").trim();
+        if (isUuid(decoded)) userId = decoded;
+      } catch (_) { /* código inválido */ }
+    }
+    if (!userId) {
+      return res.status(404).json({ status: "not_found", message: "Código no reconocido" });
+    }
+
+    const userRes = await pool.query("SELECT id, display_name FROM users WHERE id = $1 LIMIT 1", [userId]);
+    if (!userRes.rows.length) {
+      return res.status(404).json({ status: "not_found", message: "Clienta no encontrada" });
+    }
+    const name = userRes.rows[0].display_name || "Clienta";
+
+    const bookingRes = await pool.query(
+      `SELECT b.id, b.status, ct.name AS class_name, c.start_time
+         FROM bookings b
+         JOIN classes c ON b.class_id = c.id
+         JOIN class_types ct ON c.class_type_id = ct.id
+        WHERE b.user_id = $1
+          AND b.status IN ('confirmed','checked_in')
+          AND c.status <> 'cancelled'
+          AND c.date = (NOW() AT TIME ZONE 'America/Mexico_City')::date
+        ORDER BY ABS(EXTRACT(EPOCH FROM ((c.date || 'T' || c.start_time || '-06:00')::timestamptz - NOW())))
+        LIMIT 1`,
+      [userId]
+    );
+    if (!bookingRes.rows.length) {
+      return res.json({ status: "no_booking", name, message: `${name} no tiene reserva para hoy.` });
+    }
+    const bk = bookingRes.rows[0];
+    const timeStr = String(bk.start_time || "").slice(0, 5);
+
+    if (bk.status === "checked_in") {
+      return res.json({
+        status: "already", name, className: bk.class_name, time: timeStr,
+        message: `${name} ya tenía check-in (${bk.class_name} ${timeStr}).`,
+      });
+    }
+
+    await pool.query(
+      "UPDATE bookings SET status = 'checked_in', checked_in_at = NOW() WHERE id = $1",
+      [bk.id]
+    );
+    // Puntos por asistir (igual que el check-in manual del roster)
+    try {
+      const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
+      const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
+      const pts = cfg.points_per_class ?? 10;
+      if (cfg.enabled !== false && pts > 0) {
+        await pool.query(
+          "INSERT INTO loyalty_transactions (user_id, type, points, description) VALUES ($1, 'earn', $2, 'Clase asistida')",
+          [userId, pts]
+        );
+      }
+    } catch (_) { /* no romper el check-in */ }
+
+    return res.json({
+      status: "ok", name, className: bk.class_name, time: timeStr,
+      message: `✓ ${name} — ${bk.class_name} ${timeStr}`,
+    });
+  } catch (err) {
+    console.error("[POST /admin/checkin/scan]", err.message);
+    return res.status(500).json({ status: "error", message: "Error interno" });
   }
 });
 
@@ -15530,7 +15776,43 @@ function scheduleEmailCrons() {
       console.log("[Cron] Triggering week reset (rings semanales)...");
       runWeekResetCron();
     }
+
+    // Birthday videoteca gift: every day at 8:00 AM Mexico time
+    if (mexicoHour === 8 && now.getUTCMinutes() < 60) {
+      console.log("[Cron] Triggering birthday videoteca gifts...");
+      runBirthdayGiftCron();
+    }
   }, 60 * 60 * 1000); // every 1 hour
+}
+
+// Otorga el mes de videoteca a quienes cumplen años hoy (para quienes no
+// inician sesión ese día). Idempotente vía grantBirthdayVideotecaIfEligible.
+async function runBirthdayGiftCron() {
+  try {
+    const today = new Date();
+    const res = await pool.query(
+      `SELECT id FROM users
+        WHERE role = 'client'
+          AND date_of_birth IS NOT NULL
+          AND EXTRACT(MONTH FROM date_of_birth) = $1
+          AND EXTRACT(DAY FROM date_of_birth) = $2`,
+      [today.getUTCMonth() + 1, today.getUTCDate()]
+    );
+    let granted = 0;
+    for (const u of res.rows) {
+      try {
+        const r = await grantBirthdayVideotecaIfEligible(u.id);
+        if (r) granted++;
+      } catch (e) {
+        console.error("[Cron] birthday gift user", u.id, e.message);
+      }
+    }
+    if (res.rows.length) {
+      console.log(`[Cron] Birthday videoteca: ${granted}/${res.rows.length} otorgado(s)`);
+    }
+  } catch (err) {
+    console.error("[Cron] Birthday gift error:", err.message);
+  }
 }
 
 // ─── Start ───────────────────────────────────────────────────────────────────
