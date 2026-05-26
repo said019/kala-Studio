@@ -40,7 +40,7 @@ interface ClientOption {
 // ── Status config ──────────────────────────────────────────────────────────────
 const statusConfig: Record<string, { label: string; className: string }> = {
   confirmed:  { label: "Confirmada",   className: "text-[#F58A24] border-[#F58A24]/30 bg-[#F58A24]/5" },
-  checked_in: { label: "Asistió ✓",   className: "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/5" },
+  checked_in: { label: "Asistió ✓",   className: "text-[#15803d] border-[#15803d]/40 bg-[#15803d]/10" },
   waitlist:   { label: "Lista espera", className: "text-[#E9745F] border-[#E9745F]/30 bg-[#E9745F]/5" },
   no_show:    { label: "No asistió",   className: "text-[#f87171] border-[#f87171]/30 bg-[#f87171]/5" },
   cancelled:  { label: "Cancelada",    className: "text-white/30 border-white/10 bg-white/3" },
