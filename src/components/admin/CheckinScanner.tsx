@@ -25,14 +25,14 @@ interface Props {
 }
 
 /**
- * Check-in por cámara o por código manual. Lee el QR del pase (codifica
- * base64(userId)) usando @zxing/browser, que funciona en Chrome, Safari (iOS)
- * y Android. El backend POST /api/admin/checkin/scan resuelve y marca asistencia.
- *
- * Requiere HTTPS (excepto localhost) — getUserMedia exige contexto seguro.
+ * Check-in por cámara con @zxing/browser. Funciona en Chrome, Safari iOS y
+ * Android. Para iOS hace falta gestionar el stream manualmente y forzar
+ * play() después de animar el modal — si no, el <video> queda negro aunque
+ * la cámara esté activa.
  */
 export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const lastCodeRef = useRef<{ code: string; at: number } | null>(null);
   const busyRef = useRef(false);
@@ -40,6 +40,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   const [results, setResults] = useState<ScanResult[]>([]);
   const [manualCode, setManualCode] = useState("");
   const [manualSending, setManualSending] = useState(false);
+  const [needsTap, setNeedsTap] = useState(false);
 
   const submitCode = async (code: string, opts?: { silent?: boolean }) => {
     const value = String(code || "").trim();
@@ -62,62 +63,104 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     }
   };
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
+  const tearDown = () => {
+    if (controlsRef.current) {
+      try { controlsRef.current.stop(); } catch { /* noop */ }
+      controlsRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => { try { t.stop(); } catch { /* noop */ } });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      try { videoRef.current.srcObject = null; } catch { /* noop */ }
+    }
+  };
 
-    const start = async () => {
-      // 1) Contexto seguro: getUserMedia requiere HTTPS (o localhost).
-      if (typeof window !== "undefined" && window.isSecureContext === false) {
-        setError(
-          "La cámara solo funciona con HTTPS. Este sitio se está cargando como «No seguro» (http://). Asegúrate de entrar por https:// (o usa el modo manual abajo)."
-        );
-        return;
-      }
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError("Tu navegador no soporta acceso a la cámara. Usa el modo manual abajo.");
-        return;
-      }
+  // Inicia stream + play() — separado para poder llamarlo tras un tap del
+  // usuario si iOS bloquea el autoplay inicial.
+  const startStream = async (cancelledRef: { cancelled: boolean }) => {
+    setNeedsTap(false);
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      setError(
+        "La cámara solo funciona con HTTPS. Entra al sitio por https:// o usa el modo manual abajo."
+      );
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Tu navegador no soporta acceso a la cámara. Usa el modo manual abajo.");
+      return;
+    }
 
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+    } catch (e: any) {
+      const reason = e?.name === "NotAllowedError"
+        ? "Negaste el permiso de cámara. En el candado/AA de la URL → Permisos del sitio → Cámara: Permitir, y recarga."
+        : e?.name === "NotFoundError"
+          ? "No se encontró ninguna cámara en este dispositivo."
+          : "No se pudo abrir la cámara. Usa el modo manual abajo.";
+      setError(reason);
+      return;
+    }
+    if (cancelledRef.cancelled) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    streamRef.current = stream;
+
+    const video = videoRef.current;
+    if (!video) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    video.srcObject = stream;
+    // iOS Safari: a veces falla el autoplay sin gesto del usuario. Si así pasa,
+    // mostramos botón "Iniciar cámara" para que el usuario lo dispare con tap.
+    try {
+      await video.play();
+    } catch {
+      setNeedsTap(true);
+      return;
+    }
+
+    // Una vez el video corre, zxing decodifica frames continuos.
+    try {
       const reader = new BrowserQRCodeReader();
-      try {
-        // Pide la cámara trasera del celular (environment); en compu cae a la default.
-        const controls = await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: "environment" } }, audio: false },
-          videoRef.current!,
-          (result, _err, _ctrls) => {
-            if (cancelled) return;
-            if (result) submitCode(result.getText());
-            // _err es NotFoundException por cada frame sin QR — ignorar.
-          }
-        );
-        if (cancelled) {
-          controls.stop();
-          return;
-        }
-        controlsRef.current = controls;
-      } catch (e: any) {
-        const reason = e?.name === "NotAllowedError"
-          ? "Negaste el permiso de cámara al navegador. En el candado de la URL → Permisos del sitio → permite Cámara, y recarga."
-          : e?.name === "NotFoundError"
-            ? "No se encontró ninguna cámara en este dispositivo."
-            : e?.message?.includes("secure")
-              ? "La cámara solo funciona con HTTPS. Entra al sitio por https://."
-              : "No se pudo abrir la cámara. Usa el modo manual abajo.";
-        setError(reason);
-      }
-    };
+      const controls = reader.decodeFromVideoElement(video, (result, _err) => {
+        if (cancelledRef.cancelled) return;
+        if (result) submitCode(result.getText());
+      });
+      controlsRef.current = await controls;
+    } catch {
+      // Si falla decodificador, mantenemos la cámara visible y el modo manual.
+    }
+  };
 
+  useEffect(() => {
+    if (!open) {
+      tearDown();
+      return;
+    }
+    const cancelledRef = { cancelled: false };
     setError(null);
-    start();
+    setNeedsTap(false);
+    // Pequeño delay para que el modal termine de animar y el <video>
+    // tenga dimensiones reales antes de attach + play. Crítico en iOS.
+    const t = setTimeout(() => {
+      if (!cancelledRef.cancelled) startStream(cancelledRef);
+    }, 200);
 
     return () => {
-      cancelled = true;
-      if (controlsRef.current) {
-        try { controlsRef.current.stop(); } catch { /* noop */ }
-        controlsRef.current = null;
-      }
+      cancelledRef.cancelled = true;
+      clearTimeout(t);
+      tearDown();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const styleFor = (status: ScanResult["status"]) => {
@@ -135,6 +178,24 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     setManualSending(false);
   };
 
+  const handleTapToStart = async () => {
+    const v = videoRef.current;
+    if (!v) return;
+    try {
+      await v.play();
+      setNeedsTap(false);
+      if (!controlsRef.current) {
+        const reader = new BrowserQRCodeReader();
+        const controls = reader.decodeFromVideoElement(v, (result) => {
+          if (result) submitCode(result.getText());
+        });
+        controlsRef.current = await controls;
+      }
+    } catch {
+      setError("No se pudo iniciar la cámara aún después del tap. Usa el modo manual abajo.");
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -149,10 +210,26 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
         ) : (
           <div className="space-y-3">
             <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
-              <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
+              <video
+                ref={videoRef}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                autoPlay
+              />
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="h-40 w-40 rounded-2xl border-2 border-white/80 shadow-[0_0_0_4000px_rgba(0,0,0,0.25)]" />
               </div>
+              {needsTap && (
+                <button
+                  type="button"
+                  onClick={handleTapToStart}
+                  className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-white text-sm font-semibold"
+                >
+                  <CameraIcon size={28} />
+                  Tocar para iniciar la cámara
+                </button>
+              )}
             </div>
             <p className="text-center text-xs text-muted-foreground">
               Apunta al <strong>QR del pase</strong> de la clienta para registrar su asistencia.
