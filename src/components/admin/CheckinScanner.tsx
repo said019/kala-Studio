@@ -33,17 +33,25 @@ const detectPlatform = (): Platform => {
   return "desktop";
 };
 
-// Instrucciones que sí existen en cada plataforma. En Android Chrome NO hay
-// "AA"; el menú es el candado → Permisos. Si la dueña ya tocó "Restablecer
-// permisos", la entrada Cámara desaparece y el botón Reintentar abajo es
-// suficiente (el restablecer deja el estado en "prompt", así que el siguiente
-// getUserMedia vuelve a preguntar).
+// Instrucciones que sí existen en cada plataforma. En Android hay DOS capas
+// de permiso, y si la de OS está bloqueada, ninguna acción dentro de la web
+// arregla nada — hay que pedirle abrir Ajustes del sistema.
 const platformPermissionHint = (p: Platform): string => {
   if (p === "android") {
-    return "En Android Chrome: toca el candado a la izquierda de la URL → Permisos → Cámara: Permitir. Si Cámara no aparece (o ya tocaste \"Restablecer permisos\"), simplemente toca \"Reintentar cámara\" aquí abajo.";
+    return (
+      "Android tiene 2 permisos de cámara, los dos tienen que estar activos:\n" +
+      "1) Del sistema: Ajustes → Apps → Chrome → Permisos → Cámara → Permitir.\n" +
+      "2) Del sitio: en Chrome toca el candado a la izquierda de la URL → Permisos → Cámara → Permitir. Si Cámara no aparece, toca \"Restablecer permisos\".\n" +
+      "Después, toca \"Reintentar cámara\" aquí abajo."
+    );
   }
   if (p === "ios") {
-    return "En iPhone Safari: toca AA a la izquierda de la URL → Configuración del sitio web → Cámara → Permitir. Luego toca \"Reintentar cámara\".";
+    return (
+      "En iPhone hay 2 permisos:\n" +
+      "1) Del sistema: Ajustes → Safari → Cámara → Preguntar/Permitir.\n" +
+      "2) Del sitio: en Safari, toca AA a la izquierda de la URL → Configuración del sitio web → Cámara → Permitir.\n" +
+      "Después, toca \"Reintentar cámara\"."
+    );
   }
   return "Toca el candado en la barra de direcciones → Permisos del sitio → Cámara: Permitir. Luego toca \"Reintentar cámara\".";
 };
@@ -64,6 +72,10 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   // Cuando el error es un fallo de permiso (NotAllowedError), guardamos el
   // tipo para mostrar instrucciones específicas por plataforma + Reintentar.
   const [permissionBlocked, setPermissionBlocked] = useState(false);
+  // Nombre técnico del error (NotAllowedError, NotReadableError, etc.) para
+  // diagnóstico visible en la UI — útil cuando varios dispositivos fallan de
+  // formas distintas y no podemos ver la consola del usuario.
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [results, setResults] = useState<ScanResult[]>([]);
   const [manualCode, setManualCode] = useState("");
   const [manualSending, setManualSending] = useState(false);
@@ -119,6 +131,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     activeCancelledRef.current = cancelledRef;
     setNeedsTap(false);
     setPermissionBlocked(false);
+    setErrorCode(null);
     if (typeof window !== "undefined" && window.isSecureContext === false) {
       setError(
         "La cámara solo funciona con HTTPS. Entra al sitio por https:// o usa el modo manual abajo."
@@ -137,7 +150,8 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
         audio: false,
       });
     } catch (e: any) {
-      const name = e?.name;
+      const name = typeof e?.name === "string" ? e.name : "UnknownError";
+      setErrorCode(name);
       if (name === "NotAllowedError" || name === "SecurityError") {
         setPermissionBlocked(true);
         setError("Permiso de cámara bloqueado.");
@@ -313,7 +327,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
             <div className="space-y-3 rounded-lg bg-destructive/10 px-4 py-4 text-sm text-destructive">
               <p className="font-medium">{error}</p>
               {permissionBlocked && (
-                <p className="text-[12px] leading-relaxed text-destructive/85">
+                <p className="whitespace-pre-line text-[12px] leading-relaxed text-destructive/85">
                   {platformPermissionHint(platform)}
                 </p>
               )}
@@ -327,6 +341,11 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
                   <CameraIcon size={14} className="mr-1.5" />
                   Reintentar cámara
                 </Button>
+              )}
+              {errorCode && (
+                <p className="pt-1 font-mono text-[10px] text-destructive/55">
+                  err: {errorCode}
+                </p>
               )}
             </div>
           );
