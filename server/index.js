@@ -9423,7 +9423,14 @@ async function applyCancellationRollback(client, booking, opts = {}) {
   const wasCheckedIn = booking.status === "checked_in";
   const wasConfirmed = booking.status === "confirmed";
 
-  if (wasConfirmed && booking.membership_id && !opts.skipCreditRestore) {
+  // Cuando se cancela TODA la clase (la clase no ocurrió), también se devuelve
+  // crédito a quienes ya tenían check-in: pasaron a "asistir" a una clase que
+  // ya no existe. Pasar opts.refundCheckedIn=true desde ese caller.
+  const shouldRefundCredit = !opts.skipCreditRestore
+    && booking.membership_id
+    && (wasConfirmed || (wasCheckedIn && opts.refundCheckedIn));
+
+  if (shouldRefundCredit) {
     await client.query(
       `UPDATE memberships
           SET classes_remaining = COALESCE(classes_remaining, 0) + 1,
@@ -9433,7 +9440,9 @@ async function applyCancellationRollback(client, booking, opts = {}) {
     );
     result.creditRestored = true;
   }
-  if (wasConfirmed) {
+  // Tanto confirmadas como checked_in ocupaban lugar, ambos deben restarse del
+  // cupo cuando se cancelan.
+  if (wasConfirmed || wasCheckedIn) {
     await client.query(
       `UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1`,
       [booking.class_id],
@@ -9594,7 +9603,9 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
         `UPDATE bookings SET status='cancelled', cancelled_at=NOW() WHERE id=$1`,
         [b.id],
       );
-      const rollback = await applyCancellationRollback(client, b);
+      // Al cancelar la clase completa, devolver crédito también a las que
+      // tenían check-in (la clase no ocurrió, no deberían pagarla).
+      const rollback = await applyCancellationRollback(client, b, { refundCheckedIn: true });
       if (rollback.creditRestored) creditsRestored++;
       if (rollback.pointsReverted) pointsReverted += rollback.pointsReverted;
       if (rollback.ringDecremented) ringsDecremented++;
@@ -9682,8 +9693,11 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
       [req.params.id],
     );
 
-    // Apply full rollback: credits, loyalty points, ring decrement
-    const rb = await applyCancellationRollback(client, booking);
+    // Apply full rollback: credits, loyalty points, ring decrement. La admin
+    // que cancela manualmente espera que el crédito se devuelva incluso si
+    // la alumna ya tenía check-in (suele ser un check-in por error o
+    // re-clasificación de la asistencia).
+    const rb = await applyCancellationRollback(client, booking, { refundCheckedIn: true });
 
     await client.query("COMMIT");
 
