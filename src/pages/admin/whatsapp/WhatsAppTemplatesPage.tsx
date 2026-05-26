@@ -10,9 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Eye, RotateCcw, Save, Loader2, Sparkles, Send } from "lucide-react";
+import { MessageSquare, Eye, RotateCcw, Save, Loader2, Sparkles, Send, BellOff, Bell } from "lucide-react";
 
-interface Template { subject: string; body: string }
+interface Template { subject: string; body: string; enabled?: boolean }
 interface ApiResponse {
   data: {
     templates: Record<string, Template>;
@@ -64,6 +64,7 @@ const TemplateCard = ({
   isModified,
   onSave,
   onReset,
+  onToggleEnabled,
   toast,
 }: {
   templateKey: string;
@@ -72,12 +73,15 @@ const TemplateCard = ({
   isModified: boolean;
   onSave: (key: string, t: Template) => Promise<void>;
   onReset: (key: string) => void;
+  onToggleEnabled: (key: string, next: boolean) => Promise<void>;
   toast: ReturnType<typeof useToast>["toast"];
 }) => {
+  const enabled = template.enabled !== false;
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState(template.subject || "");
   const [body, setBody] = useState(template.body || "");
   const [saving, setSaving] = useState(false);
+  const [toggling, setToggling] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; body: string } | null>(null);
   const [sendingTest, setSendingTest] = useState(false);
@@ -139,16 +143,39 @@ const TemplateCard = ({
     }
   };
 
+  const handleToggle = async () => {
+    const next = !enabled;
+    setToggling(true);
+    try {
+      await onToggleEnabled(templateKey, next);
+      toast({
+        title: next ? "Aviso activado" : "Aviso desactivado",
+        description: next
+          ? `Se enviará el WhatsApp '${templateKey}' automáticamente.`
+          : `Ya no se enviará el WhatsApp '${templateKey}'.`,
+      });
+    } catch {
+      toast({ title: "Error al cambiar el estado", variant: "destructive" });
+    } finally {
+      setToggling(false);
+    }
+  };
+
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden">
+    <div className={`rounded-2xl border border-white/[0.07] bg-white/[0.02] overflow-hidden ${!enabled ? "opacity-60" : ""}`}>
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center justify-between p-4 text-left hover:bg-white/[0.03] transition-colors"
       >
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <code className="text-[11px] px-1.5 py-0.5 rounded bg-secondary font-mono">{templateKey}</code>
             {isModified && <Badge variant="default" className="text-[10px] h-4">editado</Badge>}
+            {!enabled && (
+              <Badge variant="outline" className="text-[10px] h-4 border-destructive/40 text-destructive">
+                desactivado
+              </Badge>
+            )}
           </div>
           <p className="text-sm font-medium mt-1 truncate">{template.subject}</p>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">{template.body.slice(0, 90)}…</p>
@@ -242,6 +269,26 @@ const TemplateCard = ({
                 Restaurar default
               </Button>
             )}
+            <Button
+              onClick={() => {
+                if (enabled
+                  ? window.confirm(`Desactivar el aviso "${templateKey}" — ya no se enviará automáticamente. ¿Continuar?`)
+                  : true
+                ) handleToggle();
+              }}
+              disabled={toggling}
+              variant="outline"
+              size="sm"
+              className={enabled
+                ? "border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10"
+                : "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 hover:bg-emerald-500/10"}
+              title={enabled ? "Detener el envío automático de este aviso" : "Volver a enviar este aviso"}
+            >
+              {toggling ? <Loader2 size={13} className="mr-1.5 animate-spin" />
+                : enabled ? <BellOff size={13} className="mr-1.5" />
+                : <Bell size={13} className="mr-1.5" />}
+              {enabled ? "Desactivar aviso" : "Activar aviso"}
+            </Button>
           </div>
         </div>
       )}
@@ -290,6 +337,14 @@ const WhatsAppTemplatesPage = () => {
     if (!defaults[key]) return;
     await updateMutation.mutateAsync({ ...templates, [key]: defaults[key] });
     toast({ title: "Template restaurado al default", description: key });
+  };
+
+  // Activa/desactiva el envío automático del template (no se elimina el copy:
+  // solo se marca enabled=false para que el server lo salte).
+  const handleToggleEnabled = async (key: string, next: boolean) => {
+    const cur = templates[key];
+    if (!cur) return;
+    await updateMutation.mutateAsync({ ...templates, [key]: { ...cur, enabled: next } });
   };
 
   // Agrupar templates no listados explícitamente bajo "Otros"
@@ -361,6 +416,7 @@ const WhatsAppTemplatesPage = () => {
                       isModified={isModified(k)}
                       onSave={handleSave}
                       onReset={handleResetOne}
+                      onToggleEnabled={handleToggleEnabled}
                       toast={toast}
                     />
                   ))}

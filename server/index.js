@@ -11485,6 +11485,10 @@ async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, f
     return { sent: false, reason: "whatsapp_disabled" };
   }
   const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+  // Permite desactivar un template puntual desde el admin (no se envía ese aviso).
+  if (templates?.[templateKey]?.enabled === false) {
+    return { sent: false, reason: "template_disabled" };
+  }
   const templateBody = templates?.[templateKey]?.body || "";
   const rendered = renderTemplateVars(templateBody, vars).trim();
   const text = rendered || String(fallbackMessage || "").trim();
