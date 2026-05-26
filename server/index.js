@@ -2041,7 +2041,11 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  // camera=(self) habilita la cámara para el mismo origen (escáner QR del
+  // check-in). Sin esto, getUserMedia rechaza con NotAllowedError aunque el
+  // usuario tenga el permiso del navegador y del SO concedidos.
+  // microphone y geolocation siguen bloqueados (no se usan en la app).
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=(self)");
   next();
 });
 
