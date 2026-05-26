@@ -24,6 +24,30 @@ interface Props {
   onOpenChange: (v: boolean) => void;
 }
 
+type Platform = "ios" | "android" | "desktop";
+const detectPlatform = (): Platform => {
+  if (typeof navigator === "undefined") return "desktop";
+  const ua = navigator.userAgent || "";
+  if (/iPhone|iPad|iPod/.test(ua)) return "ios";
+  if (/Android/.test(ua)) return "android";
+  return "desktop";
+};
+
+// Instrucciones que sí existen en cada plataforma. En Android Chrome NO hay
+// "AA"; el menú es el candado → Permisos. Si la dueña ya tocó "Restablecer
+// permisos", la entrada Cámara desaparece y el botón Reintentar abajo es
+// suficiente (el restablecer deja el estado en "prompt", así que el siguiente
+// getUserMedia vuelve a preguntar).
+const platformPermissionHint = (p: Platform): string => {
+  if (p === "android") {
+    return "En Android Chrome: toca el candado a la izquierda de la URL → Permisos → Cámara: Permitir. Si Cámara no aparece (o ya tocaste \"Restablecer permisos\"), simplemente toca \"Reintentar cámara\" aquí abajo.";
+  }
+  if (p === "ios") {
+    return "En iPhone Safari: toca AA a la izquierda de la URL → Configuración del sitio web → Cámara → Permitir. Luego toca \"Reintentar cámara\".";
+  }
+  return "Toca el candado en la barra de direcciones → Permisos del sitio → Cámara: Permitir. Luego toca \"Reintentar cámara\".";
+};
+
 /**
  * Check-in por cámara con @zxing/browser. Funciona en Chrome, Safari iOS y
  * Android. Para iOS hace falta gestionar el stream manualmente y forzar
@@ -37,10 +61,16 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   const lastCodeRef = useRef<{ code: string; at: number } | null>(null);
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Cuando el error es un fallo de permiso (NotAllowedError), guardamos el
+  // tipo para mostrar instrucciones específicas por plataforma + Reintentar.
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [results, setResults] = useState<ScanResult[]>([]);
   const [manualCode, setManualCode] = useState("");
   const [manualSending, setManualSending] = useState(false);
   const [needsTap, setNeedsTap] = useState(false);
+  // Ref al cancelledRef vivo para que Reintentar respete cualquier cierre del modal.
+  const activeCancelledRef = useRef<{ cancelled: boolean } | null>(null);
+  const platform = detectPlatform();
 
   const submitCode = async (code: string, opts?: { silent?: boolean }) => {
     const value = String(code || "").trim();
@@ -80,7 +110,9 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   // Inicia stream + play() — separado para poder llamarlo tras un tap del
   // usuario si iOS bloquea el autoplay inicial.
   const startStream = async (cancelledRef: { cancelled: boolean }) => {
+    activeCancelledRef.current = cancelledRef;
     setNeedsTap(false);
+    setPermissionBlocked(false);
     if (typeof window !== "undefined" && window.isSecureContext === false) {
       setError(
         "La cámara solo funciona con HTTPS. Entra al sitio por https:// o usa el modo manual abajo."
@@ -99,12 +131,17 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
         audio: false,
       });
     } catch (e: any) {
-      const reason = e?.name === "NotAllowedError"
-        ? "Negaste el permiso de cámara. En el candado/AA de la URL → Permisos del sitio → Cámara: Permitir, y recarga."
-        : e?.name === "NotFoundError"
-          ? "No se encontró ninguna cámara en este dispositivo."
-          : "No se pudo abrir la cámara. Usa el modo manual abajo.";
-      setError(reason);
+      const name = e?.name;
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        setPermissionBlocked(true);
+        setError("Permiso de cámara bloqueado.");
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        setError("No se encontró ninguna cámara en este dispositivo. Usa el modo manual abajo.");
+      } else if (name === "NotReadableError" || name === "AbortError") {
+        setError("La cámara está ocupada por otra app o pestaña. Ciérrala y toca \"Reintentar cámara\".");
+      } else {
+        setError("No se pudo abrir la cámara. Toca \"Reintentar cámara\" o usa el modo manual abajo.");
+      }
       return;
     }
     if (cancelledRef.cancelled) {
@@ -178,6 +215,20 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
     setManualSending(false);
   };
 
+  // Reintentar abre un nuevo intento de cámara con un cancelledRef fresco.
+  // Sirve para el caso típico de Android: la dueña denegó/restableció el
+  // permiso, y ahora tocar el botón vuelve a disparar el prompt del navegador
+  // (que requiere un gesto de usuario reciente — este tap lo provee).
+  const handleRetryCamera = async () => {
+    // Cancelar cualquier intento previo aún colgando.
+    if (activeCancelledRef.current) activeCancelledRef.current.cancelled = true;
+    tearDown();
+    setError(null);
+    setPermissionBlocked(false);
+    const cancelledRef = { cancelled: false };
+    await startStream(cancelledRef);
+  };
+
   const handleTapToStart = async () => {
     const v = videoRef.current;
     if (!v) return;
@@ -204,9 +255,35 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
         </DialogHeader>
 
         {error ? (
-          <div className="rounded-lg bg-destructive/10 px-3 py-3 text-sm text-destructive">
-            {error}
-          </div>
+          (() => {
+            // Reintentar tiene sentido salvo que el entorno sea irrecuperable:
+            // sin HTTPS o sin API mediaDevices. En esos casos, solo modo manual.
+            const secure =
+              typeof window === "undefined" || window.isSecureContext !== false;
+            const hasApi = !!navigator.mediaDevices?.getUserMedia;
+            const canRetry = secure && hasApi;
+            return (
+              <div className="space-y-3 rounded-lg bg-destructive/10 px-4 py-4 text-sm text-destructive">
+                <p className="font-medium">{error}</p>
+                {permissionBlocked && (
+                  <p className="text-[12px] leading-relaxed text-destructive/85">
+                    {platformPermissionHint(platform)}
+                  </p>
+                )}
+                {canRetry && (
+                  <Button
+                    type="button"
+                    onClick={handleRetryCamera}
+                    className="w-full"
+                    variant="secondary"
+                  >
+                    <CameraIcon size={14} className="mr-1.5" />
+                    Reintentar cámara
+                  </Button>
+                )}
+              </div>
+            );
+          })()
         ) : (
           <div className="space-y-3">
             <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
