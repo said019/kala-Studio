@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import api from "@/lib/api";
 import {
   Dialog,
@@ -24,17 +25,15 @@ interface Props {
 }
 
 /**
- * Check-in por cámara o por código manual. Lee el QR del pase de la clienta
- * (codifica base64(userId)) con BarcodeDetector (Chrome / Android) y llama al
- * backend POST /api/admin/checkin/scan, que marca la asistencia.
+ * Check-in por cámara o por código manual. Lee el QR del pase (codifica
+ * base64(userId)) usando @zxing/browser, que funciona en Chrome, Safari (iOS)
+ * y Android. El backend POST /api/admin/checkin/scan resuelve y marca asistencia.
  *
- * El acceso a la cámara requiere HTTPS (excepto localhost). Si no se puede,
- * el admin puede usar el modo manual para pegar el código.
+ * Requiere HTTPS (excepto localhost) — getUserMedia exige contexto seguro.
  */
 export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsRef = useRef<IScannerControls | null>(null);
   const lastCodeRef = useRef<{ code: string; at: number } | null>(null);
   const busyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,58 +65,45 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    let detector: any = null;
-
-    const loop = async () => {
-      if (cancelled || !videoRef.current || !detector) return;
-      try {
-        const codes = await detector.detect(videoRef.current);
-        if (codes && codes.length) await submitCode(codes[0].rawValue);
-      } catch { /* frame sin lectura */ }
-      if (!cancelled) timerRef.current = setTimeout(loop, 300);
-    };
 
     const start = async () => {
       // 1) Contexto seguro: getUserMedia requiere HTTPS (o localhost).
       if (typeof window !== "undefined" && window.isSecureContext === false) {
         setError(
-          "La cámara solo funciona con HTTPS. Este sitio se está cargando como «No seguro» (http://). Pide al equipo de despliegue que active el certificado SSL, o usa el modo manual abajo."
+          "La cámara solo funciona con HTTPS. Este sitio se está cargando como «No seguro» (http://). Asegúrate de entrar por https:// (o usa el modo manual abajo)."
         );
         return;
       }
-      // 2) Soporte de BarcodeDetector (Chrome, Edge, Android Chrome; no Safari).
-      if (!("BarcodeDetector" in window)) {
-        setError(
-          "Este navegador no puede leer QR automáticamente (Safari). Usa Google Chrome o el modo manual abajo."
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("Tu navegador no soporta acceso a la cámara. Usa el modo manual abajo.");
+        return;
+      }
+
+      const reader = new BrowserQRCodeReader();
+      try {
+        // Pide la cámara trasera del celular (environment); en compu cae a la default.
+        const controls = await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: "environment" } }, audio: false },
+          videoRef.current!,
+          (result, _err, _ctrls) => {
+            if (cancelled) return;
+            if (result) submitCode(result.getText());
+            // _err es NotFoundException por cada frame sin QR — ignorar.
+          }
         );
-        return;
-      }
-      try {
-        detector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
-      } catch {
-        setError("No se pudo iniciar el lector de QR. Usa el modo manual abajo.");
-        return;
-      }
-      // 3) Permisos / disponibilidad de cámara.
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play().catch(() => {});
+        if (cancelled) {
+          controls.stop();
+          return;
         }
-        loop();
+        controlsRef.current = controls;
       } catch (e: any) {
-        // NotAllowedError = permisos negados; NotFoundError = sin cámara; etc.
         const reason = e?.name === "NotAllowedError"
-          ? "Negaste el permiso de cámara al navegador. Da clic en el candado de la URL → Permisos del sitio → permite Cámara, y recarga."
+          ? "Negaste el permiso de cámara al navegador. En el candado de la URL → Permisos del sitio → permite Cámara, y recarga."
           : e?.name === "NotFoundError"
-            ? "No se encontró ninguna cámara conectada."
-            : "No se pudo abrir la cámara. Revisa los permisos del navegador o usa el modo manual abajo.";
+            ? "No se encontró ninguna cámara en este dispositivo."
+            : e?.message?.includes("secure")
+              ? "La cámara solo funciona con HTTPS. Entra al sitio por https://."
+              : "No se pudo abrir la cámara. Usa el modo manual abajo.";
         setError(reason);
       }
     };
@@ -127,9 +113,10 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
 
     return () => {
       cancelled = true;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+      if (controlsRef.current) {
+        try { controlsRef.current.stop(); } catch { /* noop */ }
+        controlsRef.current = null;
+      }
     };
   }, [open]);
 
@@ -162,7 +149,7 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
         ) : (
           <div className="space-y-3">
             <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
-              <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
+              <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="h-40 w-40 rounded-2xl border-2 border-white/80 shadow-[0_0_0_4000px_rgba(0,0,0,0.25)]" />
               </div>
