@@ -56,6 +56,7 @@ const planSchema = z.object({
   rewardDescription: z.string().optional(),
   sortOrder: z.coerce.number().default(0),
   includesVideoLibrary: z.boolean().default(false),
+  isVisitPack: z.boolean().default(false),
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -92,6 +93,7 @@ function normalizePlanRow(row: any): Plan {
     rewardDescription: String(row?.rewardDescription ?? row?.reward_description ?? ""),
     sortOrder: Number(row?.sortOrder ?? row?.sort_order ?? 0),
     includesVideoLibrary: Boolean(row?.includesVideoLibrary ?? row?.includes_video_library ?? false),
+    isVisitPack: Boolean(row?.isVisitPack ?? row?.is_visit_pack ?? false),
   };
 }
 
@@ -102,6 +104,7 @@ const EMPTY: PlanFormData = {
   ringConstanciaGoal: 1, ringEsfuerzoGoal: 1, ringConexionGoal: 10, rewardDescription: "",
   sortOrder: 0,
   includesVideoLibrary: false,
+  isVisitPack: false,
 };
 
 function serializePlan(d: PlanFormData) {
@@ -113,6 +116,8 @@ function serializePlan(d: PlanFormData) {
       ? d.features.split(",").map((s) => s.trim()).filter(Boolean)
       : [],
     includes_video_library: !!d.includesVideoLibrary,
+    isVisitPack: !!d.isVisitPack,
+    is_visit_pack: !!d.isVisitPack,
   };
 }
 
@@ -131,6 +136,7 @@ function normalizePlan(p: Plan): PlanFormData {
     ringConexionGoal: Number((p as any).ringConexionGoal ?? (p as any).ring_conexion_goal ?? 10),
     rewardDescription: String((p as any).rewardDescription ?? (p as any).reward_description ?? ""),
     includesVideoLibrary: Boolean((p as any).includesVideoLibrary ?? (p as any).includes_video_library ?? false),
+    isVisitPack: Boolean((p as any).isVisitPack ?? (p as any).is_visit_pack ?? false),
   };
 }
 
@@ -400,6 +406,18 @@ const PlansList = () => {
                   <Label className="cursor-pointer">Biblioteca completa de videos</Label>
                   <p className="text-xs text-muted-foreground">
                     Las alumnas con este plan ven todos los videos por planes, sin asignarlo video por video.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-xl border border-border p-3">
+                <Switch
+                  checked={form.watch("isVisitPack")}
+                  onCheckedChange={(v) => form.setValue("isVisitPack", v)}
+                />
+                <div className="space-y-0.5">
+                  <Label className="cursor-pointer">Paquete de visitas (invitadas)</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Marca este plan como pack de visita para vendérselo a invitadas no socias desde el POS o el roster. El cuestionario inicial se les pide una sola vez.
                   </p>
                 </div>
               </div>

@@ -806,6 +806,36 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS is_non_transferable BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS is_non_repeatable BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS repeat_key VARCHAR(80)`).catch(() => { });
+    // Paquete de visitas (1, 5, 10): marca el plan como vendible a invitadas
+    // (no socias) desde POS, y habilita el flujo de cuestionario reutilizable.
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS is_visit_pack BOOLEAN DEFAULT false`).catch(() => { });
+    // Tabla de perfiles de invitada/acompañante (no socia). El cuestionario
+    // inicial vive aquí y se reusa al volver con el mismo teléfono.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS guest_profiles (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        host_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        display_name TEXT NOT NULL,
+        phone TEXT,
+        email TEXT,
+        date_of_birth DATE,
+        has_injury BOOLEAN,
+        injury_details TEXT,
+        practiced_barre_before BOOLEAN,
+        emergency_contact_name TEXT,
+        emergency_contact_phone TEXT,
+        accepted_waiver_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_guest_profiles_phone ON guest_profiles(phone) WHERE phone IS NOT NULL`).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_guest_profiles_host ON guest_profiles(host_user_id)`).catch(() => { });
+    // Booking puede ser PARA una acompañante (descuenta del pack de quien la trajo).
+    await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS guest_profile_id UUID REFERENCES guest_profiles(id) ON DELETE SET NULL`).catch(() => { });
+    // Usuario "lite" con role='guest' vinculado a su guest_profile (1:1).
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS guest_profile_id UUID REFERENCES guest_profiles(id)`).catch(() => { });
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_guest_profile_unique ON users(guest_profile_id) WHERE guest_profile_id IS NOT NULL`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS ring_constancia_goal INTEGER NOT NULL DEFAULT 1`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS ring_esfuerzo_goal INTEGER NOT NULL DEFAULT 1`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS ring_conexion_goal INTEGER NOT NULL DEFAULT 10`).catch(() => { });
@@ -9743,6 +9773,337 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+//                      VISITAS / ACOMPAÑANTES (sub-fase 1)
+// ─────────────────────────────────────────────────────────────────────────────
+// Una invitada (no socia) se almacena en `guest_profiles` con su cuestionario
+// inicial (lesión, barre antes, etc.). Para reusar la infra de membresías y
+// bookings, se crea un usuario "lite" (role='guest', sin password) vinculado
+// 1:1 al guest_profile vía users.guest_profile_id. El paquete de visitas es
+// una membership normal con class_limit=N (planes con is_visit_pack=true).
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Normaliza un teléfono para búsqueda (solo dígitos, sin +52, etc.).
+function normGuestPhone(raw) {
+  return String(raw || "").replace(/\D/g, "");
+}
+
+// Encuentra (por teléfono) o crea un guest_profile. Si ya existe, actualiza
+// los campos del cuestionario con los valores nuevos (no nulos) — la última
+// visita refresca el intake si el admin lo capturó otra vez.
+async function findOrCreateGuestProfile(opts, db = pool) {
+  const {
+    name, phone, email, dateOfBirth,
+    hasInjury, injuryDetails, practicedBarreBefore,
+    emergencyContactName, emergencyContactPhone,
+    acceptedWaiver, hostUserId,
+  } = opts;
+  if (!name) throw new Error("name requerido");
+  const phoneNorm = normGuestPhone(phone);
+  let existing = null;
+  if (phoneNorm) {
+    const r = await db.query(
+      "SELECT * FROM guest_profiles WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') = $1 LIMIT 1",
+      [phoneNorm]
+    );
+    existing = r.rows[0] ?? null;
+  }
+  if (existing) {
+    // Actualizar solo los campos provistos (no sobrescribir con null).
+    const r = await db.query(
+      `UPDATE guest_profiles SET
+         display_name = COALESCE($2, display_name),
+         email = COALESCE($3, email),
+         date_of_birth = COALESCE($4, date_of_birth),
+         has_injury = COALESCE($5, has_injury),
+         injury_details = COALESCE($6, injury_details),
+         practiced_barre_before = COALESCE($7, practiced_barre_before),
+         emergency_contact_name = COALESCE($8, emergency_contact_name),
+         emergency_contact_phone = COALESCE($9, emergency_contact_phone),
+         accepted_waiver_at = CASE WHEN $10::boolean THEN NOW() ELSE accepted_waiver_at END,
+         host_user_id = COALESCE($11, host_user_id),
+         updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        existing.id, name, email || null, dateOfBirth || null,
+        hasInjury ?? null, injuryDetails || null, practicedBarreBefore ?? null,
+        emergencyContactName || null, emergencyContactPhone || null,
+        acceptedWaiver === true, hostUserId || null,
+      ]
+    );
+    return r.rows[0];
+  }
+  const ins = await db.query(
+    `INSERT INTO guest_profiles
+       (host_user_id, display_name, phone, email, date_of_birth, has_injury,
+        injury_details, practiced_barre_before, emergency_contact_name,
+        emergency_contact_phone, accepted_waiver_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+             CASE WHEN $11::boolean THEN NOW() ELSE NULL END)
+     RETURNING *`,
+    [
+      hostUserId || null, name, phoneNorm || null, email || null,
+      dateOfBirth || null, hasInjury ?? null, injuryDetails || null,
+      practicedBarreBefore ?? null, emergencyContactName || null,
+      emergencyContactPhone || null, acceptedWaiver === true,
+    ]
+  );
+  return ins.rows[0];
+}
+
+// Para reusar memberships/bookings, cada guest_profile tiene un user "lite"
+// asociado (role='guest', sin password). Si ya existe, lo devuelve.
+async function findOrCreateGuestUser(guestProfile, db = pool) {
+  if (!guestProfile?.id) throw new Error("guestProfile sin id");
+  const found = await db.query(
+    "SELECT * FROM users WHERE guest_profile_id = $1 LIMIT 1",
+    [guestProfile.id]
+  );
+  if (found.rows.length) {
+    // Sync nombre/teléfono por si cambiaron en el perfil.
+    await db.query(
+      "UPDATE users SET display_name = $2, phone = $3, updated_at = NOW() WHERE id = $1",
+      [found.rows[0].id, guestProfile.display_name, guestProfile.phone || null]
+    );
+    return found.rows[0];
+  }
+  const ins = await db.query(
+    `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
+     VALUES ($1, $2, 'guest', $3, true, NULL)
+     RETURNING *`,
+    [guestProfile.display_name, guestProfile.phone || null, guestProfile.id]
+  );
+  return ins.rows[0];
+}
+
+// GET /api/admin/guest-profiles/search?phone=XXX — autocompleta por teléfono.
+// Devuelve el guest_profile + su pack de visitas activo (si lo tiene).
+app.get("/api/admin/guest-profiles/search", adminMiddleware, async (req, res) => {
+  try {
+    const phone = normGuestPhone(req.query.phone);
+    if (!phone) return res.json({ data: null });
+    const gp = await pool.query(
+      "SELECT * FROM guest_profiles WHERE regexp_replace(COALESCE(phone,''), '\\D', '', 'g') = $1 LIMIT 1",
+      [phone]
+    );
+    if (!gp.rows.length) return res.json({ data: null });
+    const profile = gp.rows[0];
+    const u = await pool.query(
+      "SELECT id FROM users WHERE guest_profile_id = $1 LIMIT 1",
+      [profile.id]
+    );
+    const userId = u.rows[0]?.id ?? null;
+    let activeMembership = null;
+    if (userId) {
+      const m = await pool.query(
+        `SELECT m.id, m.classes_remaining, m.start_date, m.end_date,
+                p.name AS plan_name, p.class_limit
+           FROM memberships m
+           LEFT JOIN plans p ON p.id = m.plan_id
+          WHERE m.user_id = $1 AND m.status = 'active'
+            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
+          ORDER BY m.created_at DESC LIMIT 1`,
+        [userId]
+      );
+      activeMembership = m.rows[0] ?? null;
+    }
+    return res.json({ data: { profile, userId, activeMembership } });
+  } catch (err) {
+    console.error("[GET /admin/guest-profiles/search]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/visit-sale — venta de pack de visitas a una invitada.
+// Body: { profile: {...}, planId, paymentMethod, startDate?, hostUserId? }
+// Plan debe tener is_visit_pack=true. Crea/reusa guest_profile + user lite +
+// crea membership con class_limit del plan + orden 'approved' con el método.
+app.post("/api/admin/visit-sale", adminMiddleware, async (req, res) => {
+  const { profile = {}, planId, paymentMethod = "cash", startDate, hostUserId } = req.body || {};
+  if (!profile.name) return res.status(400).json({ message: "Nombre requerido" });
+  if (!planId) return res.status(400).json({ message: "Plan requerido" });
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    const planRes = await dbClient.query(
+      "SELECT * FROM plans WHERE id = $1 AND is_active = true",
+      [planId]
+    );
+    if (!planRes.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(404).json({ message: "Plan no encontrado" });
+    }
+    const plan = planRes.rows[0];
+    if (plan.is_visit_pack !== true) {
+      await dbClient.query("ROLLBACK");
+      return res.status(400).json({ message: "Este plan no está marcado como paquete de visitas." });
+    }
+    const guest = await findOrCreateGuestProfile({ ...profile, hostUserId }, dbClient);
+    const user = await findOrCreateGuestUser(guest, dbClient);
+    const startStr = startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const endStr = calcMembershipEndDate(startStr, plan);
+    const pm = normalizePaymentMethod(paymentMethod);
+    const memRes = await dbClient.query(
+      `INSERT INTO memberships
+         (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, notes)
+       VALUES ($1, $2, 'active', $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [user.id, plan.id, pm, startStr, endStr, plan.class_limit ?? null,
+       `Venta visita POS — ${guest.display_name}`]
+    );
+    const orderRes = await dbClient.query(
+      `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
+       VALUES ($1, $2, 'approved', $3, $4, 'pos_visit', NOW(), $5)
+       RETURNING *`,
+      [user.id, plan.id, pm, plan.price ?? 0, req.userId || null]
+    );
+    await dbClient.query("COMMIT");
+    return res.status(201).json({
+      data: {
+        guestProfile: guest,
+        userId: user.id,
+        membership: memRes.rows[0],
+        order: orderRes.rows[0],
+      },
+    });
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    console.error("[POST /admin/visit-sale]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  } finally {
+    dbClient.release();
+  }
+});
+
+// POST /api/admin/classes/:id/walkin-visit — asigna una invitada a una clase.
+// Body: { profile: {...}, hostUserId?, sale?: { planId, paymentMethod } }
+// Si la invitada YA tiene pack activo con crédito: solo crea el booking.
+// Si NO tiene pack y viene `sale`: vende el pack y reserva en el mismo paso.
+app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res) => {
+  const { profile = {}, hostUserId, sale } = req.body || {};
+  const classId = req.params.id;
+  if (!profile.name) return res.status(400).json({ message: "Nombre de la invitada requerido" });
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+    const clsRes = await dbClient.query(
+      "SELECT id, max_capacity, status FROM classes WHERE id = $1 FOR UPDATE",
+      [classId]
+    );
+    if (!clsRes.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(404).json({ message: "Clase no encontrada" });
+    }
+    const cls = clsRes.rows[0];
+    if (cls.status === "cancelled") {
+      await dbClient.query("ROLLBACK");
+      return res.status(400).json({ message: "Esta clase fue cancelada" });
+    }
+    const occupied = await liveBookingCount(classId, dbClient);
+    if (occupied >= cls.max_capacity) {
+      await dbClient.query("ROLLBACK");
+      return res.status(409).json({ message: "La clase está llena" });
+    }
+
+    const guest = await findOrCreateGuestProfile({ ...profile, hostUserId }, dbClient);
+    const user = await findOrCreateGuestUser(guest, dbClient);
+
+    // Evitar duplicado: misma invitada ya reservada en esta clase.
+    const dup = await dbClient.query(
+      "SELECT id FROM bookings WHERE class_id = $1 AND user_id = $2 AND status != 'cancelled'",
+      [classId, user.id]
+    );
+    if (dup.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(409).json({ message: "Esta visitante ya tiene reserva en esta clase" });
+    }
+
+    // ¿Tiene pack activo con crédito?
+    let memRow = (await dbClient.query(
+      `SELECT id, classes_remaining FROM memberships
+        WHERE user_id = $1 AND status = 'active'
+          AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+          AND (classes_remaining IS NULL OR classes_remaining > 0)
+        ORDER BY created_at DESC LIMIT 1
+        FOR UPDATE`,
+      [user.id]
+    )).rows[0] ?? null;
+
+    let saleOrder = null;
+    if (!memRow) {
+      if (!sale?.planId) {
+        await dbClient.query("ROLLBACK");
+        return res.status(400).json({
+          message: "La invitada no tiene un pack activo. Manda `sale: { planId, paymentMethod }` para venderlo en el momento.",
+        });
+      }
+      const planRes = await dbClient.query(
+        "SELECT * FROM plans WHERE id = $1 AND is_active = true AND is_visit_pack = true",
+        [sale.planId]
+      );
+      if (!planRes.rows.length) {
+        await dbClient.query("ROLLBACK");
+        return res.status(404).json({ message: "Plan de visita no encontrado" });
+      }
+      const plan = planRes.rows[0];
+      const pm = normalizePaymentMethod(sale.paymentMethod || "cash");
+      const startStr = new Date().toISOString().slice(0, 10);
+      const endStr = calcMembershipEndDate(startStr, plan);
+      const memIns = await dbClient.query(
+        `INSERT INTO memberships
+           (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, notes)
+         VALUES ($1, $2, 'active', $3, $4, $5, $6, $7) RETURNING *`,
+        [user.id, plan.id, pm, startStr, endStr, plan.class_limit ?? 1,
+         `Venta visita en roster — ${guest.display_name}`]
+      );
+      memRow = memIns.rows[0];
+      const orderIns = await dbClient.query(
+        `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
+         VALUES ($1, $2, 'approved', $3, $4, 'pos_visit', NOW(), $5)
+         RETURNING *`,
+        [user.id, plan.id, pm, plan.price ?? 0, req.userId || null]
+      );
+      saleOrder = orderIns.rows[0];
+    }
+
+    // Crear booking confirmed + descontar crédito + actualizar contador.
+    const bookingIns = await dbClient.query(
+      `INSERT INTO bookings (class_id, user_id, membership_id, guest_profile_id, status)
+       VALUES ($1, $2, $3, $4, 'confirmed') RETURNING *`,
+      [classId, user.id, memRow.id, guest.id]
+    );
+    if (memRow.classes_remaining !== null) {
+      await dbClient.query(
+        "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+        [memRow.id]
+      );
+    }
+    await dbClient.query(
+      "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+      [classId]
+    );
+    await dbClient.query("COMMIT");
+
+    return res.status(201).json({
+      data: {
+        booking: bookingIns.rows[0],
+        guestProfile: guest,
+        userId: user.id,
+        membershipId: memRow.id,
+        soldOrder: saleOrder,
+      },
+    });
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    console.error("[POST /admin/classes/:id/walkin-visit]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  } finally {
+    dbClient.release();
+  }
+});
+
 // DELETE /api/classes/week — clear classes in date range
 app.delete("/api/classes/week", adminMiddleware, async (req, res) => {
   try {
@@ -12778,13 +13139,15 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
           templateKey: "membership_activated",
           phone: u.phone,
           vars: {
-            name: u.display_name || "Alumna",
+            firstName: (u.display_name || "Alumna").split(" ")[0],
             plan: plan.name || "tu plan",
             startDate: start.toLocaleDateString("es-MX"),
             endDate: end.toLocaleDateString("es-MX"),
           },
-          fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa. Vigencia: ${start.toLocaleDateString("es-MX")} al ${end.toLocaleDateString("es-MX")}.`,
-        }).catch((e) => console.error("[WA] membership activated:", e.message));
+          fallbackMessage: `Hola ${(u.display_name || "Alumna").split(" ")[0]}, tu membresía ${plan.name || ""} ya está activa. Vigencia: ${start.toLocaleDateString("es-MX")} al ${end.toLocaleDateString("es-MX")}.`,
+        })
+          .then((r) => { if (!r?.sent) console.warn("[WA] membership_activated SKIPPED:", r?.reason, "phone:", u.phone || "(vacío)"); })
+          .catch((e) => console.error("[WA] membership activated:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] membership create query:", emailErr.message);
@@ -12814,11 +13177,14 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
 });
 
 // PUT /api/memberships/:id/activate
+// Acepta ?resend=true para forzar el reenvío de email/WA aun si la membresía
+// ya estaba activa (útil si la dueña reporta que no llegó la notificación).
 app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
+  const forceResend = req.query.resend === "true" || req.body?.resend === true;
   try {
     // Idempotente: solo activamos (y notificamos) si la membresía NO estaba ya activa.
     // Si ya estaba activa, devolvemos el row tal cual sin reenviar email/WA/wallet sync,
-    // así doble-click del admin no spamea a la alumna.
+    // así doble-click del admin no spamea a la alumna. Excepción: ?resend=true.
     const r = await pool.query(
       `UPDATE memberships SET status = 'active', updated_at = NOW()
          WHERE id = $1 AND status <> 'active'
@@ -12826,8 +13192,9 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
                       (SELECT class_limit FROM plans WHERE id = memberships.plan_id) AS plan_class_limit`,
       [req.params.id]
     );
+    let mem;
+    let alreadyActive = false;
     if (!r.rows.length) {
-      // O no existe, o ya estaba 'active'. Distinguir para no devolver 404 falso.
       const cur = await pool.query(
         `SELECT m.*, (SELECT name FROM plans WHERE id = m.plan_id) AS plan_name,
                      (SELECT class_limit FROM plans WHERE id = m.plan_id) AS plan_class_limit
@@ -12835,10 +13202,15 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
         [req.params.id]
       );
       if (!cur.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
-      // Ya estaba activa: respuesta idempotente (200 con el row, sin side effects).
-      return res.json({ data: cur.rows[0], alreadyActive: true });
+      if (!forceResend) {
+        // Ya estaba activa: respuesta idempotente (200 con el row, sin side effects).
+        return res.json({ data: cur.rows[0], alreadyActive: true });
+      }
+      mem = cur.rows[0];
+      alreadyActive = true;
+    } else {
+      mem = r.rows[0];
     }
-    const mem = r.rows[0];
 
     // ── Email: membership activated ──────────────────────────────────────
     try {
@@ -12859,20 +13231,22 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
           templateKey: "membership_activated",
           phone: u.phone,
           vars: {
-            name: u.display_name || "Alumna",
+            firstName: (u.display_name || "Alumna").split(" ")[0],
             plan: mem.plan_name || mem.plan_name_override || "tu plan",
             startDate: mem.start_date ? new Date(mem.start_date).toLocaleDateString("es-MX") : "",
             endDate: mem.end_date ? new Date(mem.end_date).toLocaleDateString("es-MX") : "",
           },
-          fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${mem.plan_name || mem.plan_name_override || ""} ya está activa.`,
-        }).catch((e) => console.error("[WA] membership activate:", e.message));
+          fallbackMessage: `Hola ${(u.display_name || "Alumna").split(" ")[0]}, tu membresía ${mem.plan_name || mem.plan_name_override || ""} ya está activa.`,
+        })
+          .then((r) => { if (!r?.sent) console.warn("[WA] membership_activated (PUT activate) SKIPPED:", r?.reason, "phone:", u.phone || "(vacío)"); })
+          .catch((e) => console.error("[WA] membership activate:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] activate query:", emailErr.message);
     }
 
     triggerWalletPassSync(mem.user_id, "membership_activated");
-    return res.json({ data: mem });
+    return res.json({ data: mem, alreadyActive, resent: alreadyActive && forceResend });
   } catch (err) {
     console.error("PUT /memberships/:id/activate error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -13027,14 +13401,15 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
       : typeof features === "string" && features.trim()
         ? features.split(",").map((s) => s.trim()).filter(Boolean)
         : [];
+    const isVisitPack = parseBooleanFlag(req.body.isVisitPack ?? req.body.is_visit_pack);
     const r = await pool.query(
       `UPDATE plans SET name=$1, description=$2, price=$3, currency=$4, duration_days=$5,
        class_limit=$6, features=$7, is_active=$8, sort_order=$9,
        class_category=COALESCE($10, class_category),
        is_non_transferable=$11, is_non_repeatable=$12, repeat_key=$13,
        ring_constancia_goal=$14, ring_esfuerzo_goal=$15, ring_conexion_goal=$16,
-       reward_description=$17, updated_at=NOW()
-       WHERE id=$18 RETURNING *`,
+       reward_description=$17, is_visit_pack=$18, updated_at=NOW()
+       WHERE id=$19 RETURNING *`,
       [
         name,
         description || null,
@@ -13053,6 +13428,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
         Math.max(1, Number(ringEsfuerzoGoal ?? req.body.ring_esfuerzo_goal ?? 1)),
         Math.max(1, Number(ringConexionGoal ?? req.body.ring_conexion_goal ?? 10)),
         rewardDescription ?? req.body.reward_description ?? null,
+        isVisitPack,
         req.params.id,
       ]
     );
@@ -13135,11 +13511,12 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
       : typeof features === "string" && features.trim()
         ? features.split(",").map((s) => s.trim()).filter(Boolean)
         : [];
+    const isVisitPack = parseBooleanFlag(req.body.isVisitPack ?? req.body.is_visit_pack);
     const r = await pool.query(
       `INSERT INTO plans
-        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description)
+        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, ring_constancia_goal, ring_esfuerzo_goal, ring_conexion_goal, reward_description, is_visit_pack)
        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [
         name,
         description || null,
@@ -13158,6 +13535,7 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
         Math.max(1, Number(ringEsfuerzoGoal ?? req.body.ring_esfuerzo_goal ?? 1)),
         Math.max(1, Number(ringConexionGoal ?? req.body.ring_conexion_goal ?? 10)),
         rewardDescription ?? req.body.reward_description ?? null,
+        isVisitPack,
       ]
     );
     return res.status(201).json({ data: camelRow(r.rows[0]) });
@@ -13836,13 +14214,15 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
             templateKey: "membership_activated",
             phone: u.phone,
             vars: {
-              name: u.display_name || "Alumna",
+              firstName: (u.display_name || "Alumna").split(" ")[0],
               plan: plan.name || "tu plan",
               startDate: new Date().toLocaleDateString("es-MX"),
               endDate: end.toLocaleDateString("es-MX"),
             },
-            fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa.`,
-          }).catch((e) => console.error("[WA] admin order verify:", e.message));
+            fallbackMessage: `Hola ${(u.display_name || "Alumna").split(" ")[0]}, tu membresía ${plan.name || ""} ya está activa.`,
+          })
+            .then((r) => { if (!r?.sent) console.warn("[WA] membership_activated (order verify) SKIPPED:", r?.reason, "phone:", u.phone || "(vacío)"); })
+            .catch((e) => console.error("[WA] admin order verify:", e.message));
         }
       } catch (emailErr) {
         console.error("[Email] admin order verify query:", emailErr.message);

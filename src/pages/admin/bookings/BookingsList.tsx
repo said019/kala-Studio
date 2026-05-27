@@ -13,9 +13,10 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft, ChevronRight, Users, CheckCircle2,
-  Clock, ArrowLeft, UserCheck, UserX, Calendar, Plus, Search, XCircle, Ban,
+  Clock, ArrowLeft, UserCheck, UserX, Calendar, Plus, Search, XCircle, Ban, UserPlus,
 } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
+import VisitAssignDialog from "@/components/admin/VisitAssignDialog";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface RosterEntry {
@@ -51,6 +52,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const { toast } = useToast();
   const qc = useQueryClient();
   const [assignOpen, setAssignOpen] = useState(false);
+  const [visitOpen, setVisitOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const debouncedMemberSearch = useDebounce(memberSearch, 250);
 
@@ -195,6 +197,15 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
               className="bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
             >
               <Plus size={14} className="mr-1" /> Asignar miembro
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setVisitOpen(true)}
+              data-press
+              className="border-[#778455]/40 bg-[#778455]/5 text-[#778455] hover:bg-[#778455]/10"
+            >
+              <UserPlus size={14} className="mr-1" /> Asignar visitante
             </Button>
             {(confirmed > 0 || waitlist > 0) && (
               <Button
@@ -392,6 +403,13 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
           </div>
         </DialogContent>
       </Dialog>
+
+      <VisitAssignDialog
+        classId={classId}
+        open={visitOpen}
+        onOpenChange={setVisitOpen}
+        onSuccess={() => refetch()}
+      />
     </div>
   );
 };
