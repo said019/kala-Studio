@@ -330,6 +330,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Feliz mes",
     body: "{firstName}, este mes cumples años y te tenemos algo. {message}",
   },
+  admin_new_booking: {
+    subject: "Nueva reserva",
+    body: "Nueva reserva: {clientName} en {class} el {date} a las {time}.",
+  },
 };
 
 const DEFAULT_SETTINGS_BY_KEY = {
@@ -3631,6 +3635,21 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
             ? `Hola ${u.display_name || "Alumna"}, quedaste en lista de espera para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}).`
             : `Hola ${u.display_name || "Alumna"}, tu reserva para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed:", e.message));
+        // Notificación a la dueña/admins de nueva reserva (no espera la respuesta).
+        if (!isWaitlist) {
+          const dateStr = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+          const timeStr = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
+          notifyAdminsByTemplate(
+            "admin_new_booking",
+            {
+              clientName: u.display_name || "Alumna",
+              class: cl.class_type_name || "Clase",
+              date: dateStr,
+              time: timeStr,
+            },
+            `Nueva reserva: ${u.display_name || "Alumna"} en ${cl.class_type_name || "clase"}${dateStr ? ` el ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.`
+          );
+        }
       }
     } catch (emailErr) {
       console.error("[Email] booking confirmed query error:", emailErr.message);
@@ -10242,6 +10261,31 @@ app.post("/api/bookings/with-guest", authMiddleware, async (req, res) => {
     );
     await dbClient.query("COMMIT");
 
+    // Notificar a la dueña/admins de la nueva reserva (con acompañante).
+    try {
+      const clsInfo = await pool.query(
+        `SELECT ct.name AS class_name, c.date, c.start_time
+           FROM classes c JOIN class_types ct ON ct.id = c.class_type_id
+          WHERE c.id = $1`,
+        [classId]
+      );
+      const socia = await pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId]);
+      const cl = clsInfo.rows[0] || {};
+      const dateStr = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+      const timeStr = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
+      const sociaName = socia.rows[0]?.display_name || "Socia";
+      notifyAdminsByTemplate(
+        "admin_new_booking",
+        {
+          clientName: `${guestProfile.display_name} (acompañante de ${sociaName})`,
+          class: cl.class_name || "Clase",
+          date: dateStr,
+          time: timeStr,
+        },
+        `Nueva reserva con acompañante: ${guestProfile.display_name} (con ${sociaName}) en ${cl.class_name || "clase"}${dateStr ? ` el ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.`
+      );
+    } catch (_) { /* no romper el flujo si la notif falla */ }
+
     const remaining = pack.classes_remaining === null ? null : Math.max(0, pack.classes_remaining - 1);
     return res.status(201).json({
       data: {
@@ -11769,6 +11813,7 @@ app.put("/api/admin/bank-info", adminMiddleware, async (req, res) => {
 // Variables disponibles por template — usado por admin UI para mostrar chips
 // de placeholders y validar al guardar.
 const TEMPLATE_VARIABLES = {
+  admin_new_booking: ["clientName", "class", "date", "time"],
   welcome: ["firstName"],
   password_reset: ["firstName", "link"],
   booking_confirmed: ["firstName", "class", "date", "time"],
@@ -12030,6 +12075,34 @@ async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, f
   if (!text) return { sent: false, reason: "empty_message" };
   await queueWhatsAppSend(normalisePhone(phone), text);
   return { sent: true };
+}
+
+// Notifica por WhatsApp a las admins/super_admin (con teléfono) de un evento.
+// Respeta el flag whatsapp_reminders y el flag enabled del template puntual.
+// Si el template está desactivado o no hay admins con teléfono, no hace nada.
+async function notifyAdminsByTemplate(templateKey, vars = {}, fallbackMessage = "") {
+  try {
+    const notificationSettings = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
+    if (notificationSettings?.whatsapp_reminders === false) return;
+    const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+    if (templates?.[templateKey]?.enabled === false) return;
+    const admins = await pool.query(
+      `SELECT phone FROM users
+        WHERE role IN ('admin','super_admin')
+          AND phone IS NOT NULL AND phone <> ''
+          AND is_active = true`
+    );
+    await Promise.all(admins.rows.map((u) =>
+      sendConfiguredWhatsAppTemplate({
+        templateKey,
+        phone: u.phone,
+        vars,
+        fallbackMessage,
+      }).catch((e) => console.warn(`[admin WA ${templateKey}]`, e?.message))
+    ));
+  } catch (err) {
+    console.warn(`[notifyAdminsByTemplate ${templateKey}]`, err?.message);
+  }
 }
 
 async function areEmailNotificationsEnabled() {
@@ -13873,6 +13946,21 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
             ? `Hola ${u.display_name || "Alumna"}, quedaste en lista de espera para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}).`
             : `Hola ${u.display_name || "Alumna"}, tu reserva para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed (admin):", e.message));
+        // Notifica a la dueña/admins (puede haber otras recepcionistas o instructoras).
+        if (!isWaitlist) {
+          const dateStr = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+          const timeStr = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
+          notifyAdminsByTemplate(
+            "admin_new_booking",
+            {
+              clientName: u.display_name || "Alumna",
+              class: cl.class_type_name || "Clase",
+              date: dateStr,
+              time: timeStr,
+            },
+            `Nueva reserva: ${u.display_name || "Alumna"} en ${cl.class_type_name || "clase"}${dateStr ? ` el ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.`
+          );
+        }
       }
     } catch (emailErr) {
       console.error("[Email] booking confirmed (admin) query error:", emailErr.message);

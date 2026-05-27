@@ -24,7 +24,7 @@ interface ApiResponse {
 // Categorías para agrupar templates
 const CATEGORIES: { id: string; label: string; keys: string[] }[] = [
   { id: "onboarding", label: "Onboarding", keys: ["welcome", "password_reset"] },
-  { id: "bookings", label: "Reservas", keys: ["booking_confirmed", "booking_cancelled", "class_reminder", "class_attended"] },
+  { id: "bookings", label: "Reservas", keys: ["booking_confirmed", "booking_cancelled", "class_reminder", "class_attended", "admin_new_booking"] },
   { id: "membership", label: "Membresía", keys: ["membership_activated", "membership_expiring_today", "membership_expiring_tomorrow", "membership_expiring_n_days", "membership_expired", "renewal_reminder", "transfer_rejected"] },
   { id: "loyalty", label: "Lealtad", keys: ["rings_closed", "points_earned", "reward_redeemed", "milestone_classes_5", "milestone_classes_10", "milestone_classes_25", "milestone_classes_50", "milestone_classes_100"] },
   { id: "events", label: "Eventos", keys: ["event_registered"] },
