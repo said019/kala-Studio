@@ -10104,6 +10104,162 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
   }
 });
 
+// ── Endpoints de socia (self-service) para acompañantes ────────────────────────
+
+// GET /api/my-guests/search?phone=… — la socia ve solo a las invitadas que ELLA
+// ha llevado antes (host_user_id = req.userId). Para autocompletar en su app.
+app.get("/api/my-guests/search", authMiddleware, async (req, res) => {
+  try {
+    const phone = normGuestPhone(req.query.phone);
+    if (!phone) return res.json({ data: null });
+    const r = await pool.query(
+      `SELECT * FROM guest_profiles
+        WHERE host_user_id = $1
+          AND regexp_replace(COALESCE(phone,''), '\\D', '', 'g') = $2
+        LIMIT 1`,
+      [req.userId, phone]
+    );
+    return res.json({ data: r.rows[0] ?? null });
+  } catch (err) {
+    console.error("[GET /my-guests/search]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/bookings/with-guest — la socia reserva PARA una acompañante usando
+// SU pack de visitas. Body: { classId, guest: { name, phone, ...intake... } }.
+// La socia debe tener un membership activo con plan.is_visit_pack=true y créditos.
+app.post("/api/bookings/with-guest", authMiddleware, async (req, res) => {
+  const { classId, guest = {} } = req.body || {};
+  if (!classId) return res.status(400).json({ message: "classId requerido" });
+  if (!guest.name) return res.status(400).json({ message: "Nombre de la acompañante requerido" });
+  if (!guest.phone) return res.status(400).json({ message: "Teléfono de la acompañante requerido" });
+  if (!guest.acceptedWaiver) return res.status(400).json({ message: "Confirma el waiver de la acompañante" });
+
+  const dbClient = await pool.connect();
+  try {
+    await dbClient.query("BEGIN");
+
+    // Validar clase + ventana de 2 h (misma regla que reservar para sí misma).
+    const clsRes = await dbClient.query(
+      `SELECT c.id, c.max_capacity, c.status,
+              (c.date || 'T' || c.start_time || '-06:00')::timestamptz AS starts_at
+         FROM classes c
+        WHERE c.id = $1
+        FOR UPDATE`,
+      [classId]
+    );
+    if (!clsRes.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(404).json({ message: "Clase no encontrada" });
+    }
+    const cls = clsRes.rows[0];
+    if (cls.status === "cancelled") {
+      await dbClient.query("ROLLBACK");
+      return res.status(400).json({ message: "Esta clase fue cancelada" });
+    }
+    if (cls.starts_at) {
+      const msToStart = new Date(cls.starts_at).getTime() - Date.now();
+      if (msToStart < BOOKING_LEAD_MS) {
+        await dbClient.query("ROLLBACK");
+        return res.status(403).json({
+          code: "BOOKING_WINDOW_CLOSED",
+          message: `Las reservas cierran ${BOOKING_LEAD_HOURS} horas antes del inicio de la clase.`,
+        });
+      }
+    }
+
+    // La socia tiene pack de visitas activo con crédito?
+    const packRes = await dbClient.query(
+      `SELECT m.id, m.classes_remaining
+         FROM memberships m
+         JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1
+          AND m.status = 'active'
+          AND p.is_visit_pack = true
+          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+          AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
+        ORDER BY m.created_at DESC
+        LIMIT 1
+        FOR UPDATE`,
+      [req.userId]
+    );
+    if (!packRes.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(403).json({
+        message: "No tienes un paquete de visitas activo con créditos. Pídelo en recepción.",
+      });
+    }
+    const pack = packRes.rows[0];
+
+    // Cupo en vivo.
+    const occupied = await liveBookingCount(classId, dbClient);
+    if (occupied >= cls.max_capacity) {
+      await dbClient.query("ROLLBACK");
+      return res.status(409).json({ message: "La clase está llena" });
+    }
+
+    // Crear/reusar guest_profile vinculado a la socia (host_user_id = req.userId).
+    const guestProfile = await findOrCreateGuestProfile({
+      name: guest.name,
+      phone: guest.phone,
+      email: guest.email,
+      hasInjury: guest.hasInjury,
+      injuryDetails: guest.injuryDetails,
+      practicedBarreBefore: guest.practicedBarreBefore,
+      acceptedWaiver: guest.acceptedWaiver,
+      hostUserId: req.userId,
+    }, dbClient);
+    const guestUser = await findOrCreateGuestUser(guestProfile, dbClient);
+
+    // Anti-duplicado: misma invitada ya reservada en esta clase.
+    const dup = await dbClient.query(
+      "SELECT id FROM bookings WHERE class_id = $1 AND user_id = $2 AND status != 'cancelled'",
+      [classId, guestUser.id]
+    );
+    if (dup.rows.length) {
+      await dbClient.query("ROLLBACK");
+      return res.status(409).json({ message: "Esta acompañante ya tiene reserva en esta clase" });
+    }
+
+    // Crear booking. user_id = invitada (es quien asistirá), membership_id =
+    // pack de la socia (de ahí sale el crédito), guest_profile_id = profile.
+    const bookingIns = await dbClient.query(
+      `INSERT INTO bookings (class_id, user_id, membership_id, guest_profile_id, status)
+       VALUES ($1, $2, $3, $4, 'confirmed') RETURNING *`,
+      [classId, guestUser.id, pack.id, guestProfile.id]
+    );
+    // Descontar 1 del pack de la socia (si no es ilimitado).
+    if (pack.classes_remaining !== null) {
+      await dbClient.query(
+        "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+        [pack.id]
+      );
+    }
+    await dbClient.query(
+      "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+      [classId]
+    );
+    await dbClient.query("COMMIT");
+
+    const remaining = pack.classes_remaining === null ? null : Math.max(0, pack.classes_remaining - 1);
+    return res.status(201).json({
+      data: {
+        booking: bookingIns.rows[0],
+        guestProfile,
+        packMembershipId: pack.id,
+        creditsRemaining: remaining,
+      },
+    });
+  } catch (err) {
+    await dbClient.query("ROLLBACK").catch(() => {});
+    console.error("[POST /bookings/with-guest]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  } finally {
+    dbClient.release();
+  }
+});
+
 // DELETE /api/classes/week — clear classes in date range
 app.delete("/api/classes/week", adminMiddleware, async (req, res) => {
   try {
