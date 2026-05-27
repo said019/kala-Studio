@@ -207,12 +207,26 @@ const Checkout = () => {
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const activePlans = rawPlans.filter((p) => (p.isActive ?? p.is_active) !== false);
 
+  // Marca si un plan es pack de visitas (para llevar acompañantes).
+  const isVisitPack = (p: any): boolean =>
+    Boolean(p?.isVisitPack ?? p?.is_visit_pack);
+
   // Para Kala (barre boutique de una disciplina): no se usan tabs jumping/pilates/mixto.
   // Sólo se separan las clases sueltas (1 clase) de los paquetes mensuales (>1 clase).
-  // El plan "Clase muestra" del trial ($50) NO aparece aquí, va en el landing como hook.
+  // Los packs de visitas se muestran aparte para que la socia entienda que son
+  // para llevar acompañantes, no para asistir ella misma.
   const allMonthlyPackages = useMemo(() => {
     return activePlans
       .filter((p) => Number(p.classLimit ?? p.class_limit ?? 0) > 1)
+      .filter((p) => !isVisitPack(p))
+      .filter((p) => !String(p.name ?? "").toLowerCase().includes("muestra"))
+      .sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plansData]);
+
+  const visitPacks = useMemo(() => {
+    return activePlans
+      .filter(isVisitPack)
       .filter((p) => !String(p.name ?? "").toLowerCase().includes("muestra"))
       .sort((a, b) => Number(a.price ?? 0) - Number(b.price ?? 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,7 +236,7 @@ const Checkout = () => {
     return activePlans.find((p) => {
       const limit = Number(p.classLimit ?? p.class_limit ?? 0);
       const name = String(p.name ?? "").toLowerCase();
-      return limit === 1 && !name.includes("muestra");
+      return limit === 1 && !name.includes("muestra") && !isVisitPack(p);
     }) ?? null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plansData]);
@@ -339,6 +353,24 @@ const Checkout = () => {
                 </p>
               )}
             </Section>
+
+            {visitPacks.length > 0 && (
+              <Section title="Paquetes de visita">
+                <p className="text-[0.78rem] mb-3" style={{ color: KALA.ink, opacity: 0.6 }}>
+                  Para traer acompañantes a clase. Cada pase descuenta 1 clase del paquete y se asigna desde tu app al reservar.
+                </p>
+                <div className="space-y-3">
+                  {visitPacks.map((plan: any) => (
+                    <PlanRow
+                      key={plan.id}
+                      plan={plan}
+                      selected={selectedPlan?.id === plan.id}
+                      onSelect={() => { setSelectedPlan(plan); setAddOnline(false); setDiscountResult(null); }}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
 
             <Section title="Paquetes mensuales">
               {loadingPlans ? (
