@@ -160,6 +160,10 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
   email_reminders: true,
   whatsapp_reminders: true,
   reminder_hours_before: 2,
+  // Teléfonos que reciben WhatsApps administrativos (nueva reserva, etc.).
+  // Independiente de los usuarios con role=admin: aquí se configura a quién
+  // realmente notificamos (la dueña, recepcionistas con cel personal, etc.).
+  admin_phones: [],
 };
 
 // Templates en voz Kala (cercana, casual, con primer nombre).
@@ -1629,6 +1633,29 @@ async function ensureSchema() {
         [settingKey, JSON.stringify(defaults)],
       ).catch(() => { });
     }
+    // ── Seed inicial: teléfono de la dueña como destinatario de notificaciones
+    //    admin (nueva reserva, etc.). Solo corre UNA vez (marker en settings);
+    //    si la admin lo borra después desde la UI, NO lo restauramos.
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM settings WHERE key = 'admin_phones_seed_v1') THEN
+          UPDATE settings
+             SET value = jsonb_set(
+               COALESCE(value, '{}'::jsonb),
+               '{admin_phones}',
+               COALESCE(value->'admin_phones', '[]'::jsonb) || '["+524445082461"]'::jsonb,
+               true
+             ),
+                 updated_at = NOW()
+           WHERE key = 'notification_settings'
+             AND NOT (COALESCE(value->'admin_phones', '[]'::jsonb) @> '["+524445082461"]'::jsonb);
+          INSERT INTO settings (key, value)
+            VALUES ('admin_phones_seed_v1', jsonb_build_object('seeded_at', to_jsonb(NOW())))
+            ON CONFLICT (key) DO NOTHING;
+        END IF;
+      END $$;
+    `).catch(() => { });
     // ── Loyalty rewards table ──────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS loyalty_rewards (
@@ -11885,6 +11912,48 @@ app.put("/api/admin/whatsapp-templates", adminMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/admin/notification-settings — devuelve la config global de avisos
+// (toggle email/WA + lista de teléfonos admin que reciben alertas).
+app.get("/api/admin/notification-settings", adminMiddleware, async (_req, res) => {
+  try {
+    const settings = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
+    return res.json({ data: settings });
+  } catch (err) {
+    console.error("[GET /admin/notification-settings]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// PUT /api/admin/notification-settings — actualiza toggles + admin_phones.
+// Body acepta cualquier campo de DEFAULT_NOTIFICATION_SETTINGS (merge parcial).
+app.put("/api/admin/notification-settings", adminMiddleware, async (req, res) => {
+  try {
+    const updates = req.body || {};
+    if (Array.isArray(updates.admin_phones)) {
+      // Limpia: solo strings con dígitos válidos, dedupe.
+      const seen = new Set();
+      updates.admin_phones = updates.admin_phones
+        .filter((p) => typeof p === "string" && p.trim())
+        .map((p) => p.trim())
+        .filter((p) => {
+          const key = String(p).replace(/\D/g, "");
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+    }
+    const merged = mergeSettingsWithDefaults("notification_settings", updates);
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()",
+      ["notification_settings", JSON.stringify(merged)]
+    );
+    return res.json({ data: merged });
+  } catch (err) {
+    console.error("[PUT /admin/notification-settings]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 app.post("/api/admin/whatsapp-templates/reset", adminMiddleware, async (_req, res) => {
   try {
     await pool.query(
@@ -12077,25 +12146,48 @@ async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, f
   return { sent: true };
 }
 
-// Notifica por WhatsApp a las admins/super_admin (con teléfono) de un evento.
-// Respeta el flag whatsapp_reminders y el flag enabled del template puntual.
-// Si el template está desactivado o no hay admins con teléfono, no hace nada.
+// Notifica por WhatsApp a la dueña/admins de un evento. Respeta el flag
+// whatsapp_reminders global y el flag enabled del template puntual.
+//
+// Destinos (en orden de prioridad):
+//   1) notification_settings.admin_phones (lista configurable).
+//   2) Fallback: users con role IN ('admin','super_admin'), phone no nulo,
+//      is_active=true — para no quedarse mudo si nunca se configuró la lista.
 async function notifyAdminsByTemplate(templateKey, vars = {}, fallbackMessage = "") {
   try {
     const notificationSettings = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
     if (notificationSettings?.whatsapp_reminders === false) return;
     const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
     if (templates?.[templateKey]?.enabled === false) return;
-    const admins = await pool.query(
-      `SELECT phone FROM users
-        WHERE role IN ('admin','super_admin')
-          AND phone IS NOT NULL AND phone <> ''
-          AND is_active = true`
-    );
-    await Promise.all(admins.rows.map((u) =>
+
+    let phones = Array.isArray(notificationSettings?.admin_phones)
+      ? notificationSettings.admin_phones.filter((p) => typeof p === "string" && p.trim())
+      : [];
+
+    if (phones.length === 0) {
+      const admins = await pool.query(
+        `SELECT phone FROM users
+          WHERE role IN ('admin','super_admin')
+            AND phone IS NOT NULL AND phone <> ''
+            AND is_active = true`
+      );
+      phones = admins.rows.map((u) => u.phone);
+    }
+
+    // Dedupe por número normalizado para no spamear si el mismo teléfono está
+    // en la lista Y como user admin.
+    const seen = new Set();
+    const unique = phones.filter((p) => {
+      const key = normalisePhone(p);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    await Promise.all(unique.map((phone) =>
       sendConfiguredWhatsAppTemplate({
         templateKey,
-        phone: u.phone,
+        phone,
         vars,
         fallbackMessage,
       }).catch((e) => console.warn(`[admin WA ${templateKey}]`, e?.message))

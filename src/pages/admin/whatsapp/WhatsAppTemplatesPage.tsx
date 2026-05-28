@@ -322,6 +322,44 @@ const WhatsAppTemplatesPage = () => {
   const defaults = data?.data?.defaults ?? {};
   const variables = data?.data?.variables ?? {};
 
+  // ── Admin phones (a quién se le manda 'admin_new_booking' y similares) ───
+  const { data: notifSettings, refetch: refetchSettings } = useQuery<{ data: { admin_phones?: string[] } }>({
+    queryKey: ["notification-settings"],
+    queryFn: async () => (await api.get("/admin/notification-settings")).data,
+  });
+  const adminPhones: string[] = Array.isArray(notifSettings?.data?.admin_phones)
+    ? notifSettings.data.admin_phones
+    : [];
+  const [phoneInput, setPhoneInput] = useState("");
+  const updatePhonesMutation = useMutation({
+    mutationFn: (phones: string[]) => api.put("/admin/notification-settings", { admin_phones: phones }),
+    onSuccess: () => { refetchSettings(); },
+  });
+  const addAdminPhone = async () => {
+    const v = phoneInput.trim();
+    if (!v) return;
+    if (adminPhones.includes(v)) {
+      toast({ title: "Ese teléfono ya está en la lista" });
+      return;
+    }
+    try {
+      await updatePhonesMutation.mutateAsync([...adminPhones, v]);
+      setPhoneInput("");
+      toast({ title: "Teléfono agregado", description: `Ahora recibirá los avisos administrativos.` });
+    } catch {
+      toast({ title: "Error al guardar", variant: "destructive" });
+    }
+  };
+  const removeAdminPhone = async (p: string) => {
+    if (!window.confirm(`Quitar ${p} de los destinatarios de avisos administrativos?`)) return;
+    try {
+      await updatePhonesMutation.mutateAsync(adminPhones.filter((x) => x !== p));
+      toast({ title: "Teléfono quitado" });
+    } catch {
+      toast({ title: "Error al guardar", variant: "destructive" });
+    }
+  };
+
   const isModified = (key: string) => {
     const cur = templates[key];
     const def = defaults[key];
@@ -384,6 +422,54 @@ const WhatsAppTemplatesPage = () => {
                 Restaurar todos a default
               </Button>
             </div>
+          </div>
+
+          {/* ── Destinatarios de avisos administrativos ───────────────── */}
+          <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 mb-6">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-white/60 mb-1">
+              Avisos a la dueña / staff
+            </h2>
+            <p className="text-xs text-white/45 mb-3">
+              Teléfonos que reciben los WhatsApps administrativos (ej. <code>admin_new_booking</code>). Agrega tu número y el de quien quieras que reciba estas alertas. Formato: <code>+524441234567</code>.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                placeholder="+524441234567"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAdminPhone(); } }}
+                className="bg-white/[0.04] border-white/[0.08]"
+              />
+              <Button
+                onClick={addAdminPhone}
+                disabled={!phoneInput.trim() || updatePhonesMutation.isPending}
+                size="sm"
+                className="bg-gradient-to-r from-[#76214D] to-[#E9745F] text-white"
+              >
+                Agregar
+              </Button>
+            </div>
+            {adminPhones.length === 0 ? (
+              <p className="mt-3 text-xs text-white/40">
+                Sin teléfonos configurados. Mientras tanto, los avisos van a usuarios con role admin que tengan teléfono.
+              </p>
+            ) : (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {adminPhones.map((p) => (
+                  <span key={p} className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/10 px-2.5 py-1 text-xs">
+                    <code className="font-mono">{p}</code>
+                    <button
+                      type="button"
+                      onClick={() => removeAdminPhone(p)}
+                      className="text-white/40 hover:text-destructive transition-colors"
+                      title="Quitar"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {isLoading ? (
