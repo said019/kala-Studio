@@ -27,6 +27,8 @@ import {
   CalendarDays,
   ScanQrCode,
   Sparkles,
+  Copy,
+  Check,
 } from "lucide-react";
 
 const GoogleIcon = () => (
@@ -85,6 +87,7 @@ const Wallet = () => {
   const qc = useQueryClient();
   const [appleLoading, setAppleLoading] = useState(false);
   const [gwRetrying, setGwRetrying] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["wallet-pass"],
@@ -382,8 +385,33 @@ const Wallet = () => {
                             {wallet?.user_name || "Tu pase"}
                           </p>
                           <p className="text-[0.78rem] mt-1" style={{ color: KALA.ink, opacity: 0.6 }}>
-                            Presenta este código al llegar.
+                            Presenta este código al llegar. Si te lo piden por chat, copia y manda:
                           </p>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const code = wallet?.qr_code || "";
+                              if (!code) return;
+                              try {
+                                await navigator.clipboard.writeText(code);
+                              } catch {
+                                window.prompt("Copia este código y mándalo por WhatsApp:", code);
+                              }
+                              if (navigator.vibrate) navigator.vibrate(40);
+                              setCodeCopied(true);
+                              setTimeout(() => setCodeCopied(false), 1800);
+                            }}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.72rem] font-semibold transition-colors"
+                            style={
+                              codeCopied
+                                ? { backgroundColor: "#16a34a", color: "white" }
+                                : { backgroundColor: KALA.berry, color: KALA.cream }
+                            }
+                          >
+                            {codeCopied
+                              ? <><Check size={12} /> Copiado</>
+                              : <><Copy size={12} /> Copiar código</>}
+                          </button>
                         </div>
                       </div>
                     </div>
