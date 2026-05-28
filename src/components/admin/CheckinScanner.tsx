@@ -358,7 +358,10 @@ export const CheckinScanner = ({ open, onOpenChange }: Props) => {
             Modo manual (si la cámara no funciona)
           </label>
           <p className="text-[11px] text-muted-foreground -mt-1">
-            Pídele a la clienta abrir su perfil en la app o su pase de wallet, copia el código del QR y pégalo aquí.
+            La alumna abre su <strong>Perfil → Mi código de acceso</strong> y le da a <strong>"Copiar código"</strong>. Te lo manda por WhatsApp y lo pegas aquí.
+          </p>
+          <p className="text-[11px] text-emerald-700 -mt-1">
+            💡 Alternativa rápida sin código: usa <strong>Pasar lista</strong> (en el menú lateral) — lista todas las alumnas del día y marcas con un tap.
           </p>
           <div className="flex gap-2">
             <Input

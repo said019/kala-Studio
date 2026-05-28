@@ -111,8 +111,30 @@ const Profile = () => {
                 <QRCodeSVG value={btoa(user.id)} size={168} level="M" />
               </div>
               <p className="text-xs" style={{ color: KALA.ink, opacity: 0.55 }}>
-                Muéstralo en recepción para registrar tu asistencia.
+                En recepción, muestra este QR a la cámara. Si te lo piden por chat, usa el botón "Copiar código".
               </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(btoa(user.id));
+                    // feedback visual mínimo: vibración + cambio temporal
+                    if (navigator.vibrate) navigator.vibrate(40);
+                    const el = document.getElementById("kala-copy-feedback");
+                    if (el) {
+                      el.textContent = "✓ Código copiado";
+                      setTimeout(() => { el.textContent = "Copiar código"; }, 1800);
+                    }
+                  } catch {
+                    // fallback: seleccionar texto
+                    window.prompt("Copia este código y mándalo por WhatsApp:", btoa(user.id));
+                  }
+                }}
+                className="rounded-full px-4 py-1.5 text-xs font-semibold transition-colors"
+                style={{ backgroundColor: KALA.berry, color: KALA.cream }}
+              >
+                <span id="kala-copy-feedback">Copiar código</span>
+              </button>
             </div>
           </Section>
         )}
