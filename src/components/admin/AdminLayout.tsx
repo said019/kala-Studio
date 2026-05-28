@@ -10,6 +10,7 @@ import {
   BookOpen, DollarSign, ShoppingBag,
   ShoppingCart, Tag, Gift, Video, BarChart2, MessageCircle, GraduationCap, Bell,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, Ticket, X,
+  UserPlus, ClipboardCheck,
 } from "lucide-react";
 
 const NAV_GROUPS = [
@@ -23,6 +24,7 @@ const NAV_GROUPS = [
       { path: "/admin/clients", label: "Clientes", icon: Users },
       { path: "/admin/payments", label: "Pagos", icon: DollarSign },
       { path: "/admin/bookings", label: "Reservas", icon: BookOpen },
+      { path: "/admin/pasar-lista", label: "Pasar lista", icon: ClipboardCheck },
     ],
   },
   {
@@ -36,6 +38,7 @@ const NAV_GROUPS = [
       { path: "/admin/staff", label: "Instructoras", icon: GraduationCap },
       { path: "/admin/orders", label: "Órdenes", icon: ShoppingBag },
       { path: "/admin/pos", label: "POS", icon: ShoppingCart },
+      { path: "/admin/visitas", label: "Visitas", icon: UserPlus },
       { path: "/admin/discount-codes", label: "Descuentos", icon: Tag },
       { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
       { path: "/admin/whatsapp-templates", label: "Templates WA", icon: MessageCircle },

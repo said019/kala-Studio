@@ -51,6 +51,8 @@ import Waitlist from "./pages/admin/bookings/Waitlist";
 import PaymentsPage from "./pages/admin/payments/PaymentsPage";
 import OrdersVerification from "./pages/admin/orders/OrdersVerification";
 import POSPage from "./pages/admin/pos/POSPage";
+import VisitsList from "./pages/admin/visits/VisitsList";
+import TodayAttendance from "./pages/admin/attendance/TodayAttendance";
 import DiscountCodes from "./pages/admin/discount-codes/DiscountCodes";
 import LoyaltyPage from "./pages/admin/loyalty/LoyaltyPage";
 import WhatsAppTemplatesPage from "./pages/admin/whatsapp/WhatsAppTemplatesPage";
@@ -143,6 +145,8 @@ const App = () => (
           <Route path="/admin/payments" element={<PaymentsPage />} />
           <Route path="/admin/orders" element={<OrdersVerification />} />
           <Route path="/admin/pos" element={<POSPage />} />
+          <Route path="/admin/visitas" element={<VisitsList />} />
+          <Route path="/admin/pasar-lista" element={<TodayAttendance />} />
           <Route path="/admin/discount-codes" element={<DiscountCodes />} />
           <Route path="/admin/loyalty" element={<LoyaltyPage />} />
           <Route path="/admin/whatsapp-templates" element={<WhatsAppTemplatesPage />} />

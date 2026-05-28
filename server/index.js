@@ -9923,6 +9923,174 @@ async function findOrCreateGuestUser(guestProfile, db = pool) {
   return ins.rows[0];
 }
 
+// GET /api/admin/guest-profiles — lista paginada con búsqueda por nombre/tel.
+// Incluye datos del host (socia que la trajo) y resumen del pack activo.
+app.get("/api/admin/guest-profiles", adminMiddleware, async (req, res) => {
+  try {
+    const { search = "", limit = 100 } = req.query;
+    const params = [];
+    let where = "WHERE 1=1";
+    if (search) {
+      params.push(`%${String(search).trim()}%`);
+      const phoneDigits = String(search).replace(/\D/g, "");
+      params.push(`%${phoneDigits}%`);
+      where += ` AND (gp.display_name ILIKE $${params.length - 1} OR regexp_replace(COALESCE(gp.phone,''), '\\D', '', 'g') ILIKE $${params.length})`;
+    }
+    params.push(parseInt(limit));
+    const r = await pool.query(
+      `SELECT gp.*,
+              host.display_name AS host_name,
+              host.phone AS host_phone,
+              (
+                SELECT json_build_object(
+                  'id', m.id,
+                  'plan_name', p.name,
+                  'classes_remaining', m.classes_remaining,
+                  'end_date', m.end_date
+                )
+                  FROM users u
+                  JOIN memberships m ON m.user_id = u.id
+                  LEFT JOIN plans p ON p.id = m.plan_id
+                 WHERE u.guest_profile_id = gp.id
+                   AND m.status = 'active'
+                   AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+                   AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
+                 ORDER BY m.created_at DESC
+                 LIMIT 1
+              ) AS active_pack
+         FROM guest_profiles gp
+         LEFT JOIN users host ON host.id = gp.host_user_id
+         ${where}
+         ORDER BY gp.updated_at DESC
+         LIMIT $${params.length}`,
+      params
+    );
+    return res.json({ data: r.rows });
+  } catch (err) {
+    console.error("[GET /admin/guest-profiles]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/guest-profiles — registra una invitada de antemano (sin
+// reserva ni venta). Útil para pre-cargar contactos con su cuestionario.
+app.post("/api/admin/guest-profiles", adminMiddleware, async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!b.name) return res.status(400).json({ message: "Nombre requerido" });
+    if (!b.phone) return res.status(400).json({ message: "Teléfono requerido" });
+    const guest = await findOrCreateGuestProfile({
+      name: b.name,
+      phone: b.phone,
+      email: b.email,
+      dateOfBirth: b.dateOfBirth,
+      hasInjury: b.hasInjury,
+      injuryDetails: b.hasInjury ? (b.injuryDetails || null) : null,
+      practicedBarreBefore: b.practicedBarreBefore,
+      emergencyContactName: b.emergencyContactName,
+      emergencyContactPhone: b.emergencyContactPhone,
+      acceptedWaiver: b.acceptedWaiver,
+      hostUserId: b.hostUserId,
+    });
+    // Crear/asegurar el user lite (para que pueda recibir membresías después).
+    await findOrCreateGuestUser(guest);
+    return res.status(201).json({ data: guest });
+  } catch (err) {
+    console.error("[POST /admin/guest-profiles]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// PUT /api/admin/guest-profiles/:id — editar cuestionario/contacto.
+app.put("/api/admin/guest-profiles/:id", adminMiddleware, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const r = await pool.query(
+      `UPDATE guest_profiles SET
+         display_name = COALESCE($2, display_name),
+         phone = COALESCE($3, phone),
+         email = COALESCE($4, email),
+         date_of_birth = COALESCE($5, date_of_birth),
+         has_injury = COALESCE($6, has_injury),
+         injury_details = COALESCE($7, injury_details),
+         practiced_barre_before = COALESCE($8, practiced_barre_before),
+         emergency_contact_name = COALESCE($9, emergency_contact_name),
+         emergency_contact_phone = COALESCE($10, emergency_contact_phone),
+         accepted_waiver_at = CASE WHEN $11::boolean THEN NOW() ELSE accepted_waiver_at END,
+         updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        req.params.id,
+        b.name ?? null,
+        b.phone != null ? String(b.phone).replace(/\D/g, "") : null,
+        b.email ?? null,
+        b.dateOfBirth ?? null,
+        b.hasInjury ?? null,
+        b.injuryDetails ?? null,
+        b.practicedBarreBefore ?? null,
+        b.emergencyContactName ?? null,
+        b.emergencyContactPhone ?? null,
+        b.acceptedWaiver === true,
+      ]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Invitada no encontrada" });
+    return res.json({ data: r.rows[0] });
+  } catch (err) {
+    console.error("[PUT /admin/guest-profiles/:id]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/today-roster — todas las clases de HOY (Mexico) con su roster
+// y status, para una vista de pasar lista por taps (sin cámara, sin QR).
+app.get("/api/admin/today-roster", adminMiddleware, async (_req, res) => {
+  try {
+    const classes = await pool.query(
+      `SELECT c.id, c.date, c.start_time, c.end_time, c.max_capacity,
+              ct.name AS class_type_name, ct.color AS class_type_color,
+              i.display_name AS instructor_name
+         FROM classes c
+         JOIN class_types ct ON c.class_type_id = ct.id
+         JOIN instructors i ON c.instructor_id = i.id
+        WHERE c.date = (NOW() AT TIME ZONE 'America/Mexico_City')::date
+          AND c.status <> 'cancelled'
+        ORDER BY c.start_time ASC`
+    );
+    if (!classes.rows.length) return res.json({ data: [] });
+    const classIds = classes.rows.map((c) => c.id);
+    const rosters = await pool.query(
+      `SELECT b.id AS booking_id, b.class_id, b.status, b.checked_in_at,
+              b.guest_profile_id,
+              u.id AS user_id, u.display_name, u.phone,
+              gp.display_name AS guest_name,
+              host.display_name AS host_name
+         FROM bookings b
+         LEFT JOIN users u ON b.user_id = u.id
+         LEFT JOIN guest_profiles gp ON b.guest_profile_id = gp.id
+         LEFT JOIN users host ON host.id = gp.host_user_id
+        WHERE b.class_id = ANY($1::uuid[]) AND b.status <> 'cancelled'
+        ORDER BY CASE b.status
+          WHEN 'confirmed'  THEN 1
+          WHEN 'checked_in' THEN 2
+          WHEN 'waitlist'   THEN 3
+          WHEN 'no_show'    THEN 4
+          ELSE 5 END,
+          COALESCE(gp.display_name, u.display_name) ASC`,
+      [classIds]
+    );
+    const byClass = new Map();
+    for (const c of classes.rows) byClass.set(c.id, { ...c, roster: [] });
+    for (const r of rosters.rows) {
+      byClass.get(r.class_id)?.roster.push(r);
+    }
+    return res.json({ data: Array.from(byClass.values()) });
+  } catch (err) {
+    console.error("[GET /admin/today-roster]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // GET /api/admin/guest-profiles/search?phone=XXX — autocompleta por teléfono.
 // Devuelve el guest_profile + su pack de visitas activo (si lo tiene).
 app.get("/api/admin/guest-profiles/search", adminMiddleware, async (req, res) => {
