@@ -9867,7 +9867,7 @@ async function findOrCreateGuestProfile(opts, db = pool) {
          emergency_contact_name = COALESCE($8, emergency_contact_name),
          emergency_contact_phone = COALESCE($9, emergency_contact_phone),
          accepted_waiver_at = CASE WHEN $10::boolean THEN NOW() ELSE accepted_waiver_at END,
-         host_user_id = COALESCE($11, host_user_id),
+         host_user_id = COALESCE(host_user_id, $11),
          updated_at = NOW()
        WHERE id = $1
        RETURNING *`,
@@ -13894,10 +13894,18 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
   }
 });
 
-// POST /api/admin/bookings/assign — admin assigns a class booking to a specific member
+// POST /api/admin/bookings/assign — admin assigns a class booking to a specific member.
+// Si viene `guest: { name, phone, hasInjury, ... acceptedWaiver }`, también reserva
+// para la acompañante en la misma transacción, usando el pack de visitas activo
+// de la socia (is_visit_pack=true). Descuenta 2 créditos: 1 del pack regular de
+// la socia + 1 de su pack de visitas.
 app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
-  const { classId, userId } = req.body;
+  const { classId, userId, guest } = req.body;
   if (!classId || !userId) return res.status(400).json({ message: "classId y userId requeridos" });
+  const withGuest = guest && typeof guest === "object" && guest.name && guest.phone;
+  if (withGuest && !guest.acceptedWaiver) {
+    return res.status(400).json({ message: "Confirma el waiver de la acompañante" });
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -13994,6 +14002,84 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         );
       }
     }
+
+    // ── Reserva opcional para la acompañante usando el pack de visitas
+    //    de la socia. Descuenta 2 créditos en total (1 del pack regular
+    //    arriba + 1 del pack de visitas aquí abajo).
+    let guestData = null;
+    if (withGuest) {
+      if (isWaitlist) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          message: "La socia entró en lista de espera; no se puede agregar acompañante.",
+        });
+      }
+      const occupiedAfter = await liveBookingCount(classId, client);
+      if (occupiedAfter >= cls.max_capacity) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          message: "Solo queda 1 lugar; no caben socia + acompañante en esta clase.",
+        });
+      }
+      const packRes = await client.query(
+        `SELECT m.id, m.classes_remaining
+           FROM memberships m
+           JOIN plans p ON p.id = m.plan_id
+          WHERE m.user_id = $1 AND m.status = 'active'
+            AND p.is_visit_pack = true
+            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
+          ORDER BY m.created_at DESC LIMIT 1
+          FOR UPDATE`,
+        [userId]
+      );
+      if (!packRes.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "La socia no tiene un paquete de visitas activo con créditos. Véndele uno primero.",
+        });
+      }
+      const pack = packRes.rows[0];
+      const guestProfile = await findOrCreateGuestProfile({
+        name: guest.name, phone: guest.phone, email: guest.email,
+        hasInjury: guest.hasInjury,
+        injuryDetails: guest.hasInjury ? (guest.injuryDetails || null) : null,
+        practicedBarreBefore: guest.practicedBarreBefore,
+        acceptedWaiver: guest.acceptedWaiver,
+        hostUserId: userId,
+      }, client);
+      const guestUser = await findOrCreateGuestUser(guestProfile, client);
+      const dup = await client.query(
+        "SELECT id FROM bookings WHERE class_id = $1 AND user_id = $2 AND status != 'cancelled'",
+        [classId, guestUser.id]
+      );
+      if (dup.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "La acompañante ya tiene reserva en esta clase" });
+      }
+      const guestBookingIns = await client.query(
+        `INSERT INTO bookings (class_id, user_id, membership_id, guest_profile_id, status)
+         VALUES ($1, $2, $3, $4, 'confirmed') RETURNING *`,
+        [classId, guestUser.id, pack.id, guestProfile.id]
+      );
+      if (pack.classes_remaining !== null) {
+        await client.query(
+          "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+          [pack.id]
+        );
+      }
+      await client.query(
+        "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+        [classId]
+      );
+      guestData = {
+        booking: guestBookingIns.rows[0],
+        guestProfile,
+        packMembershipId: pack.id,
+        creditsRemaining: pack.classes_remaining === null ? null : Math.max(0, pack.classes_remaining - 1),
+      };
+    }
+
     await client.query("COMMIT");
 
     try {
@@ -14060,9 +14146,14 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
 
     const message = isWaitlist
       ? "Clienta agregada a lista de espera"
-      : "Reserva asignada correctamente";
+      : guestData
+        ? "Socia + acompañante reservadas (2 créditos descontados)"
+        : "Reserva asignada correctamente";
     triggerWalletPassSync(userId, isWaitlist ? "admin_booking_waitlist_created" : "admin_booking_created");
-    return res.status(201).json({ message, data: { booking: result.rows[0], isWaitlist } });
+    return res.status(201).json({
+      message,
+      data: { booking: result.rows[0], isWaitlist, guest: guestData },
+    });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST /admin/bookings/assign error:", err);

@@ -56,6 +56,55 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const [memberSearch, setMemberSearch] = useState("");
   const debouncedMemberSearch = useDebounce(memberSearch, 250);
 
+  // ── Asignar miembro + acompañante (opcional, descuenta 2 créditos) ──
+  const [assignWithGuest, setAssignWithGuest] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<ClientOption | null>(null);
+  const [agGuestPhone, setAgGuestPhone] = useState("");
+  const [agGuestName, setAgGuestName] = useState("");
+  const [agGuestEmail, setAgGuestEmail] = useState("");
+  const [agGuestInjury, setAgGuestInjury] = useState(false);
+  const [agGuestInjuryDetails, setAgGuestInjuryDetails] = useState("");
+  const [agGuestPracticed, setAgGuestPracticed] = useState(false);
+  const [agGuestWaiver, setAgGuestWaiver] = useState(false);
+  const [agSearching, setAgSearching] = useState(false);
+  const [agFound, setAgFound] = useState(false);
+
+  const resetAssignForm = () => {
+    setAssignWithGuest(false);
+    setSelectedMember(null);
+    setMemberSearch("");
+    setAgGuestPhone(""); setAgGuestName(""); setAgGuestEmail("");
+    setAgGuestInjury(false); setAgGuestInjuryDetails("");
+    setAgGuestPracticed(false); setAgGuestWaiver(false);
+    setAgFound(false);
+  };
+
+  const searchAdminGuest = async () => {
+    if (!agGuestPhone.trim()) return;
+    setAgSearching(true);
+    try {
+      const r = await api.get(`/admin/guest-profiles/search?phone=${encodeURIComponent(agGuestPhone)}`);
+      const data = r.data?.data;
+      if (data?.profile) {
+        const g = data.profile;
+        setAgFound(true);
+        setAgGuestName(g.display_name || "");
+        setAgGuestEmail(g.email || "");
+        setAgGuestInjury(g.has_injury === true);
+        setAgGuestInjuryDetails(g.injury_details || "");
+        setAgGuestPracticed(g.practiced_barre_before === true);
+        toast({ title: "Acompañante encontrada", description: "Cuestionario cargado." });
+      } else {
+        setAgFound(false);
+        toast({ title: "Nueva acompañante", description: "Llena el cuestionario abajo." });
+      }
+    } catch {
+      toast({ title: "Error al buscar", variant: "destructive" });
+    } finally {
+      setAgSearching(false);
+    }
+  };
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["roster", classId],
     queryFn: async () => (await api.get(`/classes/${classId}/roster`)).data,
@@ -132,13 +181,14 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   });
 
   const assignMutation = useMutation({
-    mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId }),
+    mutationFn: (vars: { userId: string; guest?: any }) =>
+      api.post("/admin/bookings/assign", { classId, userId: vars.userId, guest: vars.guest }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       const msg = res?.data?.message ?? "Reserva asignada";
       toast({ title: msg });
       setAssignOpen(false);
-      setMemberSearch("");
+      resetAssignForm();
     },
     onError: (e: any) => {
       toast({ title: e?.response?.data?.message ?? "Error al asignar reserva", variant: "destructive" });
@@ -360,47 +410,224 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
         open={assignOpen}
         onOpenChange={(next) => {
           setAssignOpen(next);
-          if (!next) setMemberSearch("");
+          if (!next) resetAssignForm();
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Asignar reserva a miembro</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
-              <Input
-                className="pl-8"
-                value={memberSearch}
-                onChange={(e) => setMemberSearch(e.target.value)}
-                placeholder="Buscar por nombre, email o teléfono"
-              />
+
+          {/* Toggle "+ acompañante" */}
+          <label className="flex items-start gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={assignWithGuest}
+              onChange={(e) => { setAssignWithGuest(e.target.checked); if (!e.target.checked) setSelectedMember(null); }}
+              className="mt-0.5"
+            />
+            <div className="space-y-0.5">
+              <span className="text-sm font-medium">Llevará acompañante</span>
+              <p className="text-[11px] text-muted-foreground">
+                Descuenta 2 créditos: 1 del pack regular + 1 del pack de visitas de la socia.
+              </p>
             </div>
-            <div className="max-h-72 overflow-auto rounded-xl border border-border">
-              {searchingUsers ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">Buscando…</p>
-              ) : userOptions.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</p>
-              ) : (
-                userOptions.map((u) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    disabled={assignMutation.isPending}
-                    onClick={() => assignMutation.mutate(u.id)}
-                    className="w-full px-3 py-2.5 text-left hover:bg-white/5 border-b last:border-b-0 border-border disabled:opacity-60"
-                  >
-                    <p className="text-sm font-medium">{u.displayName}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {u.email ?? "—"}
-                      {u.phone ? ` · ${u.phone}` : ""}
+          </label>
+
+          {/* Paso 1: elegir socia */}
+          {(!assignWithGuest || !selectedMember) && (
+            <div className="space-y-3">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/35" />
+                <Input
+                  className="pl-8"
+                  value={memberSearch}
+                  onChange={(e) => setMemberSearch(e.target.value)}
+                  placeholder="Buscar por nombre, email o teléfono"
+                />
+              </div>
+              <div className="max-h-60 overflow-auto rounded-xl border border-border">
+                {searchingUsers ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">Buscando…</p>
+                ) : userOptions.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</p>
+                ) : (
+                  userOptions.map((u) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      disabled={assignMutation.isPending}
+                      onClick={() => {
+                        if (assignWithGuest) {
+                          setSelectedMember(u);
+                        } else {
+                          assignMutation.mutate({ userId: u.id });
+                        }
+                      }}
+                      className="w-full px-3 py-2.5 text-left hover:bg-white/5 border-b last:border-b-0 border-border disabled:opacity-60"
+                    >
+                      <p className="text-sm font-medium">{u.displayName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {u.email ?? "—"}
+                        {u.phone ? ` · ${u.phone}` : ""}
+                      </p>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Paso 2: socia ya elegida + form acompañante */}
+          {assignWithGuest && selectedMember && (
+            <div className="space-y-3">
+              {/* Tarjeta de socia seleccionada */}
+              <div className="rounded-xl border border-[#76214D]/40 bg-[#76214D]/10 px-3 py-2.5 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-[10px] uppercase tracking-wide text-[#E9745F]/80">Socia</p>
+                  <p className="text-sm font-medium truncate">{selectedMember.displayName}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {selectedMember.email ?? "—"}{selectedMember.phone ? ` · ${selectedMember.phone}` : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="text-[11px] text-white/40 hover:text-white"
+                  onClick={() => setSelectedMember(null)}
+                >
+                  Cambiar
+                </button>
+              </div>
+
+              {/* Form acompañante */}
+              <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Acompañante
+                </p>
+
+                <div className="space-y-1">
+                  <label className="text-xs">Teléfono</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={agGuestPhone}
+                      onChange={(e) => { setAgGuestPhone(e.target.value); setAgFound(false); }}
+                      placeholder="10 dígitos"
+                      autoComplete="off"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={searchAdminGuest}
+                      disabled={!agGuestPhone.trim() || agSearching}
+                    >
+                      {agSearching ? "…" : <Search size={14} />}
+                    </Button>
+                  </div>
+                  {agFound && (
+                    <p className="text-[11px] text-emerald-600">
+                      ✓ Ya estuvo antes — cuestionario cargado.
                     </p>
-                  </button>
-                ))
-              )}
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs">Nombre</label>
+                  <Input
+                    value={agGuestName}
+                    onChange={(e) => setAgGuestName(e.target.value)}
+                    placeholder="Nombre y apellido"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs">Email (opcional)</label>
+                  <Input
+                    type="email"
+                    value={agGuestEmail}
+                    onChange={(e) => setAgGuestEmail(e.target.value)}
+                    placeholder="ej. ana@correo.com"
+                  />
+                </div>
+
+                <div className="space-y-2 border-t border-border pt-2.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Cuestionario inicial
+                  </p>
+
+                  <label className="flex items-center justify-between gap-2 text-xs cursor-pointer">
+                    <span>¿Tiene lesión o condición física?</span>
+                    <input
+                      type="checkbox"
+                      checked={agGuestInjury}
+                      onChange={(e) => setAgGuestInjury(e.target.checked)}
+                    />
+                  </label>
+                  {agGuestInjury && (
+                    <textarea
+                      rows={2}
+                      value={agGuestInjuryDetails}
+                      onChange={(e) => setAgGuestInjuryDetails(e.target.value)}
+                      placeholder="Cuéntanos qué debemos saber"
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs"
+                    />
+                  )}
+
+                  <label className="flex items-center justify-between gap-2 text-xs cursor-pointer">
+                    <span>¿Practicó barre antes?</span>
+                    <input
+                      type="checkbox"
+                      checked={agGuestPracticed}
+                      onChange={(e) => setAgGuestPracticed(e.target.checked)}
+                    />
+                  </label>
+
+                  <label className="flex items-start justify-between gap-2 text-[11px] cursor-pointer border-t border-border pt-2">
+                    <span className="leading-relaxed">
+                      Confirmo que la acompañante leyó y aceptó los términos y riesgos.
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={agGuestWaiver}
+                      onChange={(e) => setAgGuestWaiver(e.target.checked)}
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { setAssignOpen(false); resetAssignForm(); }}
+                  disabled={assignMutation.isPending}
+                  className="flex-1"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={() => assignMutation.mutate({
+                    userId: selectedMember.id,
+                    guest: {
+                      name: agGuestName,
+                      phone: agGuestPhone,
+                      email: agGuestEmail || undefined,
+                      hasInjury: agGuestInjury,
+                      injuryDetails: agGuestInjury ? (agGuestInjuryDetails || null) : null,
+                      practicedBarreBefore: agGuestPracticed,
+                      acceptedWaiver: agGuestWaiver,
+                    },
+                  })}
+                  disabled={
+                    !agGuestName.trim() || !agGuestPhone.trim() || !agGuestWaiver ||
+                    assignMutation.isPending
+                  }
+                  className="flex-1 bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
+                >
+                  {assignMutation.isPending ? "Asignando…" : "Confirmar (2 créditos)"}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
 
