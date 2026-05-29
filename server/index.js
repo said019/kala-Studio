@@ -3286,6 +3286,9 @@ app.get("/api/memberships/mine/all", authMiddleware, async (req, res) => {
 app.get("/api/classes", async (req, res) => {
   try {
     const { start, end, limit } = req.query;
+    // current_bookings se calcula EN VIVO desde bookings (confirmed/checked_in)
+    // para no depender del contador denormalizado, que puede desfasarse y
+    // mostrar la clase como llena/sobrecupo sin estarlo (issue: "5/4 con solo 3 inscritas").
     let query = `
       SELECT c.*,
              c.max_capacity                         AS capacity,
@@ -3297,7 +3300,12 @@ app.get("/api/classes", async (req, res) => {
              ct.level AS class_type_level,
              i.display_name AS instructor_name,
              i.photo_url    AS instructor_photo,
-             f.name         AS facility_name
+             f.name         AS facility_name,
+             COALESCE((
+               SELECT COUNT(*)::int FROM bookings b
+                WHERE b.class_id = c.id
+                  AND b.status IN ('confirmed','checked_in')
+             ), 0) AS live_current_bookings
       FROM classes c
       JOIN class_types ct   ON c.class_type_id  = ct.id
       JOIN instructors i    ON c.instructor_id   = i.id
@@ -3319,6 +3327,8 @@ app.get("/api/classes", async (req, res) => {
         : (typeof row.date === "string" ? row.date.slice(0, 10) : row.date),
       start_time: row.start_time_full ?? row.start_time,
       end_time: row.end_time_full ?? row.end_time,
+      // Sobrescribir el contador con el conteo real para que el calendar nunca muestre sobrecupo fantasma.
+      current_bookings: row.live_current_bookings ?? 0,
     }));
     return res.json({ data: rows });
   } catch (err) {
