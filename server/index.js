@@ -565,6 +565,8 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS video_library_access_until TIMESTAMPTZ`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS birthday_gift_year INTEGER`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`).catch(() => { });
+    // Teléfono opcional: el alta manual de clientas permite registrar sin teléfono.
+    await pool.query(`ALTER TABLE users ALTER COLUMN phone DROP NOT NULL`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS has_injury BOOLEAN`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS practiced_barre_before BOOLEAN`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS injury_details TEXT`).catch(() => { });
@@ -1196,6 +1198,8 @@ async function ensureSchema() {
     // ── memberships: add fallback name/limit override columns ─────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS plan_name_override VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS class_limit_override INTEGER`).catch(() => { });
+    // notes: observaciones del alta manual / complementos (lo usa POST /admin/clients/manual)
+    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS notes TEXT`).catch(() => { });
     // Fix existing 9999 unlimited sentinel values → NULL
     await pool.query(`
       UPDATE memberships SET classes_remaining = NULL WHERE classes_remaining >= 9999;
@@ -13558,7 +13562,16 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
              LEFT JOIN plans p ON m.plan_id = p.id
              WHERE 1=1`;
     const params = [];
-    if (status) { params.push(status); q += ` AND m.status = $${params.length}`; }
+    if (status === "expiring") {
+      // "expiring" (por vencer) es un estado calculado, no un valor del enum:
+      // membresías activas que vencen dentro de los próximos 7 días.
+      q += ` AND m.status = 'active'
+             AND m.end_date IS NOT NULL
+             AND m.end_date >= ((NOW() AT TIME ZONE 'America/Mexico_City')::date)
+             AND m.end_date <= ((NOW() AT TIME ZONE 'America/Mexico_City')::date + INTERVAL '7 days')`;
+    } else if (status) {
+      params.push(status); q += ` AND m.status = $${params.length}`;
+    }
     // Filtro por user_id — la ficha del cliente (ClientDetail) llama a este
     // endpoint con ?userId=<uuid>; sin este filtro el admin veía las 100
     // membresías más recientes globales en cada ficha individual.
