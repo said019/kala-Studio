@@ -1332,6 +1332,13 @@ async function ensureSchema() {
       ON bookings (user_id, class_id)
       WHERE status NOT IN ('cancelled')
     `).catch(() => { });
+    // Eliminar el constraint LEGACY 'unique_booking' (UNIQUE(class_id, user_id)
+    // SIN filtrar por status) que venía del schema original de Supabase. Ese
+    // constraint bloqueaba re-reservar la misma clase después de cancelar:
+    // el INSERT chocaba con la fila cancelada previa, aunque la lógica del
+    // negocio sí lo permite. El índice parcial idx_bookings_user_class_active
+    // ya cubre la regla correcta (solo bookings activas son únicas).
+    await pool.query(`ALTER TABLE bookings DROP CONSTRAINT IF EXISTS unique_booking`).catch(() => { });
     // ── Kala progress rings: weekly goals, community actions, risk and wallet sync ──
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ring_states (
