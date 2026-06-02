@@ -9956,28 +9956,55 @@ async function findOrCreateGuestUser(guestProfile, db = pool) {
     );
     return found.rows[0];
   }
-  // INSERT defensivo: si choca con UNIQUE (típicamente users.phone porque la
-  // socia/otra alumna ya tiene ese teléfono), reintenta sin phone — el phone
-  // vive en guest_profiles, no necesita estar en users para que la reserva
-  // funcione.
+  // INSERT defensivo:
+  //  - users.email es NOT NULL (schema viejo) — generamos uno sintético
+  //    único por guest_profile.id; nunca se usa para login ni envío real.
+  //  - Si choca con UNIQUE (típicamente users.phone porque la socia/otra
+  //    alumna ya tiene ese teléfono), reintenta sin phone — el phone vive
+  //    en guest_profiles, no necesita estar en users para que la reserva
+  //    funcione.
+  const realEmail = guestProfile.email && String(guestProfile.email).includes("@")
+    ? guestProfile.email
+    : null;
+  const syntheticEmail = `guest+${guestProfile.id}@kala.guest`;
+  const emailToUse = realEmail || syntheticEmail;
   try {
     const ins = await db.query(
-      `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
-       VALUES ($1, $2, 'guest', $3, true, NULL)
+      `INSERT INTO users (display_name, email, phone, role, guest_profile_id, accepts_terms, password_hash)
+       VALUES ($1, $2, $3, 'guest', $4, true, NULL)
        RETURNING *`,
-      [guestProfile.display_name, guestProfile.phone || null, guestProfile.id]
+      [guestProfile.display_name, emailToUse, guestProfile.phone || null, guestProfile.id]
     );
     return ins.rows[0];
   } catch (err) {
     if (err && err.code === "23505") {
-      // unique_violation — intenta sin phone
-      const ins2 = await db.query(
-        `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
-         VALUES ($1, NULL, 'guest', $2, true, NULL)
-         RETURNING *`,
-        [guestProfile.display_name, guestProfile.id]
-      );
-      return ins2.rows[0];
+      // unique_violation — intenta sin phone (la causa más común). Si el
+      // choque fue por email real (raro: dos guests con el mismo email),
+      // usamos el sintético.
+      const emailFallback = err.constraint && /email/i.test(err.constraint)
+        ? syntheticEmail
+        : emailToUse;
+      try {
+        const ins2 = await db.query(
+          `INSERT INTO users (display_name, email, phone, role, guest_profile_id, accepts_terms, password_hash)
+           VALUES ($1, $2, NULL, 'guest', $3, true, NULL)
+           RETURNING *`,
+          [guestProfile.display_name, emailFallback, guestProfile.id]
+        );
+        return ins2.rows[0];
+      } catch (err2) {
+        // último recurso: sintético + sin phone (cubre cualquier UNIQUE residual)
+        if (err2 && err2.code === "23505") {
+          const ins3 = await db.query(
+            `INSERT INTO users (display_name, email, phone, role, guest_profile_id, accepts_terms, password_hash)
+             VALUES ($1, $2, NULL, 'guest', $3, true, NULL)
+             RETURNING *`,
+            [guestProfile.display_name, syntheticEmail, guestProfile.id]
+          );
+          return ins3.rows[0];
+        }
+        throw err2;
+      }
     }
     throw err;
   }
