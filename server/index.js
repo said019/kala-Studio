@@ -551,6 +551,19 @@ const pool = new Pool({
 // Ensure users table has password_hash column (idempotent migration)
 async function ensureSchema() {
   try {
+    // ── Asegurar que el enum user_role acepta 'guest' ─────────────────────
+    // El schema original definía user_role como ENUM('client','instructor',
+    // 'admin','super_admin','reception'). El flujo de visitas/acompañantes
+    // crea users con role='guest' (user "shadow" 1:1 al guest_profile), por
+    // lo que el enum tiene que aceptarlo. ALTER TYPE ADD VALUE IF NOT EXISTS
+    // es idempotente y NO necesita estar fuera de transacción en PG 12+.
+    await pool.query(`ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'guest'`).catch((e) => {
+      // Algunas versiones viejas de PG no permiten esto en transacción; el
+      // pool aquí no abre transacción explícita, pero por las dudas log y
+      // seguimos — el flujo de visitas fallará con mensaje claro si falta.
+      console.warn("[ensureSchema] ALTER TYPE user_role ADD VALUE 'guest':", e?.message);
+    });
+
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS accepts_terms BOOLEAN DEFAULT false`).catch(() => { });
