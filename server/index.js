@@ -9921,20 +9921,40 @@ async function findOrCreateGuestUser(guestProfile, db = pool) {
     [guestProfile.id]
   );
   if (found.rows.length) {
-    // Sync nombre/teléfono por si cambiaron en el perfil.
+    // Sync nombre por si cambió en el perfil. NO sincronizamos phone porque
+    // puede chocar con un UNIQUE index si la socia comparte el teléfono con la
+    // acompañante (ej. familiares). El phone definitivo vive en guest_profiles.
     await db.query(
-      "UPDATE users SET display_name = $2, phone = $3, updated_at = NOW() WHERE id = $1",
-      [found.rows[0].id, guestProfile.display_name, guestProfile.phone || null]
+      "UPDATE users SET display_name = $2, updated_at = NOW() WHERE id = $1",
+      [found.rows[0].id, guestProfile.display_name]
     );
     return found.rows[0];
   }
-  const ins = await db.query(
-    `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
-     VALUES ($1, $2, 'guest', $3, true, NULL)
-     RETURNING *`,
-    [guestProfile.display_name, guestProfile.phone || null, guestProfile.id]
-  );
-  return ins.rows[0];
+  // INSERT defensivo: si choca con UNIQUE (típicamente users.phone porque la
+  // socia/otra alumna ya tiene ese teléfono), reintenta sin phone — el phone
+  // vive en guest_profiles, no necesita estar en users para que la reserva
+  // funcione.
+  try {
+    const ins = await db.query(
+      `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
+       VALUES ($1, $2, 'guest', $3, true, NULL)
+       RETURNING *`,
+      [guestProfile.display_name, guestProfile.phone || null, guestProfile.id]
+    );
+    return ins.rows[0];
+  } catch (err) {
+    if (err && err.code === "23505") {
+      // unique_violation — intenta sin phone
+      const ins2 = await db.query(
+        `INSERT INTO users (display_name, phone, role, guest_profile_id, accepts_terms, password_hash)
+         VALUES ($1, NULL, 'guest', $2, true, NULL)
+         RETURNING *`,
+        [guestProfile.display_name, guestProfile.id]
+      );
+      return ins2.rows[0];
+    }
+    throw err;
+  }
 }
 
 // GET /api/admin/guest-profiles — lista paginada con búsqueda por nombre/tel.
@@ -14348,7 +14368,22 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST /admin/bookings/assign error:", err);
-    return res.status(500).json({ message: "Error interno" });
+    // Devolver detalle del error de Postgres (constraint que falló) en lugar
+    // del genérico "Error interno", para que la admin pueda diagnosticar y
+    // reintentar (ej. teléfono duplicado, constraint violation, etc.).
+    const pgDetail = err && err.detail ? err.detail : null;
+    const constraint = err && err.constraint ? err.constraint : null;
+    const code = err && err.code ? err.code : null;
+    let userMessage = "No se pudo asignar la reserva.";
+    if (code === "23505") userMessage = `Conflicto de duplicado: ${constraint || pgDetail || err.message}`;
+    else if (code === "23503") userMessage = `Referencia rota: ${pgDetail || err.message}`;
+    else if (code === "23502") userMessage = `Falta un dato obligatorio: ${pgDetail || err.message}`;
+    else if (err && err.message) userMessage = `Error: ${err.message}`;
+    return res.status(500).json({
+      message: userMessage,
+      ...(code ? { code } : {}),
+      ...(constraint ? { constraint } : {}),
+    });
   } finally {
     client.release();
   }
