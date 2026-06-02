@@ -14221,16 +14221,20 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
 
 // POST /api/admin/bookings/assign — admin assigns a class booking to a specific member.
 // Si viene `guest: { name, phone, hasInjury, ... acceptedWaiver }`, también reserva
-// para la acompañante en la misma transacción, usando el pack de visitas activo
-// de la socia (is_visit_pack=true). Descuenta 2 créditos: 1 del pack regular de
-// la socia + 1 de su pack de visitas.
+// para la acompañante en la misma transacción. Dos modos de cobro:
+//   a) Sin `guestSale`: descuenta del pack de visitas (is_visit_pack=true) de la
+//      socia. Descuenta 2 créditos: 1 del pack regular + 1 del pack de visitas.
+//   b) Con `guestSale: { planId, paymentMethod }`: vende el plan (clase suelta
+//      o paquete) DIRECTAMENTE a la acompañante en el mismo paso, crea la
+//      membership a su nombre y descuenta de ahí. La socia solo paga su clase.
 app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
-  const { classId, userId, guest } = req.body;
+  const { classId, userId, guest, guestSale } = req.body;
   if (!classId || !userId) return res.status(400).json({ message: "classId y userId requeridos" });
   const withGuest = guest && typeof guest === "object" && guest.name && guest.phone;
   if (withGuest && !guest.acceptedWaiver) {
     return res.status(400).json({ message: "Confirma el waiver de la acompañante" });
   }
+  const hasGuestSale = withGuest && guestSale && typeof guestSale === "object" && guestSale.planId;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -14346,25 +14350,8 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
           message: "Solo queda 1 lugar; no caben socia + acompañante en esta clase.",
         });
       }
-      const packRes = await client.query(
-        `SELECT m.id, m.classes_remaining
-           FROM memberships m
-           JOIN plans p ON p.id = m.plan_id
-          WHERE m.user_id = $1 AND m.status = 'active'
-            AND p.is_visit_pack = true
-            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-            AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
-          ORDER BY m.created_at DESC LIMIT 1
-          FOR UPDATE`,
-        [userId]
-      );
-      if (!packRes.rows.length) {
-        await client.query("ROLLBACK");
-        return res.status(403).json({
-          message: "La socia no tiene un paquete de visitas activo con créditos. Véndele uno primero.",
-        });
-      }
-      const pack = packRes.rows[0];
+      // Crear/recuperar el guest_profile + guest user PRIMERO; lo usan ambos
+      // modos de cobro.
       const guestProfile = await findOrCreateGuestProfile({
         name: guest.name, phone: guest.phone, email: guest.email,
         hasInjury: guest.hasInjury,
@@ -14382,17 +14369,90 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         await client.query("ROLLBACK");
         return res.status(409).json({ message: "La acompañante ya tiene reserva en esta clase" });
       }
+
+      // ── Resolver de dónde sale el crédito de la acompañante ──────────
+      // Modo A (default): pack de visitas de la socia.
+      // Modo B (`guestSale`): venderle clase suelta / pack a la acompañante.
+      let guestMembershipId = null;
+      let guestMembershipCreditsAfter = null;
+      let guestSaleOrder = null;
+
+      if (hasGuestSale) {
+        const planRes = await client.query(
+          "SELECT * FROM plans WHERE id = $1 AND is_active = true",
+          [guestSale.planId]
+        );
+        if (!planRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ message: "Plan para la acompañante no encontrado" });
+        }
+        const plan = planRes.rows[0];
+        const pm = normalizePaymentMethod(guestSale.paymentMethod || "cash");
+        const startStr = new Date().toISOString().slice(0, 10);
+        const endStr = calcMembershipEndDate(startStr, plan);
+        // Si no especifica class_limit, asumimos clase suelta (1).
+        const credits = plan.class_limit ?? 1;
+        const memIns = await client.query(
+          `INSERT INTO memberships
+             (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, notes)
+           VALUES ($1, $2, 'active', $3, $4, $5, $6, $7) RETURNING *`,
+          [guestUser.id, plan.id, pm, startStr, endStr, credits,
+           `Venta acompañante en roster — invitada por user ${userId}`]
+        );
+        const memRow = memIns.rows[0];
+        const orderIns = await client.query(
+          `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
+           VALUES ($1, $2, 'approved', $3, $4, 'pos_guest_sale', NOW(), $5)
+           RETURNING *`,
+          [guestUser.id, plan.id, pm, plan.price ?? 0, req.userId || null]
+        );
+        guestSaleOrder = orderIns.rows[0];
+        guestMembershipId = memRow.id;
+        guestMembershipCreditsAfter = (memRow.classes_remaining ?? 1) - 1;
+        if (memRow.classes_remaining !== null) {
+          await client.query(
+            "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+            [memRow.id]
+          );
+        }
+      } else {
+        // Modo A: pack de visitas activo de la socia.
+        const packRes = await client.query(
+          `SELECT m.id, m.classes_remaining
+             FROM memberships m
+             JOIN plans p ON p.id = m.plan_id
+            WHERE m.user_id = $1 AND m.status = 'active'
+              AND p.is_visit_pack = true
+              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+              AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
+            ORDER BY m.created_at DESC LIMIT 1
+            FOR UPDATE`,
+          [userId]
+        );
+        if (!packRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            message: "La socia no tiene un paquete de visitas activo con créditos. Véndele uno primero o vende clase suelta para la acompañante.",
+          });
+        }
+        const pack = packRes.rows[0];
+        guestMembershipId = pack.id;
+        guestMembershipCreditsAfter = pack.classes_remaining === null
+          ? null
+          : Math.max(0, pack.classes_remaining - 1);
+        if (pack.classes_remaining !== null) {
+          await client.query(
+            "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+            [pack.id]
+          );
+        }
+      }
+
       const guestBookingIns = await client.query(
         `INSERT INTO bookings (class_id, user_id, membership_id, guest_profile_id, status)
          VALUES ($1, $2, $3, $4, 'confirmed') RETURNING *`,
-        [classId, guestUser.id, pack.id, guestProfile.id]
+        [classId, guestUser.id, guestMembershipId, guestProfile.id]
       );
-      if (pack.classes_remaining !== null) {
-        await client.query(
-          "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
-          [pack.id]
-        );
-      }
       await client.query(
         "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
         [classId]
@@ -14400,8 +14460,10 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       guestData = {
         booking: guestBookingIns.rows[0],
         guestProfile,
-        packMembershipId: pack.id,
-        creditsRemaining: pack.classes_remaining === null ? null : Math.max(0, pack.classes_remaining - 1),
+        packMembershipId: guestMembershipId,
+        creditsRemaining: guestMembershipCreditsAfter,
+        soldOrder: guestSaleOrder,
+        chargedTo: hasGuestSale ? "guest" : "host_visit_pack",
       };
     }
 
@@ -14472,7 +14534,9 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     const message = isWaitlist
       ? "Clienta agregada a lista de espera"
       : guestData
-        ? "Socia + acompañante reservadas (2 créditos descontados)"
+        ? (guestData.chargedTo === "guest"
+            ? "Socia reservada + clase suelta vendida a la acompañante"
+            : "Socia + acompañante reservadas (2 créditos descontados)")
         : "Reserva asignada correctamente";
     triggerWalletPassSync(userId, isWaitlist ? "admin_booking_waitlist_created" : "admin_booking_created");
     return res.status(201).json({

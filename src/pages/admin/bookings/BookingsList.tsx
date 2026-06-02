@@ -77,6 +77,9 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     setAgGuestInjury(false); setAgGuestInjuryDetails("");
     setAgGuestPracticed(false); setAgGuestWaiver(false);
     setAgFound(false);
+    setGuestChargeMode("host_pack");
+    setGuestSalePlanId("");
+    setGuestSalePayment("cash");
   };
 
   const searchAdminGuest = async () => {
@@ -181,8 +184,13 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   });
 
   const assignMutation = useMutation({
-    mutationFn: (vars: { userId: string; guest?: any }) =>
-      api.post("/admin/bookings/assign", { classId, userId: vars.userId, guest: vars.guest }),
+    mutationFn: (vars: { userId: string; guest?: any; guestSale?: any }) =>
+      api.post("/admin/bookings/assign", {
+        classId,
+        userId: vars.userId,
+        guest: vars.guest,
+        guestSale: vars.guestSale,
+      }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       const msg = res?.data?.message ?? "Reserva asignada";
@@ -194,6 +202,29 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
       toast({ title: e?.response?.data?.message ?? "Error al asignar reserva", variant: "destructive" });
     },
   });
+
+  // ── Cobro de la acompañante ──────────────────────────────────────
+  // Modo 'host_pack': usa el pack de visitas de la socia (default, comportamiento anterior).
+  // Modo 'guest_sale': vende clase suelta (o cualquier plan) directo a la acompañante.
+  const [guestChargeMode, setGuestChargeMode] = useState<"host_pack" | "guest_sale">("host_pack");
+  const [guestSalePlanId, setGuestSalePlanId] = useState<string>("");
+  const [guestSalePayment, setGuestSalePayment] = useState<"cash" | "transfer" | "card">("cash");
+  const { data: plansData } = useQuery<{ data: any[] }>({
+    queryKey: ["plans-for-guest-sale"],
+    queryFn: async () => (await api.get("/plans")).data,
+    enabled: assignOpen && assignWithGuest && guestChargeMode === "guest_sale",
+  });
+  const guestSalePlans = (Array.isArray(plansData?.data) ? plansData!.data : [])
+    .filter((p: any) => p.is_active !== false)
+    .map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price ?? 0),
+      classLimit: p.class_limit ?? p.classLimit ?? 1,
+      isVisitPack: p.is_visit_pack === true || p.isVisitPack === true,
+    }))
+    // Ordenar primero los visit-pack (clase suelta, paquetes de visita)
+    .sort((a: any, b: any) => (b.isVisitPack ? 1 : 0) - (a.isVisitPack ? 1 : 0));
 
   const checkedIn = roster.filter((r) => r.status === "checked_in").length;
   const confirmed = roster.filter((r) => r.status === "confirmed").length;
@@ -595,6 +626,82 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                 </div>
               </div>
 
+              {/* ── Cobro de la acompañante ───────────────────────────────── */}
+              <div className="rounded-2xl border border-border bg-secondary/40 p-3 space-y-2.5">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Cobro de la acompañante
+                </p>
+                <div className="flex flex-col gap-2 text-xs">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="guestChargeMode"
+                      checked={guestChargeMode === "host_pack"}
+                      onChange={() => setGuestChargeMode("host_pack")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Usar <strong>pack de visitas de la socia</strong>
+                      <span className="block text-[10px] text-muted-foreground mt-0.5">
+                        Descuenta 1 crédito del pack de visitas activo. La socia debe tenerlo.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="guestChargeMode"
+                      checked={guestChargeMode === "guest_sale"}
+                      onChange={() => setGuestChargeMode("guest_sale")}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Venderle <strong>clase suelta / pack</strong> a la acompañante
+                      <span className="block text-[10px] text-muted-foreground mt-0.5">
+                        La socia no usa su pack de visitas; la acompañante paga su propia clase.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                {guestChargeMode === "guest_sale" && (
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium">Plan a vender</label>
+                      <select
+                        value={guestSalePlanId}
+                        onChange={(e) => setGuestSalePlanId(e.target.value)}
+                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
+                      >
+                        <option value="">— Seleccionar plan —</option>
+                        {guestSalePlans.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.isVisitPack ? "🎟️ " : ""}{p.name} — {p.classLimit ?? "?"} clase{p.classLimit === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
+                          </option>
+                        ))}
+                      </select>
+                      {guestSalePlans.length === 0 && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Cargando planes… o marca al menos un plan como activo en Planes.
+                        </p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium">Método de pago</label>
+                      <select
+                        value={guestSalePayment}
+                        onChange={(e) => setGuestSalePayment(e.target.value as any)}
+                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
+                      >
+                        <option value="cash">Efectivo</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="card">Tarjeta</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -616,14 +723,22 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                       practicedBarreBefore: agGuestPracticed,
                       acceptedWaiver: agGuestWaiver,
                     },
+                    guestSale: guestChargeMode === "guest_sale"
+                      ? { planId: guestSalePlanId, paymentMethod: guestSalePayment }
+                      : undefined,
                   })}
                   disabled={
                     !agGuestName.trim() || !agGuestPhone.trim() || !agGuestWaiver ||
+                    (guestChargeMode === "guest_sale" && !guestSalePlanId) ||
                     assignMutation.isPending
                   }
                   className="flex-1 bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
                 >
-                  {assignMutation.isPending ? "Asignando…" : "Confirmar (2 créditos)"}
+                  {assignMutation.isPending
+                    ? "Asignando…"
+                    : guestChargeMode === "guest_sale"
+                      ? "Confirmar (socia + venta a invitada)"
+                      : "Confirmar (2 créditos)"}
                 </Button>
               </div>
             </div>
