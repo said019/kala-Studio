@@ -15,7 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, CheckCircle2, UserPlus } from "lucide-react";
+import { Loader2, Search, CheckCircle2, UserPlus, X } from "lucide-react";
+import { useDebounce } from "@/hooks/use-debounce";
 
 interface VisitPlan {
   id: string;
@@ -40,6 +41,14 @@ interface ActiveMembership {
   plan_name: string;
   class_limit: number | null;
   end_date: string | null;
+}
+
+interface HostOption {
+  id: string;
+  displayName: string;
+  display_name?: string;
+  email?: string;
+  phone?: string | null;
 }
 
 interface Props {
@@ -79,6 +88,24 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
   const [planId, setPlanId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "card">("cash");
 
+  // Anfitriona (socia que la invita). Si se selecciona, el crédito se descuenta
+  // de SU pack de visitas en lugar del de la invitada.
+  const [host, setHost] = useState<HostOption | null>(null);
+  const [hostSearch, setHostSearch] = useState("");
+  const debouncedHostSearch = useDebounce(hostSearch, 250);
+  const { data: hostsData, isFetching: searchingHosts } = useQuery<{ data: HostOption[] }>({
+    queryKey: ["visit-host-search", debouncedHostSearch],
+    enabled: open && !host && debouncedHostSearch.trim().length >= 2,
+    queryFn: async () =>
+      (await api.get(`/users?role=client&search=${encodeURIComponent(debouncedHostSearch)}`)).data,
+  });
+  const hostOptions = (Array.isArray(hostsData?.data) ? hostsData!.data : []).map((u: any) => ({
+    id: u.id,
+    displayName: u.display_name ?? u.displayName ?? "—",
+    email: u.email,
+    phone: u.phone,
+  }));
+
   // Carga planes is_visit_pack
   const { data: plansData } = useQuery<{ data: any[] }>({
     queryKey: ["visit-plans"],
@@ -100,6 +127,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     setWaiver(false);
     setFoundGuest(null); setActiveMembership(null); setSearched(false);
     setPlanId(""); setPaymentMethod("cash");
+    setHost(null); setHostSearch("");
   };
 
   const searchMutation = useMutation({
@@ -146,19 +174,31 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
           acceptedWaiver: waiver,
         },
       };
-      if (!activeMembership) {
+      if (host?.id) body.hostUserId = host.id;
+      // Si la invitada tiene pack activo propio NO necesitamos vender; pero si
+      // la anfitriona tiene pack de visitas, tampoco hace falta venta (se
+      // descuenta del host). Mandamos `sale` solo si no hay ninguna de las dos.
+      if (!activeMembership && !host) {
         if (!planId) throw new Error("Selecciona un plan de visita");
+        body.sale = { planId, paymentMethod };
+      } else if (!activeMembership && host && planId) {
+        // Si la admin igual eligió un plan como fallback (por si el host no
+        // tiene créditos), lo mandamos — el backend lo usará si no encuentra
+        // pack del host ni de la invitada.
         body.sale = { planId, paymentMethod };
       }
       const r = await api.post(`/admin/classes/${classId}/walkin-visit`, body);
       return r.data;
     },
     onSuccess: (data: any) => {
+      const chargedHost = data?.data?.chargedHostUserId;
       toast({
         title: "✓ Visitante asignada",
-        description: data?.data?.soldOrder
-          ? "Reserva creada + pack vendido."
-          : "Reserva creada con su pack existente.",
+        description: chargedHost
+          ? `Reserva creada. Crédito descontado del pack de visitas de ${host?.displayName ?? "la anfitriona"}.`
+          : data?.data?.soldOrder
+            ? "Reserva creada + pack vendido."
+            : "Reserva creada con su pack existente.",
       });
       qc.invalidateQueries({ queryKey: ["class-roster-sheet"] });
       qc.invalidateQueries({ queryKey: ["roster"] });
@@ -173,9 +213,11 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     },
   });
 
+  // Si la invitada tiene su pack o viene con anfitriona, no exigimos planId.
+  // Si NO trae nada (sin pack ni anfitriona), se vuelve venta obligatoria.
   const canSubmit =
     !!name.trim() && !!phone.trim() && waiver &&
-    (activeMembership ? true : !!planId);
+    (activeMembership || host ? true : !!planId);
 
   return (
     <Dialog
@@ -238,6 +280,75 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
             </div>
           )}
 
+          {/* Anfitriona (socia que la invita) — el crédito se descuenta de SU pack de visitas */}
+          <div className="rounded-xl border border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Trajo (opcional)
+              </Label>
+              {host && (
+                <button
+                  type="button"
+                  onClick={() => { setHost(null); setHostSearch(""); }}
+                  className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                >
+                  <X size={11} /> quitar
+                </button>
+              )}
+            </div>
+            {host ? (
+              <div className="rounded-lg bg-[#76214D]/5 border border-[#76214D]/20 px-3 py-2 text-sm">
+                <p className="font-medium">{host.displayName}</p>
+                {(host.email || host.phone) && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {[host.email, host.phone].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                <p className="text-[11px] text-[#76214D] mt-1">
+                  El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
+                </p>
+              </div>
+            ) : (
+              <>
+                <Input
+                  value={hostSearch}
+                  onChange={(e) => setHostSearch(e.target.value)}
+                  placeholder="Buscar socia por nombre o teléfono…"
+                />
+                {hostSearch.trim().length >= 2 && (
+                  <div className="max-h-44 overflow-y-auto rounded-lg border border-border bg-card">
+                    {searchingHosts ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                        <Loader2 size={11} className="animate-spin" /> Buscando…
+                      </p>
+                    ) : hostOptions.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</p>
+                    ) : (
+                      hostOptions.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => { setHost(u); setHostSearch(""); }}
+                          className="block w-full text-left px-3 py-2 hover:bg-muted/60 border-b border-border last:border-b-0"
+                        >
+                          <p className="text-sm font-medium">{u.displayName}</p>
+                          {(u.email || u.phone) && (
+                            <p className="text-[11px] text-muted-foreground">
+                              {[u.email, u.phone].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Si llenas esto, el crédito se descuenta del pack de visitas de la socia, no de la invitada.
+                </p>
+              </>
+            )}
+          </div>
+
           {/* Nombre + email */}
           <div className="space-y-1">
             <Label>Nombre *</Label>
@@ -278,8 +389,10 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
             </div>
           </div>
 
-          {/* Venta — solo si NO tiene pack */}
-          {!activeMembership && (
+          {/* Venta — solo si NO tiene pack propio y NO viene con anfitriona.
+              Si la anfitriona NO tiene créditos en su pack, el backend usará
+              esto como fallback. */}
+          {!activeMembership && !host && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
                 Venta de pack en este momento
