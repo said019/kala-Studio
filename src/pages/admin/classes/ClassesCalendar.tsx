@@ -346,6 +346,26 @@ function CalendarTab({
     },
   });
 
+  // Editar cupo (max_capacity) de UNA clase específica.
+  const capacityMutation = useMutation({
+    mutationFn: ({ id, newCap }: { id: string; newCap: number }) =>
+      api.put(`/admin/classes/${id}`, { maxCapacity: newCap }),
+    onSuccess: (res: any, vars) => {
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      qc.invalidateQueries({ queryKey: ["class-roster-sheet"] });
+      const newCap = res?.data?.data?.max_capacity ?? vars.newCap;
+      toast({ title: `Cupo actualizado a ${newCap}` });
+      // Reflejar en el sheet sin esperar al refetch
+      setSelectedClass((cur) => cur && cur.id === vars.id
+        ? { ...cur, maxCapacity: newCap, capacity: newCap }
+        : cur);
+    },
+    onError: (e: any) => toast({
+      title: e?.response?.data?.message ?? "No se pudo cambiar el cupo",
+      variant: "destructive",
+    }),
+  });
+
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const classesForDay = (date: Date) =>
     classes.filter((c) => c.startTime?.startsWith(format(date, "yyyy-MM-dd")));
@@ -634,7 +654,44 @@ function CalendarTab({
                 </div>
               </div>
               <div><span className="font-medium">Inicio:</span> {selectedClass.startTime ? new Date(selectedClass.startTime).toLocaleString("es-MX", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
-              <div><span className="font-medium">Cupo:</span> {(selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0) + " / " + (selectedClass.maxCapacity ?? selectedClass.capacity ?? "?")}</div>
+              {/* Cupo editable: +/- en línea para sumar o quitar lugares. */}
+              {(() => {
+                const occupied = selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0;
+                const cap = selectedClass.maxCapacity ?? selectedClass.capacity ?? 0;
+                const isFull = occupied >= cap;
+                const canShrink = cap > Math.max(1, occupied);
+                return (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2">
+                    <div>
+                      <span className="font-medium">Cupo:</span>{" "}
+                      <span className={isFull ? "text-amber-700 font-semibold" : ""}>
+                        {occupied} / {cap || "?"}
+                      </span>
+                      {isFull && <span className="ml-2 text-[10px] uppercase tracking-wider text-amber-700">Llena</span>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => capacityMutation.mutate({ id: selectedClass.id, newCap: Math.max(1, cap - 1) })}
+                        disabled={!canShrink || capacityMutation.isPending}
+                        className="h-7 w-7 rounded-md border border-input bg-background hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold"
+                        title="Quitar 1 lugar"
+                      >
+                        −
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => capacityMutation.mutate({ id: selectedClass.id, newCap: cap + 1 })}
+                        disabled={capacityMutation.isPending}
+                        className="h-7 w-7 rounded-md border border-input bg-background hover:bg-secondary text-sm font-semibold"
+                        title="Agregar 1 lugar"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
 
               {/* ── Inscritas ── */}

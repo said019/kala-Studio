@@ -15811,21 +15811,56 @@ app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/admin/classes/:id
+// PUT /api/admin/classes/:id — actualiza una clase específica (no el tipo).
+// Body: { classTypeId?, instructorId?, startTime?, endTime?, maxCapacity?,
+//         capacity?, status?, notes? }
+// Tanto `maxCapacity` como `capacity` se mapean a la columna max_capacity.
+// Si el nuevo max_capacity es MENOR al conteo real de reservas activas, se
+// rechaza para no dejar bookings "fuera del cupo" silenciosamente.
 app.put("/api/admin/classes/:id", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, capacity, status, notes } = req.body;
+    const {
+      classTypeId, instructorId, startTime, endTime,
+      maxCapacity, capacity, status, notes,
+    } = req.body || {};
+    // Acepta cualquiera de los dos nombres para no romper consumidores viejos.
+    const newCap = maxCapacity ?? capacity;
+    if (newCap != null) {
+      const capNum = Number(newCap);
+      if (!Number.isFinite(capNum) || capNum < 1) {
+        return res.status(400).json({ message: "El cupo debe ser un número >= 1" });
+      }
+      const occupied = await liveBookingCount(req.params.id);
+      if (capNum < occupied) {
+        return res.status(400).json({
+          message: `No puedes bajar el cupo a ${capNum}: la clase ya tiene ${occupied} reserva${occupied === 1 ? "" : "s"} activa${occupied === 1 ? "" : "s"}.`,
+        });
+      }
+    }
     const r = await pool.query(
-      `UPDATE classes SET class_type_id=COALESCE($1,class_type_id), instructor_id=COALESCE($2,instructor_id),
-       start_time=COALESCE($3,start_time), end_time=COALESCE($4,end_time),
-       capacity=COALESCE($5,capacity), status=COALESCE($6,status), notes=COALESCE($7,notes), updated_at=NOW()
-       WHERE id=$8 RETURNING *`,
-      [classTypeId || null, instructorId || null, startTime || null, endTime || null, capacity || null, status || null, notes || null, req.params.id]
+      `UPDATE classes SET
+         class_type_id = COALESCE($1, class_type_id),
+         instructor_id = COALESCE($2, instructor_id),
+         start_time    = COALESCE($3, start_time),
+         end_time      = COALESCE($4, end_time),
+         max_capacity  = COALESCE($5, max_capacity),
+         status        = COALESCE($6, status),
+         notes         = COALESCE($7, notes),
+         updated_at    = NOW()
+       WHERE id = $8 RETURNING *`,
+      [
+        classTypeId || null, instructorId || null,
+        startTime || null, endTime || null,
+        newCap != null ? Number(newCap) : null,
+        status || null, notes || null,
+        req.params.id,
+      ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Clase no encontrada" });
     return res.json({ data: r.rows[0] });
   } catch (err) {
-    return res.status(500).json({ message: "Error interno" });
+    console.error("[PUT /admin/classes/:id]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
   }
 });
 
