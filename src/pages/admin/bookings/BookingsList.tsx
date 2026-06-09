@@ -184,12 +184,13 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   });
 
   const assignMutation = useMutation({
-    mutationFn: (vars: { userId: string; guest?: any; guestSale?: any }) =>
+    mutationFn: (vars: { userId: string; guest?: any; guestSale?: any; overrideWeeklyLimit?: boolean }) =>
       api.post("/admin/bookings/assign", {
         classId,
         userId: vars.userId,
         guest: vars.guest,
         guestSale: vars.guestSale,
+        overrideWeeklyLimit: vars.overrideWeeklyLimit || undefined,
       }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
@@ -198,8 +199,21 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
       setAssignOpen(false);
       resetAssignForm();
     },
-    onError: (e: any) => {
-      toast({ title: e?.response?.data?.message ?? "Error al asignar reserva", variant: "destructive" });
+    onError: (e: any, vars) => {
+      const data = e?.response?.data;
+      // Tope semanal: la admin tiene autoridad para saltárselo. Preguntar y
+      // reintentar la MISMA asignación con overrideWeeklyLimit=true.
+      if (data?.code === "WEEKLY_LIMIT" && !vars.overrideWeeklyLimit) {
+        const ok = window.confirm(
+          `${data.message}\n\n¿Asignar la clase de todos modos? (Se descuenta 1 crédito como siempre.)`
+        );
+        if (ok) {
+          assignMutation.mutate({ ...vars, overrideWeeklyLimit: true });
+          return;
+        }
+        return;
+      }
+      toast({ title: data?.message ?? "Error al asignar reserva", variant: "destructive" });
     },
   });
 

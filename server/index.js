@@ -193,6 +193,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Recordatorio de clase",
     body: "{firstName}, te recordamos tu clase de {class} a las {time}. Llega 10 minutos antes para acomodarte.",
   },
+  waitlist_promoted: {
+    subject: "¡Se liberó un lugar!",
+    body: "{name}, ¡se liberó un lugar! Tu reserva de {class} el {date} a las {time} quedó CONFIRMADA. Te esperamos. ✨",
+  },
   class_attended: {
     subject: "Check-in registrado",
     body: "Listo, {firstName}. Tenemos tu check-in de {class}. Tus anillos en el pase ya se movieron. Buena clase. ✨",
@@ -2283,6 +2287,9 @@ async function selectMembershipForClass({ userId, classCategory, client = null }
         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
         -- Los planes online son solo videos: nunca sirven para reservar clases.
         AND COALESCE(p.class_category, 'all') <> 'online'
+        -- Los packs de visitas son para acompañantes/invitadas: la reserva
+        -- propia de la socia nunca debe quemar esos créditos.
+        AND COALESCE(p.is_visit_pack, false) = false
         AND (
           COALESCE(p.class_category, 'all') IN ('all', 'mixto')
           OR COALESCE(p.class_category, 'all') = $2
@@ -3578,6 +3585,137 @@ async function liveBookingCount(classId, db = pool) {
   return r.rows[0]?.cnt ?? 0;
 }
 
+/**
+ * Promueve bookings en lista de espera a 'confirmed' mientras haya lugar.
+ * Llamar SIEMPRE que se libere cupo: cancelación (alumna o admin), no-show,
+ * o cuando la admin sube el max_capacity de la clase.
+ *
+ * Orden de la fila: created_at ASC (quien se formó primero entra primero).
+ * Por cada candidata:
+ *   - Re-valida que su membresía siga activa, vigente y con créditos > 0
+ *     (pudo agotarse entre la entrada a la waitlist y la promoción). Si no,
+ *     la salta y prueba con la siguiente (su booking queda en waitlist).
+ *   - Descuenta 1 crédito (salvo ilimitada), incrementa current_bookings,
+ *     marca status='confirmed' y le avisa por WhatsApp + email.
+ *
+ * NO corre dentro de la transacción del caller: se llama después del COMMIT
+ * para no alargar locks. Usa su propia transacción por candidata.
+ * Devuelve la lista de bookings promovidos (puede ser []).
+ */
+async function promoteFromWaitlist(classId) {
+  const promoted = [];
+  try {
+    // Datos de la clase (para validar status/cupo y armar la notificación).
+    const clsRes = await pool.query(
+      `SELECT c.id, c.max_capacity, c.status, c.date, c.start_time,
+              ct.name AS class_type_name, i.display_name AS instructor_name
+         FROM classes c
+         JOIN class_types ct ON c.class_type_id = ct.id
+         LEFT JOIN instructors i ON c.instructor_id = i.id
+        WHERE c.id = $1`,
+      [classId]
+    );
+    const cls = clsRes.rows[0];
+    if (!cls || cls.status === "cancelled") return promoted;
+    // No promover a clases que ya pasaron.
+    const startsAt = new Date(`${cls.date instanceof Date ? cls.date.toISOString().slice(0, 10) : String(cls.date).slice(0, 10)}T${cls.start_time}-06:00`);
+    if (Number.isFinite(startsAt.getTime()) && startsAt.getTime() < Date.now()) return promoted;
+
+    // Candidatas en orden de llegada. Iteramos hasta llenar el cupo o agotar la fila.
+    const waitRes = await pool.query(
+      `SELECT b.id AS booking_id, b.user_id, b.membership_id, b.created_at,
+              u.display_name, u.email, u.phone
+         FROM bookings b
+         JOIN users u ON u.id = b.user_id
+        WHERE b.class_id = $1 AND b.status = 'waitlist'
+        ORDER BY b.created_at ASC`,
+      [classId]
+    );
+
+    for (const cand of waitRes.rows) {
+      const occupied = await liveBookingCount(classId);
+      if (occupied >= cls.max_capacity) break; // se llenó, paramos
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        // Lock + re-check del booking (pudo cambiar en paralelo).
+        const bRes = await client.query(
+          "SELECT id, status, membership_id, user_id FROM bookings WHERE id = $1 FOR UPDATE",
+          [cand.booking_id]
+        );
+        const b = bRes.rows[0];
+        if (!b || b.status !== "waitlist") { await client.query("ROLLBACK"); continue; }
+
+        // Membresía: debe seguir activa, vigente y con crédito.
+        const mRes = await client.query(
+          `SELECT id, classes_remaining FROM memberships
+            WHERE id = $1 AND status = 'active'
+              AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+            FOR UPDATE`,
+          [b.membership_id]
+        );
+        const mem = mRes.rows[0];
+        const unlimited = mem && (mem.classes_remaining === null || Number(mem.classes_remaining) >= 9999);
+        if (!mem || (!unlimited && Number(mem.classes_remaining) <= 0)) {
+          await client.query("ROLLBACK");
+          continue; // sin créditos: se queda en waitlist, probamos la siguiente
+        }
+
+        await client.query(
+          "UPDATE bookings SET status = 'confirmed', updated_at = NOW() WHERE id = $1",
+          [b.id]
+        );
+        if (!unlimited) {
+          await client.query(
+            "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
+            [mem.id]
+          );
+        }
+        await client.query(
+          "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+          [classId]
+        );
+        await client.query("COMMIT");
+        promoted.push({ bookingId: b.id, userId: b.user_id, name: cand.display_name });
+
+        // Notificación (best-effort, fuera de la transacción).
+        const dateStr = cls.date ? new Date(cls.date).toLocaleDateString("es-MX") : "";
+        const timeStr = cls.start_time ? String(cls.start_time).slice(0, 5) : "";
+        const firstName = (cand.display_name || "Alumna").split(" ")[0];
+        sendConfiguredWhatsAppTemplate({
+          templateKey: "waitlist_promoted",
+          phone: cand.phone,
+          vars: { name: firstName, class: cls.class_type_name || "Clase", date: dateStr, time: timeStr },
+          fallbackMessage: `${firstName}, ¡se liberó un lugar! Tu reserva de ${cls.class_type_name || "clase"}${dateStr ? ` el ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""} quedó CONFIRMADA. Te esperamos. ✨`,
+        }).catch((e) => console.error("[WA] waitlist promoted:", e.message));
+        if (cand.email && await areEmailNotificationsEnabled()) {
+          sendBookingConfirmed({
+            to: cand.email,
+            name: cand.display_name || "Alumna",
+            className: cls.class_type_name,
+            date: cls.date,
+            startTime: cls.start_time,
+            instructor: cls.instructor_name,
+            classesLeft: unlimited ? null : Math.max(0, Number(mem.classes_remaining) - 1),
+            isWaitlist: false,
+          }).catch((e) => console.error("[Email] waitlist promoted:", e.message));
+        }
+        triggerWalletPassSync(b.user_id, "waitlist_promoted");
+        console.log(`[waitlist] promovida ${cand.display_name} (booking ${b.id}) en clase ${classId}`);
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch (_) { }
+        console.error("[waitlist] error promoviendo:", err.message);
+      } finally {
+        client.release();
+      }
+    }
+  } catch (err) {
+    console.error("[promoteFromWaitlist]", err.message);
+  }
+  return promoted;
+}
+
 // POST /api/bookings
 app.post("/api/bookings", authMiddleware, async (req, res) => {
   const { classId } = req.body;
@@ -3816,6 +3954,21 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Esta reserva ya fue cancelada" });
     }
 
+    // ── Salirse de la lista de espera: siempre permitido, sin costo ────────
+    // Nunca se descontó crédito ni se ocupó cupo, así que no cuenta para el
+    // límite de cancelaciones ni aplica la ventana de 2 horas.
+    if (booking.status === "waitlist") {
+      await pool.query(
+        "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW() WHERE id = $1",
+        [req.params.id]
+      );
+      triggerWalletPassSync(req.userId, "waitlist_left");
+      return res.json({
+        message: "Saliste de la lista de espera.",
+        creditRestored: false,
+      });
+    }
+
     // ── Check membership cancellation limit (max 2 per membership period) ──
     let membership = null;
     if (booking.membership_id) {
@@ -3862,6 +4015,10 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
         "UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1",
         [booking.class_id]
       );
+
+      // Se liberó un lugar → promover a la primera de la lista de espera
+      // (best-effort, en background; no bloquea la respuesta).
+      promoteFromWaitlist(booking.class_id).catch(() => { });
 
       if (membership) {
         // Increment cancellations_used regardless of timing
@@ -9797,6 +9954,9 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
       if (!b.user_id) continue;
       const className = b.class_name || "tu clase";
       const cancelReason = reason ? ` (motivo: ${reason})` : "";
+      // Las que estaban en lista de espera nunca pagaron: no decirles que
+      // "su clase regresó al paquete" porque es falso y confunde.
+      const wasWaitlist = b.status === "waitlist";
       notifyByTemplate(
         b.user_id,
         "booking_cancelled",
@@ -9804,10 +9964,12 @@ app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
           class: className,
           date: dateStr,
           time: timeStr,
-          creditRestored: "Sí",
+          creditRestored: wasWaitlist ? "No aplica (lista de espera)" : "Sí",
         },
         ({ firstName }) =>
-          `${firstName}, tuvimos que cancelar la clase de ${className}${dateStr ? ` del ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.${cancelReason} Tu clase regresó a tu paquete.`,
+          wasWaitlist
+            ? `${firstName}, tuvimos que cancelar la clase de ${className}${dateStr ? ` del ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.${cancelReason} Estabas en lista de espera, así que no se descontó nada de tu paquete.`
+            : `${firstName}, tuvimos que cancelar la clase de ${className}${dateStr ? ` del ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.${cancelReason} Tu clase regresó a tu paquete.`,
       ).catch(() => {});
       triggerWalletPassSync(b.user_id, "admin_class_cancelled");
       waSent++;
@@ -9874,6 +10036,12 @@ app.delete("/api/admin/bookings/:id", adminMiddleware, async (req, res) => {
     const rb = await applyCancellationRollback(client, booking, { refundCheckedIn: true });
 
     await client.query("COMMIT");
+
+    // Se liberó un lugar (si la booking era confirmed/checked_in) → promover
+    // de la lista de espera en background.
+    if (booking.status === "confirmed" || booking.status === "checked_in") {
+      promoteFromWaitlist(booking.class_id).catch(() => { });
+    }
 
     // WA + wallet sync
     if (booking.user_id) {
@@ -10217,6 +10385,7 @@ app.get("/api/admin/today-roster", adminMiddleware, async (_req, res) => {
           WHEN 'waitlist'   THEN 3
           WHEN 'no_show'    THEN 4
           ELSE 5 END,
+          b.created_at ASC,
           COALESCE(gp.display_name, u.display_name) ASC`,
       [classIds]
     );
@@ -14335,7 +14504,7 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
 //      o paquete) DIRECTAMENTE a la acompañante en el mismo paso, crea la
 //      membership a su nombre y descuenta de ahí. La socia solo paga su clase.
 app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
-  const { classId, userId, guest, guestSale } = req.body;
+  const { classId, userId, guest, guestSale, overrideWeeklyLimit } = req.body;
   if (!classId || !userId) return res.status(400).json({ message: "classId y userId requeridos" });
   const withGuest = guest && typeof guest === "object" && guest.name && guest.phone;
   if (withGuest && !guest.acceptedWaiver) {
@@ -14410,12 +14579,19 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     }
 
     // Tope semanal (planes 'Barre — N Clases por semana').
-    const adminWeeklyCheck = await checkWeeklyClassLimit(client, userId, membership.id, cls.date);
-    if (!adminWeeklyCheck.ok) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        message: `La clienta llegó a su tope semanal: ${adminWeeklyCheck.limit} clase${adminWeeklyCheck.limit === 1 ? "" : "s"} por semana. Esta semana ya tiene ${adminWeeklyCheck.count} reservada${adminWeeklyCheck.count === 1 ? "" : "s"}.`,
-      });
+    // La admin puede saltárselo mandando overrideWeeklyLimit=true (la UI
+    // pregunta "¿Asignar de todos modos?" tras recibir code=WEEKLY_LIMIT).
+    if (!overrideWeeklyLimit) {
+      const adminWeeklyCheck = await checkWeeklyClassLimit(client, userId, membership.id, cls.date);
+      if (!adminWeeklyCheck.ok) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "WEEKLY_LIMIT",
+          message: `La clienta llegó a su tope semanal: ${adminWeeklyCheck.limit} clase${adminWeeklyCheck.limit === 1 ? "" : "s"} por semana. Esta semana ya tiene ${adminWeeklyCheck.count} reservada${adminWeeklyCheck.count === 1 ? "" : "s"}.`,
+        });
+      }
+    } else {
+      console.log(`[weeklyCheck] OVERRIDE por admin ${req.userId} — user=${userId} class=${classId}`);
     }
 
     const isWaitlist = (await liveBookingCount(classId, client)) >= cls.max_capacity;
@@ -14684,13 +14860,37 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
   try {
     // 1) Lookup primero para saber si ya estaba checked-in y evitar duplicar puntos.
     const before = await pool.query(
-      "SELECT user_id, status, checked_in_at, class_id FROM bookings WHERE id = $1",
+      "SELECT user_id, status, checked_in_at, class_id, membership_id FROM bookings WHERE id = $1",
       [req.params.id],
     );
     if (!before.rows.length) {
       return res.status(404).json({ message: "Reserva no encontrada" });
     }
+    const prevStatus = before.rows[0].status;
+    if (prevStatus === "cancelled") {
+      return res.status(400).json({ message: "Esta reserva está cancelada; no se puede hacer check-in." });
+    }
     const wasAlreadyCheckedIn = !!before.rows[0].checked_in_at;
+    // 1.5) Check-in directo de una booking en WAITLIST = promoción implícita:
+    // la alumna llegó y hay que cobrarle como a cualquiera. Descuenta crédito
+    // (salvo ilimitada) e incrementa current_bookings, que nunca se tocaron
+    // al entrar a la lista de espera.
+    if (prevStatus === "waitlist" && !wasAlreadyCheckedIn) {
+      if (before.rows[0].membership_id) {
+        await pool.query(
+          `UPDATE memberships
+              SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW()
+            WHERE id = $1
+              AND classes_remaining IS NOT NULL
+              AND classes_remaining < 9999`,
+          [before.rows[0].membership_id]
+        );
+      }
+      await pool.query(
+        "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+        [before.rows[0].class_id]
+      );
+    }
     // 2) UPDATE (idempotente: si ya estaba, refresca el timestamp pero no doblamos puntos).
     const r = await pool.query(
       "UPDATE bookings SET status = 'checked_in', checked_in_at = COALESCE(checked_in_at, NOW()) WHERE id = $1 RETURNING *",
@@ -14830,8 +15030,12 @@ app.put("/api/bookings/:id/no-show", adminMiddleware, async (req, res) => {
       [req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Reserva no encontrada o ya procesada" });
-    triggerWalletPassSync(r.rows[0].user_id, "booking_no_show");
-    return res.json({ data: r.rows[0] });
+    const b = r.rows[0];
+    // Un no-show sobre una reserva confirmada/checked_in deja de contar en
+    // liveBookingCount → se libera un lugar en vivo. Promover de la waitlist.
+    promoteFromWaitlist(b.class_id).catch(() => { });
+    triggerWalletPassSync(b.user_id, "booking_no_show");
+    return res.json({ data: b });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
   }
@@ -14841,7 +15045,7 @@ app.put("/api/bookings/:id/no-show", adminMiddleware, async (req, res) => {
 app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT b.id AS booking_id, b.status, b.checked_in_at,
+      `SELECT b.id AS booking_id, b.status, b.checked_in_at, b.created_at,
               u.id AS user_id, u.display_name, u.email, u.phone,
               m.plan_id, p.name AS plan_name, m.classes_remaining
        FROM bookings b
@@ -14855,6 +15059,9 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
          WHEN 'waitlist'   THEN 3
          WHEN 'no_show'    THEN 4
          ELSE 5 END,
+         -- La waitlist se ordena por llegada (FIFO): la 'Posición #N' que ve
+         -- la admin es el orden real de promoción, no alfabético.
+         b.created_at ASC,
          u.display_name ASC`,
       [req.params.id]
     );
@@ -15964,6 +16171,11 @@ app.put("/api/admin/classes/:id", adminMiddleware, async (req, res) => {
       ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Clase no encontrada" });
+    // Si subió el cupo, hay lugares nuevos → promover de la lista de espera
+    // en orden de llegada (background, no bloquea la respuesta).
+    if (newCap != null) {
+      promoteFromWaitlist(req.params.id).catch(() => { });
+    }
     return res.json({ data: r.rows[0] });
   } catch (err) {
     console.error("[PUT /admin/classes/:id]", err.message);

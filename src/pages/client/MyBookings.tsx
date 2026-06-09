@@ -101,12 +101,16 @@ const MyBookings = () => {
       qc.invalidateQueries({ queryKey: ["my-bookings"] });
       qc.invalidateQueries({ queryKey: ["my-membership"] });
       qc.invalidateQueries({ queryKey: ["public-classes"] });
+      const serverMsg: string = res?.data?.message || "";
       const creditRestored = res?.data?.creditRestored;
+      const wasWaitlist = serverMsg.toLowerCase().includes("lista de espera");
       toast({
-        title: "Reserva cancelada",
-        description: creditRestored
-          ? "Tu clase regresó al paquete."
-          : "La clase no se devuelve, fue cancelación tardía.",
+        title: wasWaitlist ? "Saliste de la lista de espera" : "Reserva cancelada",
+        description: wasWaitlist
+          ? "Nunca se descontó crédito. Puedes volver a unirte cuando quieras."
+          : creditRestored
+            ? "Tu clase regresó al paquete."
+            : "La clase no se devuelve, fue cancelación tardía.",
       });
       setCancelId(null);
     },
@@ -194,7 +198,9 @@ const MyBookings = () => {
               {list.map((b) => {
                 const isPast = new Date(b.start_time) < new Date();
                 const hasReview = Boolean(b.has_review);
-                const isCancellable = b.status === "confirmed" && !isPast;
+                // Las reservas en lista de espera SIEMPRE se pueden abandonar
+                // (nunca se cobró crédito, no aplica la ventana de cancelación).
+                const isCancellable = (b.status === "confirmed" || b.status === "waitlist") && !isPast;
                 const canReview = isPast && b.status === "checked_in" && !hasReview;
                 return (
                   <ListRow
@@ -255,25 +261,35 @@ const MyBookings = () => {
         </Section>
 
         {/* Cancel confirm */}
-        <AlertDialog open={!!cancelId} onOpenChange={(o) => !o && setCancelId(null)}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>¿Cancelar reserva?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Si cancelas con menos de 4 horas, tu clase no regresa al paquete.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Volver</AlertDialogCancel>
-              <AlertDialogAction
-                style={{ backgroundColor: KALA.destructive, color: KALA.cream }}
-                onClick={() => cancelId && cancelMutation.mutate(cancelId)}
-              >
-                Sí, cancelar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {(() => {
+          const cancelTarget = cancelId ? bookings.find((b) => b.id === cancelId) : null;
+          const isWaitlistCancel = cancelTarget?.status === "waitlist";
+          return (
+            <AlertDialog open={!!cancelId} onOpenChange={(o) => !o && setCancelId(null)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {isWaitlistCancel ? "¿Salir de la lista de espera?" : "¿Cancelar reserva?"}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {isWaitlistCancel
+                      ? "No pasa nada: nunca se descontó crédito de tu paquete. Puedes volver a unirte cuando quieras."
+                      : "Si cancelas con menos de 4 horas, tu clase no regresa al paquete."}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Volver</AlertDialogCancel>
+                  <AlertDialogAction
+                    style={{ backgroundColor: KALA.destructive, color: KALA.cream }}
+                    onClick={() => cancelId && cancelMutation.mutate(cancelId)}
+                  >
+                    {isWaitlistCancel ? "Sí, salir" : "Sí, cancelar"}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          );
+        })()}
 
         {/* Review dialog */}
         <Dialog
