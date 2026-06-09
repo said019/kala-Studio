@@ -42,6 +42,7 @@ const ClientDetail = () => {
   const [editCredits, setEditCredits] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editEndDate, setEditEndDate] = useState("");
+  const [editWeeklyExtra, setEditWeeklyExtra] = useState("");
 
   const { data: user, isLoading } = useQuery({
     queryKey: ["client", id],
@@ -153,6 +154,7 @@ const ClientDetail = () => {
     setEditCredits(m.classesRemaining == null ? "" : String(m.classesRemaining));
     setEditStatus(m.status ?? "active");
     setEditEndDate(m.endDate ? String(m.endDate).slice(0, 10) : "");
+    setEditWeeklyExtra(String(m.weeklyExtraClasses ?? 0));
   };
 
   const editMemMutation = useMutation({
@@ -162,6 +164,11 @@ const ClientDetail = () => {
       // así que enviamos 9999 para representar ilimitado de forma consistente.
       body.classesRemaining = editCredits.trim() === "" ? 9999 : Math.max(0, Number(editCredits));
       if (editEndDate) body.endDate = editEndDate;
+      // Solo mandar el extra si la admin lo tocó (distinto al valor inicial).
+      // Si no lo manda, el backend auto-bumpeará si subió classesRemaining.
+      if (editWeeklyExtra.trim() !== "" && Number(editWeeklyExtra) !== Number(editMem.weeklyExtraClasses ?? 0)) {
+        body.weeklyExtraClasses = Math.max(0, Number(editWeeklyExtra));
+      }
       return api.put(`/memberships/${editMem.id}`, body);
     },
     onSuccess: () => {
@@ -515,6 +522,31 @@ const ClientDetail = () => {
                     Ajusta los créditos de la alumna (sirve para paquetes por semana o por mes). Déjalo vacío para ilimitado.
                   </p>
                 </div>
+
+                {/* Extra semanal: permite reservar más allá del tope del plan */}
+                {editMem?.weeklyClassLimit ? (
+                  <div className="space-y-1">
+                    <Label className="text-white/60 text-xs">
+                      Clases extra esta semana
+                      <span className="ml-1 text-white/35 font-normal">
+                        (sobre el tope de {editMem.weeklyClassLimit}/sem)
+                      </span>
+                    </Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      placeholder="0"
+                      className="bg-white/[0.04] border-white/[0.08] text-white"
+                      value={editWeeklyExtra}
+                      onChange={(e) => setEditWeeklyExtra(e.target.value)}
+                    />
+                    <p className="text-[10px] text-white/35">
+                      Permite reservar esta semana aunque ya consumió sus {editMem.weeklyClassLimit} clases.
+                      Si subes "Clases restantes" sin tocar este campo, se ajusta solo por la misma diferencia.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="space-y-1">
                   <Label className="text-white/60 text-xs">Estado</Label>

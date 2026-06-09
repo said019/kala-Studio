@@ -1227,6 +1227,13 @@ async function ensureSchema() {
     await pool.query(`
       ALTER TABLE memberships ADD COLUMN IF NOT EXISTS cancellations_used INTEGER NOT NULL DEFAULT 0;
     `).catch(() => { });
+    // ── memberships: extras semanales ─────────────────────────────────────
+    // Créditos que la admin regala y que ADEMÁS deben permitir reservar más
+    // allá del tope semanal del plan (ej. "te regalo una clase aunque ya
+    // consumiste tus 4 esta semana"). Suma al weekly_class_limit del plan.
+    await pool.query(`
+      ALTER TABLE memberships ADD COLUMN IF NOT EXISTS weekly_extra_classes INTEGER NOT NULL DEFAULT 0;
+    `).catch(() => { });
     // ── Reconcile cancellations_used with actual cancelled bookings ────────
     await pool.query(`
       UPDATE memberships m
@@ -3446,13 +3453,16 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
  */
 async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
   const planRes = await client.query(
-    `SELECT p.weekly_class_limit
+    `SELECT p.weekly_class_limit, COALESCE(m.weekly_extra_classes, 0) AS weekly_extra
        FROM memberships m JOIN plans p ON p.id = m.plan_id
       WHERE m.id = $1`,
     [membershipId],
   );
-  const limit = planRes.rows[0]?.weekly_class_limit;
-  if (!limit || limit <= 0) return { ok: true };
+  const baseLimit = planRes.rows[0]?.weekly_class_limit;
+  if (!baseLimit || baseLimit <= 0) return { ok: true };
+  // El extra que la admin regala se suma al tope efectivo de la semana.
+  const extra = Number(planRes.rows[0]?.weekly_extra ?? 0);
+  const limit = baseLimit + (extra > 0 ? extra : 0);
   const countRes = await client.query(
     `SELECT COUNT(*)::int AS n
        FROM bookings b
@@ -13700,7 +13710,8 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
   try {
     const { status, userId, limit = 100 } = req.query;
     let q = `SELECT m.*, u.display_name AS user_name, p.name AS plan_name,
-                    p.class_limit, p.duration_days, p.class_category
+                    p.class_limit, p.duration_days, p.class_category,
+                    p.weekly_class_limit
              FROM memberships m
              LEFT JOIN users u ON m.user_id = u.id
              LEFT JOIN plans p ON m.plan_id = p.id
@@ -13736,6 +13747,8 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
         endDate: m.end_date,
         classesRemaining: m.classes_remaining,
         classLimit: m.class_limit,
+        weeklyClassLimit: m.weekly_class_limit ?? null,
+        weeklyExtraClasses: m.weekly_extra_classes ?? 0,
         createdAt: m.created_at,
       }))
     });
@@ -13977,10 +13990,19 @@ app.put("/api/memberships/:id/cancel", adminMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/memberships/:id — update any field
+// PUT /api/memberships/:id — update any field.
+// Body opcional: { status, classesRemaining, endDate, paymentMethod,
+//                  weeklyExtraClasses }
+//
+// weeklyExtraClasses: créditos extra que la admin regala y que ADEMÁS
+// permiten reservar más allá del tope semanal del plan. Si NO se pasa
+// explícitamente y la admin SUBE classesRemaining respecto al valor
+// actual, auto-bumpeamos weekly_extra_classes por la misma diferencia.
+// Esto cubre el caso intuitivo "le regalo una clase aunque ya consumió
+// su semana — debería poder reservar".
 app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
   try {
-    const { status, classesRemaining, endDate, paymentMethod } = req.body;
+    const { status, classesRemaining, endDate, paymentMethod, weeklyExtraClasses } = req.body;
 
     // Validar enum de status. Valores SACADOS DEL ENUM REAL `membership_status`
     // en Postgres (verificado contra prod 2026-05): pending_payment,
@@ -14000,16 +14022,50 @@ app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
         return res.status(400).json({ message: "classesRemaining debe ser >= 0" });
       }
     }
+    if (weeklyExtraClasses !== undefined && weeklyExtraClasses !== null) {
+      const n = Number(weeklyExtraClasses);
+      if (!Number.isFinite(n) || n < 0) {
+        return res.status(400).json({ message: "weeklyExtraClasses debe ser >= 0" });
+      }
+    }
+
+    // Auto-bump del extra semanal: leer estado previo SOLO si la admin
+    // subió classesRemaining sin tocar el extra.
+    let resolvedExtra = weeklyExtraClasses ?? null;
+    if (resolvedExtra === null && classesRemaining !== undefined && classesRemaining !== null) {
+      const prev = await pool.query(
+        "SELECT classes_remaining, COALESCE(weekly_extra_classes, 0) AS weekly_extra FROM memberships WHERE id = $1",
+        [req.params.id]
+      );
+      const prevRow = prev.rows[0];
+      if (prevRow) {
+        const oldCredits = prevRow.classes_remaining;
+        const newCredits = Number(classesRemaining);
+        // Si el viejo era NULL (ilimitado), no calculamos delta.
+        if (oldCredits !== null && newCredits > Number(oldCredits)) {
+          const delta = newCredits - Number(oldCredits);
+          resolvedExtra = Number(prevRow.weekly_extra) + delta;
+        }
+      }
+    }
 
     const r = await pool.query(
       `UPDATE memberships SET
-         status = COALESCE($1, status),
-         classes_remaining = COALESCE($2, classes_remaining),
-         end_date = COALESCE($3, end_date),
-         payment_method = COALESCE($4, payment_method),
-         updated_at = NOW()
-       WHERE id = $5 RETURNING *`,
-      [status || null, classesRemaining ?? null, endDate || null, paymentMethod || null, req.params.id]
+         status               = COALESCE($1, status),
+         classes_remaining    = COALESCE($2, classes_remaining),
+         end_date             = COALESCE($3, end_date),
+         payment_method       = COALESCE($4, payment_method),
+         weekly_extra_classes = COALESCE($5, weekly_extra_classes),
+         updated_at           = NOW()
+       WHERE id = $6 RETURNING *`,
+      [
+        status || null,
+        classesRemaining ?? null,
+        endDate || null,
+        paymentMethod || null,
+        resolvedExtra,
+        req.params.id,
+      ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
     triggerWalletPassSync(r.rows[0].user_id, "membership_updated");
