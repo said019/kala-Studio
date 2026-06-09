@@ -3491,7 +3491,9 @@ app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
   try {
     const ref = req.query.date || new Date().toISOString().slice(0, 10);
     const r = await pool.query(
-      `SELECT m.id AS membership_id, p.name AS plan_name, p.weekly_class_limit AS limit,
+      `SELECT m.id AS membership_id, p.name AS plan_name,
+              p.weekly_class_limit AS base_limit,
+              COALESCE(m.weekly_extra_classes, 0) AS weekly_extra,
               (SELECT COUNT(*)::int FROM bookings b
                  JOIN classes c ON c.id = b.class_id
                 WHERE b.user_id = $1 AND b.membership_id = m.id
@@ -3506,13 +3508,21 @@ app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
           AND p.weekly_class_limit IS NOT NULL`,
       [req.userId, ref],
     );
-    const data = r.rows.map((row) => ({
-      membership_id: row.membership_id,
-      plan_name: row.plan_name,
-      limit: row.limit,
-      used: row.used,
-      remaining: Math.max(0, row.limit - row.used),
-    }));
+    const data = r.rows.map((row) => {
+      const extra = Number(row.weekly_extra ?? 0);
+      const effLimit = Number(row.base_limit) + (extra > 0 ? extra : 0);
+      return {
+        membership_id: row.membership_id,
+        plan_name: row.plan_name,
+        // limit = tope efectivo (plan + extra de la admin). Esto es lo que
+        // el frontend usa para decidir si bloquear o no la reserva.
+        limit: effLimit,
+        base_limit: Number(row.base_limit),
+        weekly_extra: extra,
+        used: row.used,
+        remaining: Math.max(0, effLimit - row.used),
+      };
+    });
     return res.json({ data, week_ref: ref });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
