@@ -157,6 +157,19 @@ const ClientDetail = () => {
     setEditWeeklyExtra(String(m.weeklyExtraClasses ?? 0));
   };
 
+  const grantWeeklyExtraMutation = useMutation({
+    mutationFn: (membershipId: string) =>
+      api.post(`/admin/memberships/${membershipId}/grant-weekly-extra`, { amount: 1 }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["client-memberships", id] });
+      toast({ title: res?.data?.message ?? "+1 clase esta semana" });
+    },
+    onError: (e: any) => toast({
+      title: e?.response?.data?.message ?? "Error al regalar clase",
+      variant: "destructive",
+    }),
+  });
+
   const editMemMutation = useMutation({
     mutationFn: () => {
       const body: any = { status: editStatus };
@@ -260,19 +273,48 @@ const ClientDetail = () => {
               <Table>
                 <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Estado</TableHead><TableHead>Vence</TableHead><TableHead>Clases</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
-                  {(Array.isArray(memberships?.data) ? memberships.data : []).map((m: any) => (
-                    <TableRow key={m.id}>
-                      <TableCell>{m.planName ?? m.planId}</TableCell>
-                      <TableCell><Badge>{m.status}</Badge></TableCell>
-                      <TableCell>{m.endDate ? new Date(m.endDate).toLocaleDateString("es-MX") : "—"}</TableCell>
-                      <TableCell>{m.classesRemaining == null || Number(m.classesRemaining) >= 9999 ? "∞" : m.classesRemaining}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openEditMem(m)}>
-                          <Pencil size={12} className="mr-1" /> Editar
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {(Array.isArray(memberships?.data) ? memberships.data : []).map((m: any) => {
+                    const isActive = m.status === "active";
+                    const hasWeeklyLimit = m.weeklyClassLimit != null && m.weeklyClassLimit > 0;
+                    const weeklyExtra = Number(m.weeklyExtraClasses ?? 0);
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell>
+                          <div>{m.planName ?? m.planId}</div>
+                          {hasWeeklyLimit && (
+                            <div className="text-[10px] text-muted-foreground mt-0.5">
+                              Tope: {m.weeklyClassLimit}/sem
+                              {weeklyExtra > 0 && (
+                                <span className="ml-1 text-emerald-500">+ {weeklyExtra} extra</span>
+                              )}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell><Badge>{m.status}</Badge></TableCell>
+                        <TableCell>{m.endDate ? new Date(m.endDate).toLocaleDateString("es-MX") : "—"}</TableCell>
+                        <TableCell>{m.classesRemaining == null || Number(m.classesRemaining) >= 9999 ? "∞" : m.classesRemaining}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-wrap justify-end gap-1">
+                            {isActive && hasWeeklyLimit && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+                                onClick={() => grantWeeklyExtraMutation.mutate(m.id)}
+                                disabled={grantWeeklyExtraMutation.isPending}
+                                title="Regalarle 1 clase esta semana (sube créditos y permite saltar el tope semanal)"
+                              >
+                                +1 esta semana
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => openEditMem(m)}>
+                              <Pencil size={12} className="mr-1" /> Editar
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                   {(!Array.isArray(memberships?.data) || memberships.data.length === 0) && (
                     <TableRow><TableCell colSpan={5} className="text-sm text-muted-foreground py-6 text-center">Sin membresías.</TableCell></TableRow>
                   )}

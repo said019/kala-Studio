@@ -3474,6 +3474,10 @@ async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
     [userId, membershipId, classDate],
   );
   const count = countRes.rows[0]?.n || 0;
+  // Log de diagnóstico: ayuda a entender por qué un check pasa o falla,
+  // especialmente cuando la admin regaló un extra y la alumna sigue
+  // sin poder reservar.
+  console.log(`[weeklyCheck] user=${userId} mem=${membershipId} base=${baseLimit} extra=${extra} limit=${limit} used=${count} → ${count >= limit ? "BLOCKED" : "OK"}`);
   if (count >= limit) {
     return {
       ok: false,
@@ -3484,6 +3488,36 @@ async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
   }
   return { ok: true, limit, count };
 }
+
+// POST /api/admin/memberships/:id/grant-weekly-extra — sube weekly_extra_classes
+// en N (default 1). One-click para "regálale una clase esta semana".
+app.post("/api/admin/memberships/:id/grant-weekly-extra", adminMiddleware, async (req, res) => {
+  try {
+    const n = Math.max(1, Number(req.body?.amount ?? 1));
+    const r = await pool.query(
+      `UPDATE memberships
+          SET weekly_extra_classes = COALESCE(weekly_extra_classes, 0) + $1,
+              classes_remaining = CASE
+                WHEN classes_remaining IS NULL THEN NULL
+                WHEN classes_remaining >= 9999 THEN classes_remaining
+                ELSE classes_remaining + $1
+              END,
+              updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, user_id, classes_remaining, weekly_extra_classes`,
+      [n, req.params.id]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+    triggerWalletPassSync(r.rows[0].user_id, "membership_weekly_extra_granted");
+    return res.json({
+      data: r.rows[0],
+      message: `+${n} clase${n === 1 ? "" : "s"} esta semana`,
+    });
+  } catch (err) {
+    console.error("POST /admin/memberships/:id/grant-weekly-extra:", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  }
+});
 
 // GET /api/bookings/weekly-status — alumna ve cuántas le quedan esta semana
 // Devuelve para CADA membresía activa con weekly_class_limit el conteo + remaining.
@@ -12603,8 +12637,15 @@ app.post("/api/webhook/evolution", async (req, res) => {
         const remoteJid = m.key?.remoteJid || m.remoteJid;
         const text = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
         if (remoteJid && text) {
-          console.log("[EVOLUTION INCOMING]", remoteJid, ":", text.slice(0, 100));
-          // TODO future: registrar en una tabla wa_inbound_messages para inbox admin
+          // Filtrar mensajes de grupo (@g.us) — son ruido (cadenas, listas
+          // sociales, etc.) y no van dirigidos al negocio. Solo logueamos
+          // mensajes 1:1 (@s.whatsapp.net) que sí podrían ser respuestas a
+          // campañas / preguntas de alumnas.
+          const isGroup = String(remoteJid).endsWith("@g.us");
+          if (!isGroup) {
+            console.log("[EVOLUTION INCOMING]", remoteJid, ":", text.slice(0, 100));
+            // TODO future: registrar en una tabla wa_inbound_messages para inbox admin
+          }
         }
       }
     }
