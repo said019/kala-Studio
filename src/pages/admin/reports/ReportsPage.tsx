@@ -12,7 +12,7 @@ import {
   ResponsiveContainer, LineChart, Line, Area, AreaChart, Cell,
 } from "recharts";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, TrendingDown, Minus, Download, Printer, Sparkles, AlertTriangle } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Download, Printer, AlertTriangle } from "lucide-react";
 
 /* ════════════════════════════════════════════════════════════════
    ReportsPage — product register, Impeccable principles
@@ -207,15 +207,6 @@ function ActionPanel({ dorm, conv, cancelRate, cancelled, navigate }: { dorm: an
         tone: C.orange,
       });
     }
-  }
-  if (conv && Number(conv.muestras_total || 0) > 0 && Number(conv.conversion_rate || 0) < 30) {
-    actions.push({
-      icon: Sparkles,
-      label: `Conversión muestra→paquete: ${conv.conversion_rate}%`,
-      cta: "Revisar follow-up post-muestra",
-      link: "/admin/whatsapp-templates",
-      tone: C.berry,
-    });
   }
   if (actions.length === 0) return null;
   return (
