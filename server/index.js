@@ -193,6 +193,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Recordatorio de clase",
     body: "{firstName}, te recordamos tu clase de {class} a las {time}. Llega 10 minutos antes para acomodarte.",
   },
+  booking_waitlist: {
+    subject: "Quedaste en lista de espera",
+    body: "{firstName}, la clase de {class} el {date} a las {time} está llena. Quedaste en lista de espera — si se libera un lugar, tu reserva se confirma sola y te avisamos por aquí. 💜",
+  },
   waitlist_promoted: {
     subject: "¡Se liberó un lugar!",
     body: "{name}, ¡se liberó un lugar! Tu reserva de {class} el {date} a las {time} quedó CONFIRMADA. Te esperamos. ✨",
@@ -3882,7 +3886,9 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
           }).catch((e) => console.error("[Email] booking confirmed:", e.message));
         }
         sendConfiguredWhatsAppTemplate({
-          templateKey: "booking_confirmed",
+          // Template distinto si entró a lista de espera: el de confirmada
+          // dice "te apartamos lugar", que es falso en waitlist.
+          templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
           phone: u.phone,
           vars: {
             name: u.display_name || "Alumna",
@@ -3891,7 +3897,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
             time: cl.start_time ? String(cl.start_time).slice(0, 5) : "",
           },
           fallbackMessage: isWaitlist
-            ? `Hola ${u.display_name || "Alumna"}, quedaste en lista de espera para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}).`
+            ? `Hola ${u.display_name || "Alumna"}, la clase de ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está llena. Quedaste en lista de espera — si se libera un lugar, tu reserva se confirma sola y te avisamos por aquí.`
             : `Hola ${u.display_name || "Alumna"}, tu reserva para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed:", e.message));
         // Notificación a la dueña/admins de nueva reserva (no espera la respuesta).
@@ -5099,6 +5105,8 @@ function prettyTemplateKey(key) {
   const map = {
     welcome: "Bienvenida a Kala",
     booking_confirmed: "Reserva confirmada",
+    booking_waitlist: "Entró a lista de espera",
+    waitlist_promoted: "Se liberó un lugar (promoción)",
     booking_cancelled: "Reserva cancelada",
     class_reminder: "Recordatorio de clase",
     class_attended: "Check-in registrado",
@@ -12383,6 +12391,8 @@ const TEMPLATE_VARIABLES = {
   welcome: ["firstName"],
   password_reset: ["firstName", "link"],
   booking_confirmed: ["firstName", "class", "date", "time"],
+  booking_waitlist: ["firstName", "class", "date", "time"],
+  waitlist_promoted: ["name", "class", "date", "time"],
   booking_cancelled: ["firstName", "class", "date", "creditRestored"],
   class_reminder: ["firstName", "class", "time"],
   class_attended: ["firstName", "class"],
@@ -14782,7 +14792,9 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
           }).catch((e) => console.error("[Email] booking confirmed (admin):", e.message));
         }
         sendConfiguredWhatsAppTemplate({
-          templateKey: "booking_confirmed",
+          // Template distinto si entró a lista de espera (el de confirmada
+          // dice "te apartamos lugar", que es falso en waitlist).
+          templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
           phone: u.phone,
           vars: {
             name: u.display_name || "Alumna",
@@ -14791,7 +14803,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
             time: cl.start_time ? String(cl.start_time).slice(0, 5) : "",
           },
           fallbackMessage: isWaitlist
-            ? `Hola ${u.display_name || "Alumna"}, quedaste en lista de espera para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}).`
+            ? `Hola ${u.display_name || "Alumna"}, la clase de ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está llena. Quedaste en lista de espera — si se libera un lugar, tu reserva se confirma sola y te avisamos por aquí.`
             : `Hola ${u.display_name || "Alumna"}, tu reserva para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed (admin):", e.message));
         // Notifica a la dueña/admins (puede haber otras recepcionistas o instructoras).
