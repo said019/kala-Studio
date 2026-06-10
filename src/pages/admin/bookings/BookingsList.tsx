@@ -183,6 +183,11 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     }),
   });
 
+  // Tope semanal alcanzado: guardamos la asignación pendiente y mostramos un
+  // diálogo propio ("¿Asignar de todos modos?"). No usamos window.confirm
+  // porque algunos navegadores/PWA lo suprimen silenciosamente.
+  const [weeklyPrompt, setWeeklyPrompt] = useState<{ vars: any; message: string } | null>(null);
+
   const assignMutation = useMutation({
     mutationFn: (vars: { userId: string; guest?: any; guestSale?: any; overrideWeeklyLimit?: boolean }) =>
       api.post("/admin/bookings/assign", {
@@ -196,21 +201,16 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       const msg = res?.data?.message ?? "Reserva asignada";
       toast({ title: msg });
+      setWeeklyPrompt(null);
       setAssignOpen(false);
       resetAssignForm();
     },
     onError: (e: any, vars) => {
       const data = e?.response?.data;
-      // Tope semanal: la admin tiene autoridad para saltárselo. Preguntar y
-      // reintentar la MISMA asignación con overrideWeeklyLimit=true.
+      // Tope semanal: la admin tiene autoridad para saltárselo. Mostramos el
+      // diálogo de confirmación y reintentamos con overrideWeeklyLimit=true.
       if (data?.code === "WEEKLY_LIMIT" && !vars.overrideWeeklyLimit) {
-        const ok = window.confirm(
-          `${data.message}\n\n¿Asignar la clase de todos modos? (Se descuenta 1 crédito como siempre.)`
-        );
-        if (ok) {
-          assignMutation.mutate({ ...vars, overrideWeeklyLimit: true });
-          return;
-        }
+        setWeeklyPrompt({ vars, message: data.message || "La clienta llegó a su tope semanal." });
         return;
       }
       toast({ title: data?.message ?? "Error al asignar reserva", variant: "destructive" });
@@ -766,6 +766,40 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
         onOpenChange={setVisitOpen}
         onSuccess={() => refetch()}
       />
+
+      {/* ── Tope semanal alcanzado: ¿asignar de todos modos? ── */}
+      <Dialog open={!!weeklyPrompt} onOpenChange={(v) => !v && setWeeklyPrompt(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Tope semanal alcanzado</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{weeklyPrompt?.message}</p>
+          <p className="text-sm">
+            ¿Asignar la clase de todos modos? Se descuenta 1 crédito como siempre.
+          </p>
+          <div className="flex gap-2 pt-1">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setWeeklyPrompt(null)}
+              disabled={assignMutation.isPending}
+            >
+              No, cancelar
+            </Button>
+            <Button
+              className="flex-1 bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
+              disabled={assignMutation.isPending}
+              onClick={() => {
+                if (weeklyPrompt) {
+                  assignMutation.mutate({ ...weeklyPrompt.vars, overrideWeeklyLimit: true });
+                }
+              }}
+            >
+              {assignMutation.isPending ? "Asignando…" : "Sí, asignar"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
