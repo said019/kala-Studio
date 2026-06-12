@@ -2802,6 +2802,19 @@ async function findNonRepeatablePlanConflict({
   return null;
 }
 
+// Normaliza el método de pago al enum payment_method de Postgres
+// ('cash','transfer','card','online'). Acepta sinónimos comunes en español
+// y cae a 'cash' ante cualquier valor desconocido — un valor inválido
+// tronaría el INSERT con error de enum.
+function normalizePaymentMethod(value, fallback = "cash") {
+  const v = String(value ?? "").toLowerCase().trim();
+  if (["cash", "efectivo"].includes(v)) return "cash";
+  if (["transfer", "transferencia", "spei"].includes(v)) return "transfer";
+  if (["card", "tarjeta", "tdc", "tdd"].includes(v)) return "card";
+  if (["online", "en línea", "en linea"].includes(v)) return "online";
+  return fallback;
+}
+
 function serializeSpecialtiesForDb(value) {
   if (value === undefined || value === null) return null;
   if (Array.isArray(value)) {
