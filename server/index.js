@@ -15939,19 +15939,41 @@ app.get("/api/instructors", adminMiddleware, async (req, res) => {
 
 // POST /api/instructors
 app.post("/api/instructors", adminMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { displayName, email, phone, bio, specialties, isActive = true, photoFocusX = 50, photoFocusY = 50 } = req.body;
     if (!displayName) return res.status(400).json({ message: "Nombre requerido" });
     const specialtiesValue = serializeSpecialtiesForDb(specialties);
     const safeFocusX = Math.max(0, Math.min(100, Number(photoFocusX || 50)));
     const safeFocusY = Math.max(0, Math.min(100, Number(photoFocusY || 50)));
-    const r = await pool.query(
-      "INSERT INTO instructors (display_name, email, phone, bio, specialties, is_active, photo_focus_x, photo_focus_y) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
-      [displayName, email || null, phone || null, bio || null, specialtiesValue, isActive, safeFocusX, safeFocusY]
+
+    await client.query("BEGIN");
+    // instructors.user_id es NOT NULL: cada instructora necesita su user
+    // (role='instructor'). Si no viene email, generamos uno sintético único
+    // (users.email también es NOT NULL); Karla puede corregirlo después.
+    const slug = String(displayName).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const userEmail = (email && String(email).includes("@")) ? email : `instructor+${slug}@kala.guest`;
+    let userRow = (await client.query("SELECT id FROM users WHERE email = $1 LIMIT 1", [userEmail])).rows[0];
+    if (!userRow) {
+      userRow = (await client.query(
+        `INSERT INTO users (email, display_name, phone, role, accepts_terms)
+         VALUES ($1, $2, $3, 'instructor', true) RETURNING id`,
+        [userEmail, displayName, phone || null]
+      )).rows[0];
+    }
+    const r = await client.query(
+      `INSERT INTO instructors (user_id, display_name, email, phone, bio, specialties, is_active, photo_focus_x, photo_focus_y)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [userRow.id, displayName, email || null, phone || null, bio || null, specialtiesValue, isActive, safeFocusX, safeFocusY]
     );
+    await client.query("COMMIT");
     return res.status(201).json({ data: camelRow(r.rows[0]) });
   } catch (err) {
-    return res.status(500).json({ message: "Error interno" });
+    await client.query("ROLLBACK").catch(() => { });
+    console.error("[POST /instructors]", err.message);
+    return res.status(500).json({ message: "Error interno", error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -16065,9 +16087,10 @@ app.post("/api/instructors/:id/magic-link", adminMiddleware, async (req, res) =>
       if (uRes.rows.length) {
         userRow = uRes.rows[0];
       } else {
-        // Create a user for the instructor
+        // Create a user for the instructor (sin is_verified: esa columna no
+        // existe en la tabla users de producción)
         const newU = await pool.query(
-          `INSERT INTO users (email, display_name, role, is_verified) VALUES ($1, $2, 'instructor', true) RETURNING *`,
+          `INSERT INTO users (email, display_name, role, accepts_terms) VALUES ($1, $2, 'instructor', true) RETURNING *`,
           [ins.email, ins.display_name]
         );
         userRow = newU.rows[0];
