@@ -389,14 +389,21 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
             </div>
           </div>
 
-          {/* Venta — solo si NO tiene pack propio y NO viene con anfitriona.
-              Si la anfitriona NO tiene créditos en su pack, el backend usará
-              esto como fallback. */}
-          {!activeMembership && !host && (
+          {/* Venta — visible siempre que la visitante NO tenga pack propio.
+              Con anfitriona seleccionada es OPCIONAL: el crédito sale del
+              pack de visitas de la socia, y este plan solo se usa como
+              fallback si la socia no tiene créditos. */}
+          {!activeMembership && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                Venta de pack en este momento
+                {host ? "Venta de pack (opcional)" : "Venta de pack en este momento"}
               </p>
+              {host && (
+                <p className="text-[11px] text-muted-foreground">
+                  El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
+                  Elige un plan solo como respaldo por si no tiene créditos.
+                </p>
+              )}
               <div className="space-y-1">
                 <Label className="text-sm">Plan de visita</Label>
                 <Select value={planId} onValueChange={setPlanId}>
