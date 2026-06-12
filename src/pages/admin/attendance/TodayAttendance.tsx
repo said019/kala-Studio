@@ -45,9 +45,15 @@ const TodayAttendance = () => {
 
   const checkinMutation = useMutation({
     mutationFn: (bookingId: string) => api.put(`/bookings/${bookingId}/check-in`),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["today-roster"] });
       if (navigator.vibrate) navigator.vibrate(60);
+      if (res?.data?.creditDeducted) {
+        toast({
+          title: "Check-in registrado",
+          description: "Estaba en lista de espera: se descontó 1 crédito.",
+        });
+      }
     },
     onError: (e: any) => toast({
       title: "Error al hacer check-in",

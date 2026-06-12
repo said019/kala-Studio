@@ -14869,46 +14869,63 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
   if (!UUID_RE.test(String(req.params.id))) {
     return res.status(400).json({ message: "ID de reserva inválido" });
   }
+  const txClient = await pool.connect();
+  let booking = null;
+  let wasAlreadyCheckedIn = false;
+  let creditDeducted = false;
   try {
-    // 1) Lookup primero para saber si ya estaba checked-in y evitar duplicar puntos.
-    const before = await pool.query(
-      "SELECT user_id, status, checked_in_at, class_id, membership_id FROM bookings WHERE id = $1",
+    // TODO el check-in corre en UNA transacción con lock de fila. Sin esto,
+    // dos clics rápidos al botón (o un check-in simultáneo con la promoción
+    // automática de la lista de espera, que también lockea la booking)
+    // leían ambos "waitlist, sin check-in" y descontaban DOS créditos.
+    await txClient.query("BEGIN");
+    // 1) Lock + lookup: serializa contra promoteFromWaitlist y dobles clics.
+    const before = await txClient.query(
+      "SELECT user_id, status, checked_in_at, class_id, membership_id FROM bookings WHERE id = $1 FOR UPDATE",
       [req.params.id],
     );
     if (!before.rows.length) {
+      await txClient.query("ROLLBACK");
       return res.status(404).json({ message: "Reserva no encontrada" });
     }
     const prevStatus = before.rows[0].status;
     if (prevStatus === "cancelled") {
+      await txClient.query("ROLLBACK");
       return res.status(400).json({ message: "Esta reserva está cancelada; no se puede hacer check-in." });
     }
-    const wasAlreadyCheckedIn = !!before.rows[0].checked_in_at;
+    wasAlreadyCheckedIn = !!before.rows[0].checked_in_at;
     // 1.5) Check-in directo de una booking en WAITLIST = promoción implícita:
     // la alumna llegó y hay que cobrarle como a cualquiera. Descuenta crédito
     // (salvo ilimitada) e incrementa current_bookings, que nunca se tocaron
-    // al entrar a la lista de espera.
+    // al entrar a la lista de espera. Gracias al FOR UPDATE, si la promoción
+    // automática ya la confirmó (y cobró), aquí leemos status='confirmed' y
+    // NO volvemos a cobrar.
     if (prevStatus === "waitlist" && !wasAlreadyCheckedIn) {
       if (before.rows[0].membership_id) {
-        await pool.query(
+        const ded = await txClient.query(
           `UPDATE memberships
               SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW()
             WHERE id = $1
               AND classes_remaining IS NOT NULL
-              AND classes_remaining < 9999`,
+              AND classes_remaining < 9999
+            RETURNING classes_remaining`,
           [before.rows[0].membership_id]
         );
+        creditDeducted = ded.rows.length > 0;
+        console.log(`[check-in] waitlist→checked_in booking=${req.params.id} crédito descontado=${creditDeducted} restantes=${ded.rows[0]?.classes_remaining ?? "∞"}`);
       }
-      await pool.query(
+      await txClient.query(
         "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
         [before.rows[0].class_id]
       );
     }
     // 2) UPDATE (idempotente: si ya estaba, refresca el timestamp pero no doblamos puntos).
-    const r = await pool.query(
+    const r = await txClient.query(
       "UPDATE bookings SET status = 'checked_in', checked_in_at = COALESCE(checked_in_at, NOW()) WHERE id = $1 RETURNING *",
       [req.params.id],
     );
-    const booking = r.rows[0];
+    booking = r.rows[0];
+    await txClient.query("COMMIT");
     // 3) Otorgar +10 pts SOLO si es primer check-in.
     if (booking.user_id && !wasAlreadyCheckedIn) {
       try {
@@ -14943,13 +14960,20 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
     return res.json({
       data: booking,
       alreadyCheckedIn: wasAlreadyCheckedIn,
+      creditDeducted,
+      ...(creditDeducted
+        ? { message: "Check-in registrado. Estaba en lista de espera: se descontó 1 crédito." }
+        : {}),
     });
   } catch (err) {
+    try { await txClient.query("ROLLBACK"); } catch (_) { }
     console.error("[check-in] error:", err?.message, err?.code, err?.detail);
     return res.status(500).json({
       message: "Error interno",
       error: err?.message?.slice(0, 160) || null,
     });
+  } finally {
+    txClient.release();
   }
 });
 

@@ -127,9 +127,15 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
 
   const checkinMutation = useMutation({
     mutationFn: (id: string) => api.put(`/bookings/${id}/check-in`),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
-      toast({ title: "✅ Check-in registrado" });
+      const deducted = res?.data?.creditDeducted;
+      toast({
+        title: "✅ Check-in registrado",
+        description: deducted
+          ? "Estaba en lista de espera: se descontó 1 crédito."
+          : undefined,
+      });
     },
     onError: () => toast({ title: "Error al hacer check-in", variant: "destructive" }),
   });
