@@ -77,7 +77,6 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     setAgGuestInjury(false); setAgGuestInjuryDetails("");
     setAgGuestPracticed(false); setAgGuestWaiver(false);
     setAgFound(false);
-    setGuestChargeMode("host_pack");
     setGuestSalePlanId("");
     setGuestSalePayment("cash");
     setGuestRewardRings(true);
@@ -225,10 +224,10 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     },
   });
 
-  // ── Cobro de la acompañante ──────────────────────────────────────
-  // Modo 'host_pack': usa el pack de visitas de la socia (default, comportamiento anterior).
-  // Modo 'guest_sale': vende clase suelta (o cualquier plan) directo a la acompañante.
-  const [guestChargeMode, setGuestChargeMode] = useState<"host_pack" | "guest_sale">("host_pack");
+  // ── Clase de la acompañante ──────────────────────────────────────
+  // La invitada paga su propia clase (clase suelta o el plan que elija la
+  // admin). A la socia NO se le toca nada — al contrario: gana punto de
+  // Conexión en sus anillos por traer amiga.
   const [guestSalePlanId, setGuestSalePlanId] = useState<string>("");
   const [guestSalePayment, setGuestSalePayment] = useState<"cash" | "transfer" | "card">("cash");
   // Premio a la socia por traer amiga: +1 punto de Conexión en sus anillos.
@@ -236,7 +235,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const { data: plansData } = useQuery<{ data: any[] }>({
     queryKey: ["plans-for-guest-sale"],
     queryFn: async () => (await api.get("/plans")).data,
-    enabled: assignOpen && assignWithGuest && guestChargeMode === "guest_sale",
+    enabled: assignOpen && assignWithGuest,
   });
   const guestSalePlans = (Array.isArray(plansData?.data) ? plansData!.data : [])
     .filter((p: any) => p.is_active !== false)
@@ -484,7 +483,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
             <div className="space-y-0.5">
               <span className="text-sm font-medium">Llevará acompañante</span>
               <p className="text-[11px] text-muted-foreground">
-                Descuenta 2 créditos: 1 del pack regular + 1 del pack de visitas de la socia.
+                La invitada paga su clase y la socia gana punto de Conexión en sus anillos. 💜
               </p>
             </div>
           </label>
@@ -650,46 +649,10 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                 </div>
               </div>
 
-              {/* ── Cobro de la acompañante ───────────────────────────────── */}
+              {/* ── Clase de la invitada + premio a la socia ──────────────── */}
               <div className="rounded-2xl border border-border bg-secondary/40 p-3 space-y-2.5">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Cobro de la acompañante
-                </p>
-                <div className="flex flex-col gap-2 text-xs">
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="guestChargeMode"
-                      checked={guestChargeMode === "host_pack"}
-                      onChange={() => setGuestChargeMode("host_pack")}
-                      className="mt-0.5"
-                    />
-                    <span>
-                      Usar <strong>pack de visitas de la socia</strong>
-                      <span className="block text-[10px] text-muted-foreground mt-0.5">
-                        Descuenta 1 crédito del pack de visitas activo. La socia debe tenerlo.
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="guestChargeMode"
-                      checked={guestChargeMode === "guest_sale"}
-                      onChange={() => setGuestChargeMode("guest_sale")}
-                      className="mt-0.5"
-                    />
-                    <span>
-                      Venderle <strong>clase suelta / pack</strong> a la acompañante
-                      <span className="block text-[10px] text-muted-foreground mt-0.5">
-                        La socia no usa su pack de visitas; la acompañante paga su propia clase.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-
-                {/* Premio de anillos: +1 Conexión a la socia por traer amiga */}
-                <label className="flex items-start gap-2 cursor-pointer border-t border-border pt-2.5 text-xs">
+                {/* Premio de anillos: lo más visible del bloque */}
+                <label className="flex items-start gap-2 cursor-pointer text-sm">
                   <input
                     type="checkbox"
                     checked={guestRewardRings}
@@ -697,46 +660,47 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                     className="mt-0.5"
                   />
                   <span>
-                    💜 Premiar a la socia con <strong>+1 punto de Conexión</strong> (anillos) por traer amiga
+                    💜 La socia gana <strong>+1 punto de Conexión</strong> en sus anillos por traer amiga
                   </span>
                 </label>
 
-                {guestChargeMode === "guest_sale" && (
-                  <div className="space-y-2 pt-2 border-t border-border">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-medium">Plan a vender</label>
-                      <select
-                        value={guestSalePlanId}
-                        onChange={(e) => setGuestSalePlanId(e.target.value)}
-                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
-                      >
-                        <option value="">— Seleccionar plan —</option>
-                        {guestSalePlans.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.isVisitPack ? "🎟️ " : ""}{p.name} — {p.classLimit ?? "?"} clase{p.classLimit === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
-                          </option>
-                        ))}
-                      </select>
-                      {guestSalePlans.length === 0 && (
-                        <p className="text-[10px] text-muted-foreground">
-                          Cargando planes… o marca al menos un plan como activo en Planes.
-                        </p>
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-medium">Método de pago</label>
-                      <select
-                        value={guestSalePayment}
-                        onChange={(e) => setGuestSalePayment(e.target.value as any)}
-                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
-                      >
-                        <option value="cash">Efectivo</option>
-                        <option value="transfer">Transferencia</option>
-                        <option value="card">Tarjeta</option>
-                      </select>
-                    </div>
+                <div className="space-y-2 pt-2 border-t border-border">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Clase de la invitada
+                  </p>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium">Plan</label>
+                    <select
+                      value={guestSalePlanId}
+                      onChange={(e) => setGuestSalePlanId(e.target.value)}
+                      className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
+                    >
+                      <option value="">— Seleccionar plan —</option>
+                      {guestSalePlans.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.isVisitPack ? "🎟️ " : ""}{p.name} — {p.classLimit ?? "?"} clase{p.classLimit === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
+                        </option>
+                      ))}
+                    </select>
+                    {guestSalePlans.length === 0 && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Cargando planes… o marca al menos un plan como activo en Planes.
+                      </p>
+                    )}
                   </div>
-                )}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium">Método de pago</label>
+                    <select
+                      value={guestSalePayment}
+                      onChange={(e) => setGuestSalePayment(e.target.value as any)}
+                      className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs"
+                    >
+                      <option value="cash">Efectivo</option>
+                      <option value="transfer">Transferencia</option>
+                      <option value="card">Tarjeta</option>
+                    </select>
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2">
@@ -760,23 +724,17 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                       practicedBarreBefore: agGuestPracticed,
                       acceptedWaiver: agGuestWaiver,
                     },
-                    guestSale: guestChargeMode === "guest_sale"
-                      ? { planId: guestSalePlanId, paymentMethod: guestSalePayment }
-                      : undefined,
+                    guestSale: { planId: guestSalePlanId, paymentMethod: guestSalePayment },
                     guestConexionPoints: guestRewardRings ? 1 : 0,
                   })}
                   disabled={
                     !agGuestName.trim() || !agGuestPhone.trim() || !agGuestWaiver ||
-                    (guestChargeMode === "guest_sale" && !guestSalePlanId) ||
+                    !guestSalePlanId ||
                     assignMutation.isPending
                   }
                   className="flex-1 bg-gradient-to-r from-[#E9745F] to-[#76214D] text-white"
                 >
-                  {assignMutation.isPending
-                    ? "Asignando…"
-                    : guestChargeMode === "guest_sale"
-                      ? "Confirmar (socia + venta a invitada)"
-                      : "Confirmar (2 créditos)"}
+                  {assignMutation.isPending ? "Asignando…" : "Confirmar"}
                 </Button>
               </div>
             </div>
