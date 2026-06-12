@@ -2802,6 +2802,15 @@ async function findNonRepeatablePlanConflict({
   return null;
 }
 
+// Calcula la fecha de vencimiento (YYYY-MM-DD) de una membresía a partir de
+// la fecha de inicio y el duration_days del plan (default 30), igual que los
+// flujos de aprobación de órdenes.
+function calcMembershipEndDate(startStr, plan) {
+  const end = new Date(`${startStr}T12:00:00`);
+  end.setDate(end.getDate() + (Number(plan?.duration_days) || 30));
+  return end.toISOString().slice(0, 10);
+}
+
 // Normaliza el método de pago al enum payment_method de Postgres
 // ('cash','transfer','card','online'). Acepta sinónimos comunes en español
 // y cae a 'cash' ante cualquier valor desconocido — un valor inválido
