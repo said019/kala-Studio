@@ -92,6 +92,8 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
   // de SU pack de visitas en lugar del de la invitada.
   const [host, setHost] = useState<HostOption | null>(null);
   const [hostSearch, setHostSearch] = useState("");
+  // Premio: +1 punto de Conexión (anillos) a la anfitriona por traer amiga.
+  const [hostRewardRings, setHostRewardRings] = useState(true);
   const debouncedHostSearch = useDebounce(hostSearch, 250);
   const { data: hostsData, isFetching: searchingHosts } = useQuery<{ data: HostOption[] }>({
     queryKey: ["visit-host-search", debouncedHostSearch],
@@ -128,6 +130,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     setFoundGuest(null); setActiveMembership(null); setSearched(false);
     setPlanId(""); setPaymentMethod("cash");
     setHost(null); setHostSearch("");
+    setHostRewardRings(true);
   };
 
   const searchMutation = useMutation({
@@ -174,7 +177,10 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
           acceptedWaiver: waiver,
         },
       };
-      if (host?.id) body.hostUserId = host.id;
+      if (host?.id) {
+        body.hostUserId = host.id;
+        body.hostConexionPoints = hostRewardRings ? 1 : 0;
+      }
       // Si la invitada tiene pack activo propio NO necesitamos vender; pero si
       // la anfitriona tiene pack de visitas, tampoco hace falta venta (se
       // descuenta del host). Mandamos `sale` solo si no hay ninguna de las dos.
@@ -192,13 +198,15 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     },
     onSuccess: (data: any) => {
       const chargedHost = data?.data?.chargedHostUserId;
+      const conexion = Number(data?.data?.conexionPointsAwarded || 0);
+      const conexionNote = conexion > 0 ? ` +${conexion} punto de Conexión para ella 💜` : "";
       toast({
         title: "✓ Visitante asignada",
         description: chargedHost
-          ? `Reserva creada. Crédito descontado del pack de visitas de ${host?.displayName ?? "la anfitriona"}.`
+          ? `Reserva creada. Crédito descontado del pack de visitas de ${host?.displayName ?? "la anfitriona"}.${conexionNote}`
           : data?.data?.soldOrder
-            ? "Reserva creada + pack vendido."
-            : "Reserva creada con su pack existente.",
+            ? `Reserva creada + pack vendido.${conexionNote}`
+            : `Reserva creada con su pack existente.${conexionNote}`,
       });
       qc.invalidateQueries({ queryKey: ["class-roster-sheet"] });
       qc.invalidateQueries({ queryKey: ["roster"] });
@@ -297,16 +305,29 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
               )}
             </div>
             {host ? (
-              <div className="rounded-lg bg-[#76214D]/5 border border-[#76214D]/20 px-3 py-2 text-sm">
-                <p className="font-medium">{host.displayName}</p>
-                {(host.email || host.phone) && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    {[host.email, host.phone].filter(Boolean).join(" · ")}
+              <div className="rounded-lg bg-[#76214D]/5 border border-[#76214D]/20 px-3 py-2 text-sm space-y-2">
+                <div>
+                  <p className="font-medium">{host.displayName}</p>
+                  {(host.email || host.phone) && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      {[host.email, host.phone].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-[#76214D] mt-1">
+                    El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
                   </p>
-                )}
-                <p className="text-[11px] text-[#76214D] mt-1">
-                  El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
-                </p>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer border-t border-[#76214D]/15 pt-2 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={hostRewardRings}
+                    onChange={(e) => setHostRewardRings(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    💜 Premiar a {host.displayName.split(" ")[0]} con <strong>+1 punto de Conexión</strong> (anillos) por traer amiga
+                  </span>
+                </label>
               </div>
             ) : (
               <>

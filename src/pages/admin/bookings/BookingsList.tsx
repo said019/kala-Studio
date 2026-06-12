@@ -80,6 +80,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
     setGuestChargeMode("host_pack");
     setGuestSalePlanId("");
     setGuestSalePayment("cash");
+    setGuestRewardRings(true);
   };
 
   const searchAdminGuest = async () => {
@@ -195,13 +196,14 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const [weeklyPrompt, setWeeklyPrompt] = useState<{ vars: any; message: string } | null>(null);
 
   const assignMutation = useMutation({
-    mutationFn: (vars: { userId: string; guest?: any; guestSale?: any; overrideWeeklyLimit?: boolean }) =>
+    mutationFn: (vars: { userId: string; guest?: any; guestSale?: any; overrideWeeklyLimit?: boolean; guestConexionPoints?: number }) =>
       api.post("/admin/bookings/assign", {
         classId,
         userId: vars.userId,
         guest: vars.guest,
         guestSale: vars.guestSale,
         overrideWeeklyLimit: vars.overrideWeeklyLimit || undefined,
+        guestConexionPoints: vars.guestConexionPoints || undefined,
       }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
@@ -229,6 +231,8 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const [guestChargeMode, setGuestChargeMode] = useState<"host_pack" | "guest_sale">("host_pack");
   const [guestSalePlanId, setGuestSalePlanId] = useState<string>("");
   const [guestSalePayment, setGuestSalePayment] = useState<"cash" | "transfer" | "card">("cash");
+  // Premio a la socia por traer amiga: +1 punto de Conexión en sus anillos.
+  const [guestRewardRings, setGuestRewardRings] = useState(true);
   const { data: plansData } = useQuery<{ data: any[] }>({
     queryKey: ["plans-for-guest-sale"],
     queryFn: async () => (await api.get("/plans")).data,
@@ -684,6 +688,19 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                   </label>
                 </div>
 
+                {/* Premio de anillos: +1 Conexión a la socia por traer amiga */}
+                <label className="flex items-start gap-2 cursor-pointer border-t border-border pt-2.5 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={guestRewardRings}
+                    onChange={(e) => setGuestRewardRings(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    💜 Premiar a la socia con <strong>+1 punto de Conexión</strong> (anillos) por traer amiga
+                  </span>
+                </label>
+
                 {guestChargeMode === "guest_sale" && (
                   <div className="space-y-2 pt-2 border-t border-border">
                     <div className="space-y-1">
@@ -746,6 +763,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                     guestSale: guestChargeMode === "guest_sale"
                       ? { planId: guestSalePlanId, paymentMethod: guestSalePayment }
                       : undefined,
+                    guestConexionPoints: guestRewardRings ? 1 : 0,
                   })}
                   disabled={
                     !agGuestName.trim() || !agGuestPhone.trim() || !agGuestWaiver ||

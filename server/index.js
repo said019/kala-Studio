@@ -10522,7 +10522,7 @@ app.post("/api/admin/visit-sale", adminMiddleware, async (req, res) => {
 // Si la invitada YA tiene pack activo con crédito: solo crea el booking.
 // Si NO tiene pack y viene `sale`: vende el pack y reserva en el mismo paso.
 app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res) => {
-  const { profile = {}, hostUserId, sale } = req.body || {};
+  const { profile = {}, hostUserId, sale, hostConexionPoints } = req.body || {};
   const classId = req.params.id;
   if (!profile.name) return res.status(400).json({ message: "Nombre de la invitada requerido" });
   const dbClient = await pool.connect();
@@ -10657,6 +10657,20 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
       "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
       [classId]
     );
+
+    // ── Premio opcional: puntos de Conexión (anillos) a la anfitriona por
+    //    traer a la visitante. El trigger de community_events actualiza el
+    //    anillo de la semana automáticamente.
+    let conexionPointsAwarded = 0;
+    const hostPts = Math.max(0, Math.min(10, Number(hostConexionPoints) || 0));
+    if (hostUserId && hostPts > 0) {
+      await dbClient.query(
+        `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
+         VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
+        [hostUserId, hostPts, `Trajo a ${guest.display_name} a clase`, req.userId || null]
+      );
+      conexionPointsAwarded = hostPts;
+    }
     await dbClient.query("COMMIT");
 
     return res.status(201).json({
@@ -10667,6 +10681,7 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
         membershipId: memRow.id,
         soldOrder: saleOrder,
         chargedHostUserId,
+        conexionPointsAwarded,
       },
     });
   } catch (err) {
@@ -14522,7 +14537,7 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
 //      o paquete) DIRECTAMENTE a la acompañante en el mismo paso, crea la
 //      membership a su nombre y descuenta de ahí. La socia solo paga su clase.
 app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
-  const { classId, userId, guest, guestSale, overrideWeeklyLimit } = req.body;
+  const { classId, userId, guest, guestSale, overrideWeeklyLimit, guestConexionPoints } = req.body;
   if (!classId || !userId) return res.status(400).json({ message: "classId y userId requeridos" });
   const withGuest = guest && typeof guest === "object" && guest.name && guest.phone;
   if (withGuest && !guest.acceptedWaiver) {
@@ -14766,6 +14781,19 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         soldOrder: guestSaleOrder,
         chargedTo: hasGuestSale ? "guest" : "host_visit_pack",
       };
+
+      // ── Premio opcional: puntos de Conexión (anillos) a la socia por
+      //    traer amiga. El INSERT en community_events dispara el trigger
+      //    que suma al anillo de la semana automáticamente.
+      const conexionPts = Math.max(0, Math.min(10, Number(guestConexionPoints) || 0));
+      if (conexionPts > 0) {
+        await client.query(
+          `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
+           VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
+          [userId, conexionPts, `Trajo a ${guest.name} a clase`, req.userId || null]
+        );
+        guestData.conexionPointsAwarded = conexionPts;
+      }
     }
 
     await client.query("COMMIT");
@@ -14834,12 +14862,15 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       console.error("[Email] booking confirmed (admin) query error:", emailErr.message);
     }
 
+    const conexionSuffix = guestData?.conexionPointsAwarded
+      ? ` · +${guestData.conexionPointsAwarded} punto${guestData.conexionPointsAwarded === 1 ? "" : "s"} de Conexión para la socia 💜`
+      : "";
     const message = isWaitlist
       ? "Clienta agregada a lista de espera"
       : guestData
         ? (guestData.chargedTo === "guest"
-            ? "Socia reservada + clase suelta vendida a la acompañante"
-            : "Socia + acompañante reservadas (2 créditos descontados)")
+            ? `Socia reservada + clase suelta vendida a la acompañante${conexionSuffix}`
+            : `Socia + acompañante reservadas (2 créditos descontados)${conexionSuffix}`)
         : "Reserva asignada correctamente";
     triggerWalletPassSync(userId, isWaitlist ? "admin_booking_waitlist_created" : "admin_booking_created");
     return res.status(201).json({
