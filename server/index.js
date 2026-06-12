@@ -10605,13 +10605,16 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
           message: "La invitada no tiene un pack activo. Elige un plan para venderle su clase en el momento.",
         });
       }
+      // Cualquier plan activo se puede vender a la visitante (clase suelta,
+      // muestra, o un paquete completo si decide quedarse) — igual que en el
+      // flujo de acompañante.
       const planRes = await dbClient.query(
-        "SELECT * FROM plans WHERE id = $1 AND is_active = true AND is_visit_pack = true",
+        "SELECT * FROM plans WHERE id = $1 AND is_active = true",
         [sale.planId]
       );
       if (!planRes.rows.length) {
         await dbClient.query("ROLLBACK");
-        return res.status(404).json({ message: "Plan de visita no encontrado" });
+        return res.status(404).json({ message: "Plan no encontrado" });
       }
       const plan = planRes.rows[0];
       const pm = normalizePaymentMethod(sale.paymentMethod || "cash");

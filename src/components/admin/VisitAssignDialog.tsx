@@ -108,20 +108,24 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     phone: u.phone,
   }));
 
-  // Carga planes is_visit_pack
+  // Todos los planes activos: la visitante puede pagar clase suelta, muestra,
+  // o llevarse un paquete completo si decide quedarse. Los de visita
+  // (🎟️) van primero.
   const { data: plansData } = useQuery<{ data: any[] }>({
     queryKey: ["visit-plans"],
     queryFn: async () => (await api.get("/plans")).data,
     enabled: open,
   });
-  const visitPlans: VisitPlan[] = (Array.isArray(plansData?.data) ? plansData.data : [])
-    .filter((p: any) => p.is_visit_pack === true || p.isVisitPack === true)
+  const visitPlans: (VisitPlan & { isVisitPack: boolean })[] = (Array.isArray(plansData?.data) ? plansData.data : [])
+    .filter((p: any) => p.is_active !== false)
     .map((p: any) => ({
       id: p.id,
       name: p.name,
       price: Number(p.price ?? 0),
       classLimit: p.class_limit ?? p.classLimit ?? null,
-    }));
+      isVisitPack: p.is_visit_pack === true || p.isVisitPack === true,
+    }))
+    .sort((a: any, b: any) => (b.isVisitPack ? 1 : 0) - (a.isVisitPack ? 1 : 0));
 
   const resetAll = () => {
     setPhone(""); setName(""); setEmail("");
@@ -415,7 +419,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                   <SelectContent>
                     {visitPlans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name} — {p.classLimit ?? "?"} clase{(p.classLimit ?? 0) === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
+                        {p.isVisitPack ? "🎟️ " : ""}{p.name} — {p.classLimit ?? "?"} clase{(p.classLimit ?? 0) === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
                       </SelectItem>
                     ))}
                   </SelectContent>
