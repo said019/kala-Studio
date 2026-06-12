@@ -10560,16 +10560,25 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
       return res.status(409).json({ message: "Esta visitante ya tiene reserva en esta clase" });
     }
 
-    // ── Prioridad de descuento de crédito ───────────────────────────────
-    // 1) Si la admin pasó hostUserId (la invitada llega "invitada por" una
-    //    socia), intentar descontar del PACK DE VISITAS activo de la socia
-    //    (mismo flujo que /admin/bookings/assign with-guest).
-    // 2) Si no, usar el pack propio de la invitada (visit pack que le hayan
-    //    vendido antes).
-    // 3) Si tampoco hay y viene `sale`, vendérselo en el momento.
+    // ── Prioridad de cobro de la clase de la invitada ────────────────────
+    // 1) Pack PROPIO de la invitada (ya lo pagó antes).
+    // 2) Venta en el momento si viene `sale.planId` — la invitada paga su
+    //    clase; a la anfitriona NO se le descuenta nada (modelo actual:
+    //    traer amiga premia con puntos de Conexión, no cuesta créditos).
+    // 3) Último recurso (legacy, si no se eligió plan): pack de visitas de
+    //    la anfitriona.
     let memRow = null;
     let chargedHostUserId = null;
-    if (hostUserId) {
+    memRow = (await dbClient.query(
+      `SELECT id, classes_remaining FROM memberships
+        WHERE user_id = $1 AND status = 'active'
+          AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+          AND (classes_remaining IS NULL OR classes_remaining > 0)
+        ORDER BY created_at DESC LIMIT 1
+        FOR UPDATE`,
+      [user.id]
+    )).rows[0] ?? null;
+    if (!memRow && !sale?.planId && hostUserId) {
       const hostPackRes = await dbClient.query(
         `SELECT m.id, m.classes_remaining
            FROM memberships m
@@ -10586,20 +10595,6 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
         memRow = hostPackRes.rows[0];
         chargedHostUserId = hostUserId;
       }
-      // Si hostUserId vino pero no tiene pack de visitas activo, NO bloqueamos
-      // —caemos al flujo normal (pack propio de la invitada o venta en el
-      // momento). La admin decide.
-    }
-    if (!memRow) {
-      memRow = (await dbClient.query(
-        `SELECT id, classes_remaining FROM memberships
-          WHERE user_id = $1 AND status = 'active'
-            AND (end_date IS NULL OR end_date >= CURRENT_DATE)
-            AND (classes_remaining IS NULL OR classes_remaining > 0)
-          ORDER BY created_at DESC LIMIT 1
-          FOR UPDATE`,
-        [user.id]
-      )).rows[0] ?? null;
     }
 
     let saleOrder = null;
@@ -10607,9 +10602,7 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
       if (!sale?.planId) {
         await dbClient.query("ROLLBACK");
         return res.status(400).json({
-          message: hostUserId
-            ? "La socia anfitriona no tiene paquete de visitas con créditos y la invitada tampoco tiene pack. Véndele uno o quita la anfitriona."
-            : "La invitada no tiene un pack activo. Manda `sale: { planId, paymentMethod }` para venderlo en el momento.",
+          message: "La invitada no tiene un pack activo. Elige un plan para venderle su clase en el momento.",
         });
       }
       const planRes = await dbClient.query(

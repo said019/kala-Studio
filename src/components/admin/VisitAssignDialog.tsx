@@ -88,8 +88,8 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
   const [planId, setPlanId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "card">("cash");
 
-  // Anfitriona (socia que la invita). Si se selecciona, el crédito se descuenta
-  // de SU pack de visitas en lugar del de la invitada.
+  // Anfitriona (socia que la invita). Sirve para registrar la relación y para
+  // premiarla con punto de Conexión; la invitada paga su propia clase.
   const [host, setHost] = useState<HostOption | null>(null);
   const [hostSearch, setHostSearch] = useState("");
   // Premio: +1 punto de Conexión (anillos) a la anfitriona por traer amiga.
@@ -181,32 +181,24 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
         body.hostUserId = host.id;
         body.hostConexionPoints = hostRewardRings ? 1 : 0;
       }
-      // Si la invitada tiene pack activo propio NO necesitamos vender; pero si
-      // la anfitriona tiene pack de visitas, tampoco hace falta venta (se
-      // descuenta del host). Mandamos `sale` solo si no hay ninguna de las dos.
-      if (!activeMembership && !host) {
-        if (!planId) throw new Error("Selecciona un plan de visita");
-        body.sale = { planId, paymentMethod };
-      } else if (!activeMembership && host && planId) {
-        // Si la admin igual eligió un plan como fallback (por si el host no
-        // tiene créditos), lo mandamos — el backend lo usará si no encuentra
-        // pack del host ni de la invitada.
+      // La invitada paga su clase: venta siempre que no tenga pack propio.
+      if (!activeMembership) {
+        if (!planId) throw new Error("Selecciona un plan para la visitante");
         body.sale = { planId, paymentMethod };
       }
       const r = await api.post(`/admin/classes/${classId}/walkin-visit`, body);
       return r.data;
     },
     onSuccess: (data: any) => {
-      const chargedHost = data?.data?.chargedHostUserId;
       const conexion = Number(data?.data?.conexionPointsAwarded || 0);
-      const conexionNote = conexion > 0 ? ` +${conexion} punto de Conexión para ella 💜` : "";
+      const conexionNote = conexion > 0
+        ? ` ${host?.displayName?.split(" ")[0] ?? "La socia"} gana +${conexion} punto de Conexión 💜`
+        : "";
       toast({
         title: "✓ Visitante asignada",
-        description: chargedHost
-          ? `Reserva creada. Crédito descontado del pack de visitas de ${host?.displayName ?? "la anfitriona"}.${conexionNote}`
-          : data?.data?.soldOrder
-            ? `Reserva creada + pack vendido.${conexionNote}`
-            : `Reserva creada con su pack existente.${conexionNote}`,
+        description: data?.data?.soldOrder
+          ? `Reserva creada + clase vendida.${conexionNote}`
+          : `Reserva creada con su pack existente.${conexionNote}`,
       });
       qc.invalidateQueries({ queryKey: ["class-roster-sheet"] });
       qc.invalidateQueries({ queryKey: ["roster"] });
@@ -221,11 +213,10 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
     },
   });
 
-  // Si la invitada tiene su pack o viene con anfitriona, no exigimos planId.
-  // Si NO trae nada (sin pack ni anfitriona), se vuelve venta obligatoria.
+  // La invitada paga su clase: si no tiene pack propio, hay que elegirle plan.
   const canSubmit =
     !!name.trim() && !!phone.trim() && waiver &&
-    (activeMembership || host ? true : !!planId);
+    (activeMembership ? true : !!planId);
 
   return (
     <Dialog
@@ -283,12 +274,13 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                 {activeMembership.plan_name} — {activeMembership.classes_remaining ?? "—"} clase{activeMembership.classes_remaining === 1 ? "" : "s"} restante{activeMembership.classes_remaining === 1 ? "" : "s"}
               </p>
               <p className="text-[11px] text-muted-foreground mt-0.5">
-                Se descuenta 1 al confirmar.
+                Usa 1 clase de su propio pack al confirmar.
               </p>
             </div>
           )}
 
-          {/* Anfitriona (socia que la invita) — el crédito se descuenta de SU pack de visitas */}
+          {/* Anfitriona (socia que la invita) — solo para el premio de anillos
+              y para registrar la relación. La invitada paga su propia clase. */}
           <div className="rounded-xl border border-border p-3 space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -313,9 +305,6 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                       {[host.email, host.phone].filter(Boolean).join(" · ")}
                     </p>
                   )}
-                  <p className="text-[11px] text-[#76214D] mt-1">
-                    El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
-                  </p>
                 </div>
                 <label className="flex items-start gap-2 cursor-pointer border-t border-[#76214D]/15 pt-2 text-[11px]">
                   <input
@@ -325,7 +314,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                     className="mt-0.5"
                   />
                   <span>
-                    💜 Premiar a {host.displayName.split(" ")[0]} con <strong>+1 punto de Conexión</strong> (anillos) por traer amiga
+                    💜 {host.displayName.split(" ")[0]} gana <strong>+1 punto de Conexión</strong> (anillos) por traer amiga
                   </span>
                 </label>
               </div>
@@ -364,7 +353,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground">
-                  Si llenas esto, el crédito se descuenta del pack de visitas de la socia, no de la invitada.
+                  La socia que la invita gana +1 punto de Conexión en sus anillos. 💜
                 </p>
               </>
             )}
@@ -410,23 +399,15 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
             </div>
           </div>
 
-          {/* Venta — visible siempre que la visitante NO tenga pack propio.
-              Con anfitriona seleccionada es OPCIONAL: el crédito sale del
-              pack de visitas de la socia, y este plan solo se usa como
-              fallback si la socia no tiene créditos. */}
+          {/* Clase de la visitante — visible siempre que NO tenga pack propio.
+              Ella paga su clase; a la anfitriona no se le descuenta nada. */}
           {!activeMembership && (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
-                {host ? "Venta de pack (opcional)" : "Venta de pack en este momento"}
+                Clase de la visitante
               </p>
-              {host && (
-                <p className="text-[11px] text-muted-foreground">
-                  El crédito se descuenta del pack de visitas de {host.displayName.split(" ")[0]}.
-                  Elige un plan solo como respaldo por si no tiene créditos.
-                </p>
-              )}
               <div className="space-y-1">
-                <Label className="text-sm">Plan de visita</Label>
+                <Label className="text-sm">Plan</Label>
                 <Select value={planId} onValueChange={setPlanId}>
                   <SelectTrigger>
                     <SelectValue placeholder={visitPlans.length === 0 ? "Sin planes (márcalos en /planes)" : "Seleccionar plan"} />
@@ -434,7 +415,7 @@ export const VisitAssignDialog = ({ classId, open, onOpenChange, onSuccess }: Pr
                   <SelectContent>
                     {visitPlans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        {p.name} — {p.classLimit ?? "?"} clases · ${p.price.toLocaleString("es-MX")}
+                        {p.name} — {p.classLimit ?? "?"} clase{(p.classLimit ?? 0) === 1 ? "" : "s"} · ${p.price.toLocaleString("es-MX")}
                       </SelectItem>
                     ))}
                   </SelectContent>
