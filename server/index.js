@@ -1368,6 +1368,20 @@ async function ensureSchema() {
        WHERE c.date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date
     `).catch(() => { });
 
+    // ── ELIMINAR triggers legacy de doble contabilidad ─────────────────────
+    // El schema original llevaba créditos y cupos vía triggers de DB:
+    //   - trigger_decrement_classes: descontaba 1 crédito en CADA transición
+    //     a checked_in. La app ya cobra al reservar → cada check-in quitaba
+    //     un SEGUNDO crédito ("les está quitando 2"). Bug desde el origen.
+    //   - trigger_update_booking_count: sumaba/restaba current_bookings en
+    //     paralelo a los UPDATE manuales de la app → contador inflado al
+    //     doble (el famoso "5/4 con 3 inscritas").
+    // La app maneja ambos explícitamente en todos los flujos (reserva,
+    // cancelación, no-show, promoción de waitlist, check-in de waitlist),
+    // así que los triggers solo duplican. Fuera.
+    await pool.query(`DROP TRIGGER IF EXISTS trigger_decrement_classes ON bookings`).catch(() => { });
+    await pool.query(`DROP TRIGGER IF EXISTS trigger_update_booking_count ON bookings`).catch(() => { });
+
     // Índice único para impedir reservas activas duplicadas (mismo user+clase).
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_user_class_active
@@ -1604,6 +1618,12 @@ async function ensureSchema() {
            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
          ORDER BY m.end_date DESC NULLS LAST
          LIMIT 1;
+
+        -- Sin membresía activa hoy (o plan sin metas): usar defaults para no
+        -- violar los NOT NULL de ring_states — el premio nunca debe tronar.
+        v_constancia_goal := COALESCE(v_constancia_goal, 1);
+        v_esfuerzo_goal   := COALESCE(v_esfuerzo_goal, 1);
+        v_conexion_goal   := COALESCE(v_conexion_goal, 10);
 
         INSERT INTO ring_states (
           user_id, membership_id, week_start,
@@ -10516,8 +10536,8 @@ app.post("/api/admin/visit-sale", adminMiddleware, async (req, res) => {
        `Venta visita POS — ${guest.display_name}`]
     );
     const orderRes = await dbClient.query(
-      `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
-       VALUES ($1, $2, 'approved', $3, $4, 'pos_visit', NOW(), $5)
+      `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, total_amount, channel, verified_at, verified_by)
+       VALUES ($1, $2, 'approved', $3, $4, $4, 'pos_visit', NOW(), $5)
        RETURNING *`,
       [user.id, plan.id, pm, plan.price ?? 0, req.userId || null]
     );
@@ -10651,8 +10671,8 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
       );
       memRow = memIns.rows[0];
       const orderIns = await dbClient.query(
-        `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
-         VALUES ($1, $2, 'approved', $3, $4, 'pos_visit', NOW(), $5)
+        `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, total_amount, channel, verified_at, verified_by)
+         VALUES ($1, $2, 'approved', $3, $4, $4, 'pos_visit', NOW(), $5)
          RETURNING *`,
         [user.id, plan.id, pm, plan.price ?? 0, req.userId || null]
       );
@@ -10676,20 +10696,25 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
       [classId]
     );
 
+    await dbClient.query("COMMIT");
+
     // ── Premio opcional: puntos de Conexión (anillos) a la anfitriona por
-    //    traer a la visitante. El trigger de community_events actualiza el
-    //    anillo de la semana automáticamente.
+    //    traer a la visitante. FUERA de la transacción y best-effort: si el
+    //    trigger de anillos falla por lo que sea, la reserva ya quedó hecha.
     let conexionPointsAwarded = 0;
     const hostPts = Math.max(0, Math.min(10, Number(hostConexionPoints) || 0));
     if (hostUserId && hostPts > 0) {
-      await dbClient.query(
-        `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
-         VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
-        [hostUserId, hostPts, `Trajo a ${guest.display_name} a clase`, req.userId || null]
-      );
-      conexionPointsAwarded = hostPts;
+      try {
+        await pool.query(
+          `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
+           VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
+          [hostUserId, hostPts, `Trajo a ${guest.display_name} a clase`, req.userId || null]
+        );
+        conexionPointsAwarded = hostPts;
+      } catch (e) {
+        console.error("[walkin-visit] premio Conexión falló (reserva OK):", e.message);
+      }
     }
-    await dbClient.query("COMMIT");
 
     return res.status(201).json({
       data: {
@@ -14735,8 +14760,8 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         );
         const memRow = memIns.rows[0];
         const orderIns = await client.query(
-          `INSERT INTO orders (user_id, plan_id, status, payment_method, total_amount, channel, verified_at, verified_by)
-           VALUES ($1, $2, 'approved', $3, $4, 'pos_guest_sale', NOW(), $5)
+          `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, total_amount, channel, verified_at, verified_by)
+           VALUES ($1, $2, 'approved', $3, $4, $4, 'pos_guest_sale', NOW(), $5)
            RETURNING *`,
           [guestUser.id, plan.id, pm, plan.price ?? 0, req.userId || null]
         );
@@ -14800,21 +14825,28 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         chargedTo: hasGuestSale ? "guest" : "host_visit_pack",
       };
 
-      // ── Premio opcional: puntos de Conexión (anillos) a la socia por
-      //    traer amiga. El INSERT en community_events dispara el trigger
-      //    que suma al anillo de la semana automáticamente.
-      const conexionPts = Math.max(0, Math.min(10, Number(guestConexionPoints) || 0));
-      if (conexionPts > 0) {
-        await client.query(
-          `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
-           VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
-          [userId, conexionPts, `Trajo a ${guest.name} a clase`, req.userId || null]
-        );
-        guestData.conexionPointsAwarded = conexionPts;
-      }
     }
 
     await client.query("COMMIT");
+
+    // ── Premio opcional: puntos de Conexión (anillos) a la socia por traer
+    //    amiga. FUERA de la transacción y best-effort: si el trigger de
+    //    anillos falla por lo que sea, la reserva ya quedó hecha.
+    if (guestData) {
+      const conexionPts = Math.max(0, Math.min(10, Number(guestConexionPoints) || 0));
+      if (conexionPts > 0) {
+        try {
+          await pool.query(
+            `INSERT INTO community_events (user_id, points_awarded, event_type, description, created_by)
+             VALUES ($1, $2, 'trajo_amiga', $3, $4)`,
+            [userId, conexionPts, `Trajo a ${guest.name} a clase`, req.userId || null]
+          );
+          guestData.conexionPointsAwarded = conexionPts;
+        } catch (e) {
+          console.error("[bookings/assign] premio Conexión falló (reserva OK):", e.message);
+        }
+      }
+    }
 
     try {
       const userRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [userId]);
