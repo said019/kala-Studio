@@ -2319,9 +2319,12 @@ async function selectMembershipForClass({ userId, classCategory, client = null }
         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
         -- Los planes online son solo videos: nunca sirven para reservar clases.
         AND COALESCE(p.class_category, 'all') <> 'online'
-        -- Los packs de visitas son para acompañantes/invitadas: la reserva
-        -- propia de la socia nunca debe quemar esos créditos.
-        AND COALESCE(p.is_visit_pack, false) = false
+        -- NOTA: los packs de visita (is_visit_pack) SÍ son elegibles aquí.
+        -- Una clienta que "paga por clase" tiene su único crédito en un pack
+        -- de visita y debe poder reservarse normal. Para que una socia con
+        -- plan regular NO queme su crédito de invitada en su propia reserva,
+        -- los packs de visita van al FINAL del ORDER BY: solo se eligen cuando
+        -- no hay ninguna otra membresía elegible.
         AND (
           COALESCE(p.class_category, 'all') IN ('all', 'mixto')
           OR COALESCE(p.class_category, 'all') = $2
@@ -2332,6 +2335,9 @@ async function selectMembershipForClass({ userId, classCategory, client = null }
           OR m.classes_remaining > 0
         )
       ORDER BY
+        -- Regular antes que pack de visita: la socia con plan propio nunca
+        -- quema el crédito de invitada en su propia reserva.
+        COALESCE(p.is_visit_pack, false) ASC,
         CASE
           WHEN COALESCE(p.class_category, 'all') = $2 THEN 0
           WHEN COALESCE(p.class_category, 'all') = 'mixto' THEN 1
