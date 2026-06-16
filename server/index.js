@@ -15258,7 +15258,10 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       }
       const start = startDate ? new Date(startDate) : new Date();
       const end = new Date(start);
-      end.setDate(end.getDate() + plan.duration_days);
+      // Sin fallback, un plan con duration_days NULL dejaba end_date = hoy
+      // (vence mañana, muestra créditos pero no puede reservar) o Invalid Date
+      // → 'Error interno'. Mismo patrón que el resto de los flujos de creación.
+      end.setDate(end.getDate() + (plan.duration_days || 30));
 
       // Cupón opcional: valida y calcula el precio final que pagó la clienta
       // (queda registrado en las notas para control del admin). Si el cupón es
