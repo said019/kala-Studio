@@ -42,7 +42,7 @@ interface Stats {
   activeMembers: number;
   monthlyRevenue: number;
   pendingAlerts: number;
-  recentMemberships: { id: string; userName: string; planName: string; status: string; createdAt: string }[];
+  recentMemberships: { id: string; userName: string; planName: string; status: string; createdAt: string; isExpired?: boolean }[];
   pendingOrders: { id: string; userName: string; totalAmount?: number; total_amount?: number; amount?: number; status: string }[];
 }
 
@@ -339,10 +339,10 @@ const Dashboard = () => {
                           <p className="text-muted-foreground text-xs">{m.planName}</p>
                         </div>
                         <Badge
-                          variant={m.status === "active" ? "default" : "secondary"}
+                          variant={m.status === "active" && !m.isExpired ? "default" : "secondary"}
                           className="text-xs"
                         >
-                          {STATUS_LABEL[m.status] ?? m.status}
+                          {m.isExpired ? STATUS_LABEL.expired : STATUS_LABEL[m.status] ?? m.status}
                         </Badge>
                       </div>
                     ))}

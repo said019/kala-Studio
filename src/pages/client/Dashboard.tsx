@@ -99,6 +99,7 @@ const Dashboard = () => {
   const planName = membership?.planName ?? membership?.plan_name ?? "Sin paquete activo";
   const classLimit = membership?.classLimit ?? membership?.class_limit ?? null;
   const classesRemaining = membership?.classesRemaining ?? membership?.classes_remaining ?? null;
+  const membershipExpired = Boolean(membership?.isExpired);
   const walletPoints = Number(wallet?.points ?? 0);
 
   const ringsState = (ringsData?.data ?? ringsData)?.current;
@@ -294,9 +295,11 @@ const Dashboard = () => {
                 <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
                   Membresía
                 </span>
-                {membership && classLimit !== null && (
+                {membership && membershipExpired ? (
+                  <Tag tint="destructive">Vencida</Tag>
+                ) : membership && classLimit !== null ? (
                   <Tag tint="olive">Activa</Tag>
-                )}
+                ) : null}
               </div>
               {loadingMembership ? (
                 <SkeletonRow height={88} />
@@ -307,9 +310,9 @@ const Dashboard = () => {
                   </h3>
                   <div className="mt-4 grid grid-cols-2 gap-5">
                     <Stat
-                      value={classesRemaining ?? "·"}
-                      label="Clases por usar"
-                      tint="berry"
+                      value={membershipExpired ? "·" : (classesRemaining ?? "·")}
+                      label={membershipExpired ? "Sin clases (vencida)" : "Clases por usar"}
+                      tint={membershipExpired ? "destructive" : "berry"}
                     />
                     <Stat
                       value={classLimit ?? "·"}
@@ -317,6 +320,11 @@ const Dashboard = () => {
                       tint="olive"
                     />
                   </div>
+                  {membershipExpired && (
+                    <p className="mt-3 text-[0.85rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.65 }}>
+                      Tu paquete venció. Renueva para volver a reservar.
+                    </p>
+                  )}
                   <div className="mt-5 flex flex-wrap gap-3">
                     <PrimaryButton size="sm" to="/app/profile/membership">Ver membresía</PrimaryButton>
                     <GhostButton to="/app/checkout">Renovar</GhostButton>

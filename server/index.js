@@ -2301,6 +2301,22 @@ function isMembershipCategoryCompatible(membershipCategory, classCategory) {
   return memCat === clsCat;
 }
 
+// Una membresía con end_date pasado se queda en status='active' en la BD:
+// ningún proceso la marca 'expired' a propósito, porque el carry-over de
+// renovación y el reporte de ingresos filtran por status='active' sin checar
+// fecha (marcarla rompería ambos). Pero NO es reservable (selectMembershipForClass
+// ya valida end_date). Exponemos isExpired para que las vistas dejen de
+// mostrarla como "Activa · N clases" — el síntoma del panel que mentía.
+function isMembershipExpired(status, endDate) {
+  if (status !== "active" || !endDate) return false;
+  const end = new Date(endDate);
+  if (Number.isNaN(end.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  end.setHours(0, 0, 0, 0);
+  return end < today;
+}
+
 async function selectMembershipForClass({ userId, classCategory, client = null }) {
   if (!userId) return null;
   const q = client ?? pool;
@@ -3329,6 +3345,9 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
     );
     if (!r.rows[0]) return res.json({ data: null });
     const row = camelRows([r.rows[0]])[0];
+    // Vencida pero aún en status='active' en la BD → marcarla para que la
+    // vista no la muestre como "Activa". Se calcula antes de anular 9999.
+    row.isExpired = isMembershipExpired(r.rows[0].status, r.rows[0].end_date);
     // Treat 9999 or very large numbers as unlimited (null)
     if (row.classesRemaining >= 9999) row.classesRemaining = null;
     if (row.classLimit >= 9999) row.classLimit = null;
@@ -14044,6 +14063,7 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
         planName: m.plan_name ?? m.plan_id,
         classCategory: m.class_category ?? "all",
         status: m.status,
+        isExpired: isMembershipExpired(m.status, m.end_date),
         paymentMethod: m.payment_method,
         startDate: m.start_date,
         endDate: m.end_date,

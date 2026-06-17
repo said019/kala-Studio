@@ -53,6 +53,7 @@ interface Membership {
   endDate?: string;
   classesRemaining?: number | null;
   classLimit?: number | null;
+  isExpired?: boolean;
 }
 
 interface ClientOption {
@@ -119,6 +120,9 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
                   mixto: "bg-[#F58A24]/15 text-[#F58A24] border-[#F58A24]/30",
                 };
                 const cat = m.classCategory ?? "";
+                // status puede seguir 'active' aunque el plan esté vencido (end_date pasada);
+                // el backend lo marca con isExpired. Lo mostramos como expirado.
+                const isExpired = Boolean(m.isExpired) || m.status === "expired";
                 return (
                   <TableRow key={m.id}>
                     <TableCell className="font-medium">{m.userName ?? m.userId}</TableCell>
@@ -133,12 +137,14 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANTS[m.status]}>{STATUS_LABELS[m.status]}</Badge>
+                      <Badge variant={isExpired ? STATUS_VARIANTS.expired : STATUS_VARIANTS[m.status]}>
+                        {isExpired ? STATUS_LABELS.expired : STATUS_LABELS[m.status]}
+                      </Badge>
                     </TableCell>
                     <TableCell className="text-sm">
                       {m.endDate ? new Date(m.endDate).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={isExpired ? "text-muted-foreground line-through" : undefined}>
                       {m.classesRemaining === null || m.classesRemaining === undefined
                         ? (m.classLimit === null ? "∞" : "—")
                         : m.classesRemaining === 9999

@@ -144,7 +144,9 @@ const BookClasses = () => {
   const classes: ScheduleClass[] = Array.isArray(classesData?.data) ? classesData.data : Array.isArray(classesData) ? classesData : [];
   const myBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
   const membership = membershipData?.data ?? null;
-  const hasActive = membership?.status === "active";
+  // Una membresía vencida sigue status='active' en DB pero no es reservable:
+  // el backend la marca con isExpired, y la tratamos como sin paquete activo.
+  const hasActive = membership?.status === "active" && !membership?.isExpired;
   const membershipCat: ClassCat | null = hasActive
     ? ((membership.classCategory ?? membership.class_category ?? "all") as ClassCat)
     : null;

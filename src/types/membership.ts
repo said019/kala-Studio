@@ -7,6 +7,7 @@ export interface ClientMembership {
   endDate: string;
   classesRemaining: number | null;
   classLimit: number | null;
+  isExpired?: boolean;
   paymentMethod?: string;
   // snake_case aliases kept for backwards compat
   plan_id?: string;

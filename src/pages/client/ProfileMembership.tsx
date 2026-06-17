@@ -54,7 +54,14 @@ const ProfileMembership = () => {
   const daysRemaining = membership?.end_date
     ? Math.max(differenceInCalendarDays(safeParse(membership.end_date), new Date()), 0)
     : null;
-  const status = membership ? STATUS[membership.status] ?? { label: membership.status, tone: "berry" as const } : null;
+  // Una membresía puede seguir status='active' en DB pero estar vencida (end_date pasada);
+  // el backend lo marca con isExpired. La tratamos igual que status='expired'.
+  const isExpired = Boolean(membership?.isExpired) || membership?.status === "expired";
+  const status = membership
+    ? isExpired
+      ? STATUS.expired
+      : STATUS[membership.status] ?? { label: membership.status, tone: "berry" as const }
+    : null;
   const cancellationsUsed = membership?.cancellationsUsed ?? 0;
   const cancellationsLeft = Math.max(2 - cancellationsUsed, 0);
   const isUnlimited =
@@ -146,10 +153,10 @@ const ProfileMembership = () => {
                   <span className="text-[0.62rem] font-medium uppercase tracking-[0.24em]" style={{ color: KALA.berry }}>
                     {CATEGORY_LABEL[String(membership.classCategory ?? "all")] ?? "Todas las disciplinas"}
                   </span>
-                  <span className="font-bebas tabular-nums" style={{ color: KALA.berry, fontSize: "clamp(1.6rem, 2.6vw, 2.1rem)" }}>
-                    {isUnlimited ? "∞" : Number(membership.classes_remaining ?? 0)}{" "}
+                  <span className="font-bebas tabular-nums" style={{ color: isExpired ? KALA.destructive : KALA.berry, fontSize: "clamp(1.6rem, 2.6vw, 2.1rem)" }}>
+                    {isExpired ? "0" : isUnlimited ? "∞" : Number(membership.classes_remaining ?? 0)}{" "}
                     <span className="text-[0.7rem] uppercase tracking-[0.18em]" style={{ color: KALA.ink, opacity: 0.55 }}>
-                      por usar
+                      {isExpired ? "vencida" : "por usar"}
                     </span>
                   </span>
                 </div>
@@ -240,17 +247,17 @@ const ProfileMembership = () => {
               </ul>
             </Section>
 
-            {(membership.status !== "active" || (daysRemaining !== null && daysRemaining <= 7)) && (
+            {(isExpired || membership.status !== "active" || (daysRemaining !== null && daysRemaining <= 7)) && (
               <Section>
                 <InfoBanner
-                  tone={membership.status === "active" ? "orange" : "coral"}
+                  tone={!isExpired && membership.status === "active" ? "orange" : "coral"}
                   title={
-                    membership.status === "active"
+                    !isExpired && membership.status === "active"
                       ? "Tu paquete vence pronto."
                       : "Tu paquete ya no está activo."
                   }
                   description={
-                    membership.status === "active"
+                    !isExpired && membership.status === "active"
                       ? `Te quedan ${daysRemaining} ${daysRemaining === 1 ? "día" : "días"}. Renueva para no perder ritmo.`
                       : "Compra uno nuevo para seguir reservando."
                   }

@@ -274,7 +274,8 @@ const ClientDetail = () => {
                 <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Estado</TableHead><TableHead>Vence</TableHead><TableHead>Clases</TableHead><TableHead /></TableRow></TableHeader>
                 <TableBody>
                   {(Array.isArray(memberships?.data) ? memberships.data : []).map((m: any) => {
-                    const isActive = m.status === "active";
+                    const isExpired = Boolean(m.isExpired) || m.status === "expired";
+                    const isActive = m.status === "active" && !isExpired;
                     const hasWeeklyLimit = m.weeklyClassLimit != null && m.weeklyClassLimit > 0;
                     const weeklyExtra = Number(m.weeklyExtraClasses ?? 0);
                     return (
@@ -290,9 +291,12 @@ const ClientDetail = () => {
                             </div>
                           )}
                         </TableCell>
-                        <TableCell><Badge>{m.status}</Badge></TableCell>
+                        <TableCell>{isExpired ? <Badge variant="destructive">Vencida</Badge> : <Badge>{m.status}</Badge>}</TableCell>
                         <TableCell>{m.endDate ? new Date(m.endDate).toLocaleDateString("es-MX") : "—"}</TableCell>
-                        <TableCell>{m.classesRemaining == null || Number(m.classesRemaining) >= 9999 ? "∞" : m.classesRemaining}</TableCell>
+                        <TableCell className={isExpired ? "text-muted-foreground line-through" : undefined}>
+                          {m.classesRemaining == null || Number(m.classesRemaining) >= 9999 ? "∞" : m.classesRemaining}
+                          {isExpired && <span className="ml-1 text-[10px] no-underline">(vencida)</span>}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex flex-wrap justify-end gap-1">
                             {isActive && hasWeeklyLimit && (
