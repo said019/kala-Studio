@@ -2279,7 +2279,14 @@ function calculateDiscountAmount(type, value, subtotal) {
 
 function normalizeClassCategory(value, fallback = "all") {
   const raw = String(value ?? "").trim().toLowerCase();
-  if (["jumping", "pilates", "mixto", "all"].includes(raw)) return raw;
+  // 'barre' es una categoría válida tanto en class_types como en plans (la
+  // ofrece el panel de admin). Si NO se reconoce aquí, una clase Barre se
+  // normaliza a 'all' y selectMembershipForClass excluye las membresías cuyo
+  // plan tiene class_category='barre' → la socia con membresía activa Barre
+  // recibe "No tienes membresía activa" y no puede reservar. Reconocerla
+  // mantiene el match (plan 'barre' = clase 'barre') y deja que 'all'/'mixto'
+  // sigan reservando cualquier categoría como antes.
+  if (["barre", "jumping", "pilates", "mixto", "all"].includes(raw)) return raw;
   return fallback;
 }
 
