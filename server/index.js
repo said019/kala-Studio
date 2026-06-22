@@ -16107,11 +16107,46 @@ app.put("/api/instructors/:id", adminMiddleware, async (req, res) => {
 
 // DELETE /api/instructors/:id
 app.delete("/api/instructors/:id", adminMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try {
-    await pool.query("DELETE FROM instructors WHERE id = $1", [req.params.id]);
+    await client.query("BEGIN");
+    // Capturamos el user_id antes de borrar para poder limpiar el usuario sintético.
+    const inst = (await client.query("SELECT user_id FROM instructors WHERE id = $1", [req.params.id])).rows[0];
+    if (!inst) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Instructor no encontrado" });
+    }
+    await client.query("DELETE FROM instructors WHERE id = $1", [req.params.id]);
+    // Al crear una instructora sin email, POST /instructors genera un users sintético
+    // (role='instructor', email instructor+slug@kala.guest). Si no se limpia, queda un
+    // usuario huérfano. Lo borramos best-effort (SAVEPOINT) para no abortar el borrado
+    // del instructor si algún FW RESTRICT referencia ese usuario. Solo tocamos usuarios
+    // sintéticos: instructoras con email/login real se conservan.
+    if (inst.user_id) {
+      await client.query("SAVEPOINT cleanup_user");
+      try {
+        await client.query(
+          `DELETE FROM users
+           WHERE id = $1 AND role = 'instructor' AND email LIKE 'instructor+%@kala.guest'`,
+          [inst.user_id]
+        );
+      } catch (e) {
+        await client.query("ROLLBACK TO SAVEPOINT cleanup_user");
+        console.warn("[DELETE /instructors] no se pudo limpiar usuario huérfano:", e.message);
+      }
+    }
+    await client.query("COMMIT");
     return res.json({ message: "Instructor eliminado" });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => { });
+    console.error("[DELETE /instructors]", err.message);
+    // FK RESTRICT (p.ej. la instructora tiene clases asignadas)
+    if (err.code === "23503") {
+      return res.status(409).json({ message: "No se puede eliminar: la instructora tiene clases u otros registros asociados. Desactívala o reasigna sus clases primero." });
+    }
     return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
   }
 });
 
