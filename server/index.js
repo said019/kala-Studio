@@ -185,6 +185,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Reserva confirmada",
     body: "{firstName}, te apartamos lugar de {class} el {date} a las {time}. Tu pase Kala ya lo trae cargado. Te esperamos.",
   },
+  guest_booking_confirmed: {
+    subject: "Reserva confirmada (invitada)",
+    body: "Hola {firstName}, te apartamos lugar en {class} el {date} a las {time}. ¡Te esperamos en Kala! 🩷",
+  },
   booking_cancelled: {
     subject: "Reserva cancelada",
     body: "{firstName}, cancelaste tu reserva de {class} del {date}. Crédito devuelto: {creditRestored}. Cuando quieras volver, reservas desde la app.",
@@ -7161,6 +7165,28 @@ async function notifyBookingConfirmed(userId, ctx = {}) {
 }
 
 /**
+ * Reserva confirmada para una INVITADA / acompañante.
+ * Se envía al teléfono del guest_profile (la fuente de verdad: el user "lite"
+ * de la invitada puede NO tener phone si chocó con un UNIQUE al crearse).
+ * Mensaje propio: la invitada no tiene pase Kala, así que NO lo mencionamos
+ * (a diferencia de notifyBookingConfirmed). Best-effort: sin teléfono o si el
+ * envío falla, no rompe la reserva. Template: guest_booking_confirmed.
+ */
+async function notifyGuestBookingConfirmed(phone, name, ctx = {}) {
+  if (!phone) return;
+  const firstName = firstNameOf(name, "invitada");
+  const cls = ctx.className || "tu clase";
+  const date = ctx.date || ctx.when || "";
+  const time = ctx.time || "";
+  sendConfiguredWhatsAppTemplate({
+    templateKey: "guest_booking_confirmed",
+    phone,
+    vars: { firstName, name: name || firstName, class: cls, date, time },
+    fallbackMessage: `Hola ${firstName}, te apartamos lugar en ${cls}${date ? ` el ${date}` : ""}${time ? ` a las ${time}` : ""}. ¡Te esperamos en Kala! 🩷`,
+  }).catch(() => {});
+}
+
+/**
  * Reserva cancelada (live flow usa el template DB en el endpoint mismo).
  * Template: booking_cancelled · vars: firstName, class, date, creditRestored
  */
@@ -10723,6 +10749,22 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
 
     await dbClient.query("COMMIT");
 
+    // Avisarle a la invitada por WhatsApp (best-effort, no rompe la reserva).
+    try {
+      const clsN = await pool.query(
+        `SELECT ct.name AS class_name, c.date, c.start_time
+           FROM classes c JOIN class_types ct ON ct.id = c.class_type_id
+          WHERE c.id = $1`,
+        [classId]
+      );
+      const cln = clsN.rows[0] || {};
+      notifyGuestBookingConfirmed(guest.phone, guest.display_name, {
+        className: cln.class_name,
+        date: cln.date ? new Date(cln.date).toLocaleDateString("es-MX") : "",
+        time: cln.start_time ? String(cln.start_time).slice(0, 5) : "",
+      });
+    } catch (_) { /* no romper el flujo */ }
+
     // ── Premio opcional: puntos de Conexión (anillos) a la anfitriona por
     //    traer a la visitante. FUERA de la transacción y best-effort: si el
     //    trigger de anillos falla por lo que sea, la reserva ya quedó hecha.
@@ -10922,6 +10964,8 @@ app.post("/api/bookings/with-guest", authMiddleware, async (req, res) => {
         },
         `Nueva reserva con acompañante: ${guestProfile.display_name} (con ${sociaName}) en ${cl.class_name || "clase"}${dateStr ? ` el ${dateStr}` : ""}${timeStr ? ` a las ${timeStr}` : ""}.`
       );
+      // Avisarle también a la propia acompañante (WhatsApp de invitada).
+      notifyGuestBookingConfirmed(guestProfile.phone, guestProfile.display_name, { className: cl.class_name, date: dateStr, time: timeStr });
     } catch (_) { /* no romper el flujo si la notif falla */ }
 
     const remaining = pack.classes_remaining === null ? null : Math.max(0, pack.classes_remaining - 1);
@@ -12482,6 +12526,7 @@ const TEMPLATE_VARIABLES = {
   welcome: ["firstName"],
   password_reset: ["firstName", "link"],
   booking_confirmed: ["firstName", "class", "date", "time"],
+  guest_booking_confirmed: ["firstName", "class", "date", "time"],
   booking_waitlist: ["firstName", "class", "date", "time"],
   waitlist_promoted: ["name", "class", "date", "time"],
   booking_cancelled: ["firstName", "class", "date", "creditRestored"],
@@ -14845,6 +14890,8 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       guestData = {
         booking: guestBookingIns.rows[0],
         guestProfile,
+        guestPhone: guestProfile.phone,
+        guestName: guestProfile.display_name,
         packMembershipId: guestMembershipId,
         creditsRemaining: guestMembershipCreditsAfter,
         soldOrder: guestSaleOrder,
@@ -14918,6 +14965,14 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
             ? `Hola ${u.display_name || "Alumna"}, la clase de ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está llena. Quedaste en lista de espera — si se libera un lugar, tu reserva se confirma sola y te avisamos por aquí.`
             : `Hola ${u.display_name || "Alumna"}, tu reserva para ${cl.class_type_name || "tu clase"} (${cl.date || ""} ${String(cl.start_time || "").slice(0, 5)}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed (admin):", e.message));
+        // Si se agregó acompañante, avisarle también a ELLA (WhatsApp de invitada).
+        if (guestData?.guestPhone) {
+          notifyGuestBookingConfirmed(guestData.guestPhone, guestData.guestName, {
+            className: cl.class_type_name,
+            date: cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "",
+            time: cl.start_time ? String(cl.start_time).slice(0, 5) : "",
+          });
+        }
         // Notifica a la dueña/admins (puede haber otras recepcionistas o instructoras).
         if (!isWaitlist) {
           const dateStr = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
