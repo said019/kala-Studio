@@ -2321,6 +2321,43 @@ function isMembershipExpired(status, endDate) {
   return end < today;
 }
 
+// Al vender/crear un paquete PRESENCIAL regular nuevo, el anterior no debe
+// quedarse colgado en la app. Cancela los paquetes presenciales regulares
+// activos previos (excluye planes online y packs de visita, que coexisten
+// con el paquete regular) y devuelve el total de créditos restantes para
+// transferirlos (carry-over) al nuevo. Debe correr DENTRO de la misma
+// transacción que crea el paquete nuevo. `excludeOrderId` evita cancelar el
+// propio paquete de la orden al re-verificarla.
+async function supersedePreviousPresentialMemberships(client, userId, { excludeOrderId = null } = {}) {
+  if (!userId) return 0;
+  const prev = await client.query(
+    `SELECT m.id, m.classes_remaining
+       FROM memberships m LEFT JOIN plans p ON p.id = m.plan_id
+      WHERE m.user_id = $1
+        AND m.status = 'active'
+        AND COALESCE(p.class_category, 'all') <> 'online'
+        AND COALESCE(p.is_visit_pack, false) = false
+        AND ($2::uuid IS NULL OR m.order_id IS DISTINCT FROM $2::uuid)`,
+    [userId, excludeOrderId],
+  );
+  if (!prev.rows.length) return 0;
+  let carryOver = 0;
+  for (const m of prev.rows) {
+    const c = Number(m.classes_remaining);
+    if (Number.isFinite(c) && c > 0) carryOver += c;
+  }
+  await client.query(
+    `UPDATE memberships
+        SET status = 'cancelled',
+            cancellation_reason = 'Reemplazada por nuevo paquete',
+            cancelled_at = NOW(),
+            end_date = NOW()
+      WHERE id = ANY($1::uuid[])`,
+    [prev.rows.map((m) => m.id)],
+  );
+  return carryOver;
+}
+
 async function selectMembershipForClass({ userId, classCategory, client = null }) {
   if (!userId) return null;
   const q = client ?? pool;
@@ -14149,11 +14186,32 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
     const start = startDate ? new Date(startDate) : new Date();
     const end = new Date(start);
     end.setDate(end.getDate() + (plan.duration_days || 30));
-    const r = await pool.query(
-      `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining)
-       VALUES ($1,$2,'active',$3,$4,$5,$6) RETURNING *`,
-      [userId, planId, paymentMethod, start.toISOString(), end.toISOString(), plan.class_limit ?? null]
-    );
+    // Reemplaza el paquete presencial anterior (cancela + transfiere créditos)
+    // de forma atómica con la creación del nuevo. Online/visita no reemplazan.
+    const newIsPresentialRegular =
+      (plan.class_category ?? "all") !== "online" && plan.is_visit_pack !== true;
+    let r;
+    const memClient = await pool.connect();
+    try {
+      await memClient.query("BEGIN");
+      const carryOver = newIsPresentialRegular
+        ? await supersedePreviousPresentialMemberships(memClient, userId)
+        : 0;
+      const baseCredits = plan.class_limit ?? null;
+      const credits = baseCredits === null ? null : baseCredits + carryOver;
+      r = await memClient.query(
+        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining)
+         VALUES ($1,$2,'active',$3,$4,$5,$6) RETURNING *`,
+        [userId, planId, paymentMethod, start.toISOString(), end.toISOString(), credits]
+      );
+      await memClient.query("COMMIT");
+    } catch (txErr) {
+      await memClient.query("ROLLBACK").catch(() => {});
+      memClient.release();
+      console.error("POST /memberships txn error:", txErr.message);
+      return res.status(500).json({ message: "Error interno" });
+    }
+    memClient.release();
 
     // ── Email: membership activated ──────────────────────────────────────
     try {
@@ -15477,27 +15535,15 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
 
       // Activate membership if this order is for a plan
       if (order.plan_id && plan && order.user_id) {
-        // Carry-over: suma créditos de membresías PRESENCIALES activas (las
-        // online no tienen clases que transferir y NO deben cancelarse).
-        let carryOver = 0;
-        const activeMemberships = await client.query(
-          `SELECT m.id, m.classes_remaining
-             FROM memberships m LEFT JOIN plans p ON p.id = m.plan_id
-            WHERE m.user_id = $1 AND m.status = 'active' AND m.classes_remaining > 0
-              AND COALESCE(p.class_category,'all') <> 'online'`,
-          [order.user_id]
-        );
-        if (activeMemberships.rows.length > 0) {
-          for (const m of activeMemberships.rows) {
-            carryOver += (Number(m.classes_remaining) || 0);
-          }
-          const oldIds = activeMemberships.rows.map((m) => m.id);
-          await client.query(
-            `UPDATE memberships SET status = 'cancelled', cancellation_reason = 'Renovación: créditos transferidos a nueva membresía', cancelled_at = NOW(), end_date = NOW()
-             WHERE id = ANY($1::uuid[])`,
-            [oldIds]
-          );
-        }
+        // Reemplaza el paquete presencial anterior (cancela TODOS los activos
+        // —incluidos los de 0 créditos que antes quedaban colgados— y transfiere
+        // sus créditos restantes al nuevo). Solo si el plan nuevo es presencial
+        // regular; planes online y packs de visita coexisten y no reemplazan.
+        const newIsPresentialRegular =
+          (plan.class_category ?? "all") !== "online" && plan.is_visit_pack !== true;
+        const carryOver = newIsPresentialRegular
+          ? await supersedePreviousPresentialMemberships(client, order.user_id, { excludeOrderId: order.id })
+          : 0;
 
         const newCredits = (plan.class_limit ?? 0) + carryOver;
         const end = new Date();
