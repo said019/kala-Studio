@@ -135,12 +135,6 @@ const BookClasses = () => {
     queryFn: async () => (await api.get("/memberships/my")).data,
   });
 
-  const { data: weeklyStatusData } = useQuery({
-    queryKey: ["weekly-status", format(weekStart, "yyyy-MM-dd")],
-    queryFn: async () =>
-      (await api.get(`/bookings/weekly-status?date=${format(weekStart, "yyyy-MM-dd")}`)).data,
-  });
-
   const classes: ScheduleClass[] = Array.isArray(classesData?.data) ? classesData.data : Array.isArray(classesData) ? classesData : [];
   const myBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
   const membership = membershipData?.data ?? null;
@@ -152,9 +146,6 @@ const BookClasses = () => {
     : null;
   const classesRemaining = membership?.classesRemaining ?? membership?.classes_remaining;
   const isUnlimited = classesRemaining === null || classesRemaining === undefined || classesRemaining === 9999;
-  const weeklyStatus: { plan_name: string; limit: number; used: number; remaining: number }[] =
-    Array.isArray(weeklyStatusData?.data) ? weeklyStatusData.data : [];
-  const weeklyCap = weeklyStatus[0] ?? null;
   const myBookedClassIds = useMemo(() => new Set(myBookings.map((b) => b.class_id)), [myBookings]);
 
   const days = useMemo(() => {
@@ -212,7 +203,7 @@ const BookClasses = () => {
                 </span>
               </h1>
               <p className="mt-4 max-w-[62ch] text-[0.98rem] leading-[1.7]" style={{ color: KALA.ink, opacity: 0.68 }}>
-                Revisa cupos, horarios y tu tope semanal en una sola vista. Las clases disponibles aparecen listas para reservar.
+                Revisa cupos y horarios en una sola vista. Las clases disponibles aparecen listas para reservar.
               </p>
             </div>
 
@@ -276,19 +267,17 @@ const BookClasses = () => {
           )}
 
           <div className="rounded-[1.5rem] p-4 sm:p-5" style={{ backgroundColor: KALA.cream, border: `1px solid ${KALA.border}` }}>
-            <span className="text-[0.62rem] font-medium uppercase tracking-[0.22em]" style={{ color: weeklyCap?.remaining === 0 ? KALA.coral : KALA.olive }}>
-              Tope semanal
+            <span className="text-[0.62rem] font-medium uppercase tracking-[0.22em]" style={{ color: KALA.olive }}>
+              Clases por usar
             </span>
             <div className="mt-3 flex items-end justify-between gap-4">
               <p className="text-[0.9rem] leading-[1.55]" style={{ color: KALA.ink, opacity: 0.72 }}>
-                {weeklyCap
-                  ? weeklyCap.remaining === 0
-                    ? "Semana completa. Cancela una clase si quieres mover tu agenda."
-                    : "Todavía puedes reservar esta semana."
-                  : "Te mostraremos tu límite semanal al cargar tu plan."}
+                {hasActive
+                  ? "Úsalas cuando quieras dentro de la vigencia de tu plan."
+                  : "Adquiere un paquete para reservar tus clases."}
               </p>
               <p className="font-bebas text-[2rem] leading-none tabular-nums" style={{ color: KALA.olive }}>
-                {weeklyCap ? `${weeklyCap.remaining}/${weeklyCap.limit}` : "--"}
+                {hasActive ? (isUnlimited ? "∞" : classesRemaining ?? "--") : "--"}
               </p>
             </div>
           </div>

@@ -3540,8 +3540,17 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
  * Returns { ok: true, count, limit } si pasa, o { ok: false, count, limit, message }
  * con mensaje listo para devolver al cliente. Para planes sin tope semanal
  * (weekly_class_limit IS NULL), siempre returns ok=true.
+ *
+ * POLÍTICA (jun 2026): el tope semanal está DESACTIVADO por decisión de
+ * negocio — las alumnas pueden adelantar/concentrar sus clases dentro del mes.
+ * El límite real sigue siendo el total de créditos del plan (class_limit) y la
+ * vigencia (end_date), que NO se tocan. Para reactivar el tope, pon
+ * WEEKLY_LIMIT_ENABLED = true (la lógica original queda intacta abajo).
  */
+const WEEKLY_LIMIT_ENABLED = false;
+
 async function checkWeeklyClassLimit(client, userId, membershipId, classDate) {
+  if (!WEEKLY_LIMIT_ENABLED) return { ok: true };
   const planRes = await client.query(
     `SELECT p.weekly_class_limit, COALESCE(m.weekly_extra_classes, 0) AS weekly_extra
        FROM memberships m JOIN plans p ON p.id = m.plan_id
