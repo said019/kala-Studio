@@ -3379,7 +3379,12 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
            WHEN m.status = 'active' AND m.end_date IS NULL THEN 1
            ELSE 0
          END ASC,
-         m.end_date ASC NULLS LAST,
+         -- Tras una renovación, el perfil debe mostrar el paquete NUEVO, no el
+         -- que vence primero. Cuando coexisten dos presenciales activos (datos
+         -- viejos previos al "supersede", o un alta sin reemplazo), ordenar por
+         -- end_date ASC dejaba colgado el viejo. Mostramos el más reciente:
+         -- por fecha de inicio y, en empate, por fecha de creación.
+         m.start_date DESC NULLS LAST,
          m.created_at DESC
        LIMIT 1`,
       [req.userId]
@@ -3424,7 +3429,7 @@ app.get("/api/memberships/mine/all", authMiddleware, async (req, res) => {
        ORDER BY
          CASE m.status WHEN 'active' THEN 1 WHEN 'pending_activation' THEN 2 ELSE 3 END,
          (COALESCE(p.class_category,'all') = 'online') ASC,  -- presencial primero, online después
-         m.end_date ASC NULLS LAST,
+         m.start_date DESC NULLS LAST,  -- el más reciente (la renovación) primero
          m.created_at DESC`,
       [req.userId]
     );
@@ -15429,13 +15434,26 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         await client.query("UPDATE discount_codes SET uses_count = uses_count + 1 WHERE id = $1", [dc.id]).catch(() => {});
       }
 
+      // Si esta alta es para una clienta que YA existía (ON CONFLICT email),
+      // reemplaza su paquete presencial anterior y transfiere las clases
+      // sobrantes — igual que la compra/aprobación y la asignación admin. Sin
+      // esto, quedaban DOS paquetes activos y el perfil no reflejaba el nuevo.
+      // Online y packs de visita coexisten y no reemplazan.
+      const newIsPresentialRegular =
+        (plan.class_category ?? "all") !== "online" && plan.is_visit_pack !== true;
+      const carryOver = newIsPresentialRegular
+        ? await supersedePreviousPresentialMemberships(client, user.id)
+        : 0;
+      const baseCredits = plan.class_limit === 0 ? null : plan.class_limit;
+      const credits = baseCredits === null ? null : baseCredits + carryOver;
+
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
           classes_remaining, notes)
          VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
         [user.id, plan.id, paymentMethod, start.toISOString().split("T")[0],
         end.toISOString().split("T")[0],
-        plan.class_limit === 0 ? null : plan.class_limit,
+        credits,
         (notes || `Alta manual por admin`) + priceNote]
       );
       membership = camelRow(memRes.rows[0]);
