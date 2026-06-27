@@ -1551,6 +1551,14 @@ async function ensureSchema() {
          ORDER BY m.end_date DESC NULLS LAST
          LIMIT 1;
 
+        -- Sin membresía activa hoy (vencida / fuera de rango / cortesía / invitada)
+        -- el SELECT INTO anterior NO devuelve fila y deja TODAS las variables en NULL,
+        -- pisando los defaults := 1 / := 10. Restauramos los defaults para no violar
+        -- los NOT NULL de ring_states: el check-in nunca debe tronar.
+        v_constancia_goal := COALESCE(v_constancia_goal, 1);
+        v_esfuerzo_goal   := COALESCE(v_esfuerzo_goal, 1);
+        v_conexion_goal   := COALESCE(v_conexion_goal, 10);
+
         SELECT COALESCE(ct.intensity, '')
           INTO v_intensity
           FROM classes c
@@ -2581,7 +2589,10 @@ function normalizePosItems(items) {
   return Array.from(qtyByProduct.entries()).map(([productId, qty]) => ({ productId, qty }));
 }
 
-async function processPosSale({ userId, items, paymentMethod = "efectivo", discountCode = null }) {
+async function processPosSale({ userId, items, paymentMethod = "cash", discountCode = null }) {
+  // Normaliza al enum payment_method ('cash','transfer','card','online'). El default
+  // 'efectivo' o cualquier sinónimo en español rompía el INSERT de orders con 22P02.
+  const pmEnum = normalizePaymentMethod(paymentMethod);
   const normalizedItems = normalizePosItems(items);
   if (!normalizedItems.length) {
     return { error: { status: 400, message: "Se requieren artículos válidos" } };
@@ -2648,7 +2659,7 @@ async function processPosSale({ userId, items, paymentMethod = "efectivo", disco
        )
        VALUES ($1,$2,0,$3,$4,'approved',$5,$6,'pos')
        RETURNING *`,
-      [userId || null, subtotal, total, paymentMethod, discountAmount, discountCodeRow?.id ?? null]
+      [userId || null, subtotal, total, pmEnum, discountAmount, discountCodeRow?.id ?? null]
     );
     const order = orderRes.rows[0];
 
@@ -2904,6 +2915,20 @@ function normalizePaymentMethod(value, fallback = "cash") {
   if (["transfer", "transferencia", "spei"].includes(v)) return "transfer";
   if (["card", "tarjeta", "tdc", "tdd"].includes(v)) return "card";
   if (["online", "en línea", "en linea"].includes(v)) return "online";
+  return fallback;
+}
+
+// Normaliza el nivel al enum class_level de Postgres
+// ('beginner','intermediate','advanced','all'). La UI manda etiquetas en español
+// ('Todos los niveles','Principiante','Intermedio','Avanzado'); sin mapear,
+// el INSERT/UPDATE de class_types tronaba con 22P02 contra el enum.
+function normalizeClassLevel(value, fallback = "all") {
+  const v = String(value ?? "").toLowerCase().trim();
+  if (["all", "todos", "todos los niveles", "todos los nivels"].includes(v)) return "all";
+  if (["beginner", "principiante", "básico", "basico"].includes(v)) return "beginner";
+  if (["intermediate", "intermedio"].includes(v)) return "intermediate";
+  if (["advanced", "avanzado"].includes(v)) return "advanced";
+  if (["beginner", "intermediate", "advanced", "all"].includes(v)) return v;
   return fallback;
 }
 
@@ -4516,7 +4541,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       [
         req.userId,
         planId,
-        paymentMethod,
+        normalizePaymentMethod(paymentMethod, "transfer"),
         subtotal,
         total,
         discount,
@@ -9367,7 +9392,7 @@ app.post("/api/admin/class-types", adminMiddleware, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [name.trim(), subtitle || null, description || null,
       category || "jumping", intensity || "media",
-      level || "Todos los niveles", duration_min || 50, capacity || 5,
+      normalizeClassLevel(level), duration_min || 50, capacity || 5,
       color || "#c026d3", emoji || "🏃", sort_order ?? 0]
     );
     return res.status(201).json({ data: r.rows[0] });
@@ -9398,7 +9423,7 @@ app.put("/api/admin/class-types/:id", adminMiddleware, async (req, res) => {
          updated_at   = NOW()
        WHERE id = $13 RETURNING *`,
       [name || null, subtitle || null, description || null,
-      category || null, intensity || null, level || null,
+      category || null, intensity || null, level ? normalizeClassLevel(level) : null,
       duration_min || null, capacity || null, color || null,
       emoji || null, is_active ?? null, sort_order ?? null,
       req.params.id]
@@ -11365,7 +11390,7 @@ app.post("/api/schedules/reset-kala", adminMiddleware, async (req, res) => {
 // POST /api/pos/checkout — alias for /pos/sale
 app.post("/api/pos/checkout", adminMiddleware, async (req, res) => {
   try {
-    const { userId, items, paymentMethod = "efectivo", discountCode } = req.body;
+    const { userId, items, paymentMethod = "cash", discountCode } = req.body;
     const result = await processPosSale({ userId, items, paymentMethod, discountCode });
     if (result.error) {
       return res.status(result.error.status).json({ message: result.error.message });
@@ -12825,7 +12850,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function sendWhatsAppNow(number, text) {
   const payload = { number, text };
-  return evolutionApi.post(`/message/sendText/${EVOLUTION_INSTANCE}`, payload);
+  try {
+    return await evolutionApi.post(`/message/sendText/${EVOLUTION_INSTANCE}`, payload);
+  } catch (err) {
+    // Antes solo se logueaba "status code 400" sin el body de Evolution, por lo que
+    // la causa real del 400 quedaba invisible (número inválido vs. instancia
+    // desconectada vs. API key). Logueamos el body completo y re-lanzamos para
+    // conservar la semántica fire-and-forget de los callers (.catch que solo loguean).
+    console.error(
+      `[WA sendText] FAIL status=${err.response?.status} number=${number} body=${JSON.stringify(err.response?.data)} msg=${err.message}`
+    );
+    throw err;
+  }
 }
 
 function queueWhatsAppSend(number, text) {
@@ -12873,7 +12909,15 @@ async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, f
   const rendered = renderTemplateVars(templateBody, vars).trim();
   const text = rendered || String(fallbackMessage || "").trim();
   if (!text) return { sent: false, reason: "empty_message" };
-  await queueWhatsAppSend(normalisePhone(phone), text);
+  // Guarda defensiva: un número mal formado (longitud inválida) provoca un 400 de
+  // Evolution. Lo saltamos limpio en vez de disparar un envío que sabemos fallará.
+  // MX normalizado válido: '52'+10 dígitos (12) o '521'+10 (13), siempre empezando en 52.
+  const num = normalisePhone(phone);
+  if (!num || !num.startsWith("52") || num.length < 12 || num.length > 13) {
+    console.error(`[WA] número inválido, no se envía: raw=${phone} normalizado=${num}`);
+    return { sent: false, reason: "invalid_phone" };
+  }
+  await queueWhatsAppSend(num, text);
   return { sent: true };
 }
 
@@ -14174,7 +14218,11 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
 // POST /api/memberships — admin assigns membership to a user
 app.post("/api/memberships", adminMiddleware, async (req, res) => {
   try {
-    const { userId, planId, paymentMethod = "efectivo", startDate } = req.body;
+    const { userId, planId, paymentMethod = "cash", startDate } = req.body;
+    // Normaliza al enum payment_method ('cash','transfer','card','online').
+    // Sin esto, valores en español ('efectivo'/'tarjeta'/'transferencia') o el
+    // default rompían el INSERT con 22P02 (invalid enum) -> 500 al crear membresía.
+    const pmEnum = normalizePaymentMethod(paymentMethod);
     if (!userId || !planId) return res.status(400).json({ message: "userId y planId requeridos" });
     const planRes = await pool.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
     if (!planRes.rows.length) return res.status(404).json({ message: "Plan no encontrado" });
@@ -14202,7 +14250,7 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       r = await memClient.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining)
          VALUES ($1,$2,'active',$3,$4,$5,$6) RETURNING *`,
-        [userId, planId, paymentMethod, start.toISOString(), end.toISOString(), credits]
+        [userId, planId, pmEnum, start.toISOString(), end.toISOString(), credits]
       );
       await memClient.query("COMMIT");
     } catch (txErr) {
@@ -14463,6 +14511,12 @@ app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
       }
     }
 
+    // Normaliza el método de pago al enum payment_method SOLO si vino en el body.
+    // Sin esto, 'efectivo'/'tarjeta'/'transferencia' tronaban el UPDATE con 22P02 -> 500.
+    const pmEnum = (paymentMethod !== undefined && paymentMethod !== null && String(paymentMethod).trim() !== "")
+      ? normalizePaymentMethod(paymentMethod)
+      : null;
+
     // Auto-bump del extra semanal: leer estado previo SOLO si la admin
     // subió classesRemaining sin tocar el extra.
     let resolvedExtra = weeklyExtraClasses ?? null;
@@ -14496,7 +14550,7 @@ app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
         status || null,
         classesRemaining ?? null,
         endDate || null,
-        paymentMethod || null,
+        pmEnum,
         resolvedExtra,
         req.params.id,
       ]
@@ -14755,7 +14809,24 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     });
     if (!membership) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ message: "La clienta no tiene membresía activa con créditos para esta clase" });
+      // Mensaje claro según el motivo real (igual que la ruta de la alumna):
+      // si su único plan activo es online, no incluye presenciales.
+      const onlineOnly = await client.query(
+        `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
+          WHERE m.user_id = $1 AND m.status = 'active'
+            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND COALESCE(p.class_category,'all') = 'online' LIMIT 1`,
+        [userId]
+      );
+      if (onlineOnly.rows.length) {
+        return res.status(403).json({
+          message: "La clienta solo tiene un plan en línea (videos), que no incluye clases presenciales. Necesita un paquete de clases para reservar.",
+        });
+      }
+      const label = clsCategory === "jumping" ? "Jumping" : clsCategory === "pilates" ? "Pilates" : "esta";
+      return res.status(403).json({
+        message: `La clienta no tiene membresía activa con créditos para clases de ${label}.`,
+      });
     }
 
     const lockedMembershipRes = await client.query(
@@ -15085,11 +15156,16 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     const constraint = err && err.constraint ? err.constraint : null;
     const code = err && err.code ? err.code : null;
     let userMessage = "No se pudo asignar la reserva.";
-    if (code === "23505") userMessage = `Conflicto de duplicado: ${constraint || pgDetail || err.message}`;
-    else if (code === "23503") userMessage = `Referencia rota: ${pgDetail || err.message}`;
+    let statusCode = 500;
+    if (code === "23505") {
+      // Carrera: dos reservas casi simultáneas chocan con el índice único parcial.
+      // No es un error del sistema; es que la clase ya quedó reservada. 409 amable.
+      statusCode = 409;
+      userMessage = "La clienta ya tiene una reserva para esta clase.";
+    } else if (code === "23503") userMessage = "No se pudo asignar la reserva (referencia inválida). Intenta de nuevo.";
     else if (code === "23502") userMessage = `Falta un dato obligatorio: ${pgDetail || err.message}`;
     else if (err && err.message) userMessage = `Error: ${err.message}`;
-    return res.status(500).json({
+    return res.status(statusCode).json({
       message: userMessage,
       ...(code ? { code } : {}),
       ...(constraint ? { constraint } : {}),
@@ -15366,6 +15442,8 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       planId, paymentMethod = "cash", startDate,
       notes, discountCode,
     } = req.body;
+    // Normaliza al enum payment_method por si el front manda un sinónimo en español.
+    const pmEnum = normalizePaymentMethod(paymentMethod);
     if (!displayName || !email) return res.status(400).json({ message: "Nombre y email son requeridos" });
 
     await client.query("BEGIN");
@@ -15433,7 +15511,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
           classes_remaining, notes)
          VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
-        [user.id, plan.id, paymentMethod, start.toISOString().split("T")[0],
+        [user.id, plan.id, pmEnum, start.toISOString().split("T")[0],
         end.toISOString().split("T")[0],
         plan.class_limit === 0 ? null : plan.class_limit,
         (notes || `Alta manual por admin`) + priceNote]
@@ -16046,7 +16124,7 @@ app.delete("/api/products/:id", adminMiddleware, async (req, res) => {
 // POST /api/pos/sale — POS transaction
 app.post("/api/pos/sale", adminMiddleware, async (req, res) => {
   try {
-    const { userId, items, paymentMethod = "efectivo", discountCode } = req.body;
+    const { userId, items, paymentMethod = "cash", discountCode } = req.body;
     const result = await processPosSale({ userId, items, paymentMethod, discountCode });
     if (result.error) {
       return res.status(result.error.status).json({ message: result.error.message });
@@ -17081,6 +17159,12 @@ app.post("/api/events/:id/register", authMiddleware, async (req, res) => {
     const userId = req.userId;
     const { name, email, phone = "", payment_method } = req.body;
     if (!name || !email) return res.status(400).json({ message: "name y email son requeridos" });
+    // event_registrations.payment_method es enum payment_method (cash|transfer|card|online).
+    // En eventos GRATIS el front manda 'free', que NO es un valor del enum y reventaba con
+    // 22P02. Normalizamos: si no es un valor válido del enum, va NULL (la columna lo permite).
+    const pmEnum = ["cash", "transfer", "card", "online"].includes(String(payment_method))
+      ? payment_method
+      : null;
     const evRes = await pool.query("SELECT * FROM events WHERE id = $1 AND status = 'published'", [req.params.id]);
     if (!evRes.rows.length) return res.status(404).json({ message: "Evento no disponible" });
     const ev = evRes.rows[0];
@@ -17141,14 +17225,14 @@ app.post("/api/events/:id/register", authMiddleware, async (req, res) => {
          payment_proof_file_name=NULL, transfer_date=NULL,
          paid_at=$7, waitlist_position=$8, checked_in=false, checked_in_at=NULL, updated_at=NOW()
          WHERE id=$9 RETURNING *`,
-        [name, email, phone, regStatus, amount, payment_method || null, paidAt, waitlistPosition, existing.id]
+        [name, email, phone, regStatus, amount, pmEnum, paidAt, waitlistPosition, existing.id]
       );
       reg = r.rows[0];
     } else {
       const r = await pool.query(
         `INSERT INTO event_registrations (event_id, user_id, name, email, phone, status, amount, payment_method, paid_at, waitlist_position)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [req.params.id, userId, name, email, phone, regStatus, amount, payment_method || null, paidAt, waitlistPosition]
+        [req.params.id, userId, name, email, phone, regStatus, amount, pmEnum, paidAt, waitlistPosition]
       );
       reg = r.rows[0];
     }

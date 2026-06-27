@@ -113,7 +113,7 @@ function RegisterSheet({
         name,
         email,
         phone,
-        payment_method: isFree ? "free" : method,
+        payment_method: isFree ? null : method,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-events"] });
