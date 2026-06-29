@@ -1239,6 +1239,10 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS class_limit_override INTEGER`).catch(() => { });
     // notes: observaciones del alta manual / complementos (lo usa POST /admin/clients/manual)
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS notes TEXT`).catch(() => { });
+    // Monto realmente cobrado por una membresía creada a mano (efectivo/tarjeta en
+    // estudio). Las membresías que vienen de una orden dejan esto en NULL: su ingreso
+    // se cuenta en la tabla orders. El reporte de ingresos del mes suma orders + esto.
+    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS amount_paid NUMERIC(10,2)`).catch(() => { });
     // Fix existing 9999 unlimited sentinel values → NULL
     await pool.query(`
       UPDATE memberships SET classes_remaining = NULL WHERE classes_remaining >= 9999;
@@ -12008,7 +12012,7 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
     const [members, revenue, bookings, classes, newMembers, reviews, churn,
            prevRevenue, prevBookings, prevNewMembers, prevReviews] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM memberships WHERE status='active'"),
-      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.from, range.to]),
+      pool.query("SELECT ((SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2) + (SELECT COALESCE(SUM(amount_paid),0) FROM memberships WHERE order_id IS NULL AND amount_paid IS NOT NULL AND created_at BETWEEN $1 AND $2)) AS total", [range.from, range.to]),
       pool.query(
         `SELECT
             COUNT(*) FILTER (WHERE status != 'cancelled') AS total,
@@ -12050,7 +12054,7 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
            GREATEST(1, (SELECT COUNT(*) FROM active_30d_ago))::int AS base`,
       ),
       // Previous period (mismo número de días hacia atrás)
-      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2", [range.prevFrom, range.prevTo]),
+      pool.query("SELECT ((SELECT COALESCE(SUM(total_amount),0) FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2) + (SELECT COALESCE(SUM(amount_paid),0) FROM memberships WHERE order_id IS NULL AND amount_paid IS NOT NULL AND created_at BETWEEN $1 AND $2)) AS total", [range.prevFrom, range.prevTo]),
       pool.query(
         `SELECT
             COUNT(*) FILTER (WHERE status != 'cancelled') AS total,
@@ -14082,7 +14086,18 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
     const [classesToday, activeMembers, monthlyRevenue, pendingAlerts] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM classes WHERE date = $1", [today]),
       pool.query("SELECT COUNT(*) FROM memberships WHERE status = 'active'"),
-      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status = 'approved' AND created_at >= $1", [monthStart]),
+      // Ingresos del mes = órdenes aprobadas (web + POS) + membresías creadas a mano
+      // (efectivo/tarjeta en estudio, order_id IS NULL) valuadas por su amount_paid.
+      // Sin esto solo se contaban las órdenes y faltaba la mayor parte (ventas en persona).
+      pool.query(
+        `SELECT (
+            (SELECT COALESCE(SUM(total_amount),0) FROM orders
+              WHERE status = 'approved' AND created_at >= $1)
+          + (SELECT COALESCE(SUM(amount_paid),0) FROM memberships
+              WHERE order_id IS NULL AND amount_paid IS NOT NULL AND created_at >= $1)
+         ) AS total`,
+        [monthStart],
+      ),
       pool.query("SELECT COUNT(*) FROM orders WHERE status = 'pending_verification'"),
     ]);
 
@@ -14248,9 +14263,9 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       const baseCredits = plan.class_limit ?? null;
       const credits = baseCredits === null ? null : baseCredits + carryOver;
       r = await memClient.query(
-        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining)
-         VALUES ($1,$2,'active',$3,$4,$5,$6) RETURNING *`,
-        [userId, planId, pmEnum, start.toISOString(), end.toISOString(), credits]
+        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, amount_paid)
+         VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
+        [userId, planId, pmEnum, start.toISOString(), end.toISOString(), credits, Number(plan.price) || 0]
       );
       await memClient.query("COMMIT");
     } catch (txErr) {
@@ -15487,6 +15502,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       // (queda registrado en las notas para control del admin). Si el cupón es
       // inválido para este plan, abortamos para que el admin lo sepa.
       let priceNote = "";
+      let amountPaid = Number(plan.price) || 0;
       if (discountCode) {
         const dc = await findApplicableDiscountCode({
           code: discountCode,
@@ -15502,6 +15518,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         const subtotal = Number(plan.price) || 0;
         const discount = calculateDiscountAmount(dc.discount_type, Number(dc.discount_value), subtotal);
         const finalPrice = Math.max(0, subtotal - discount);
+        amountPaid = finalPrice;
         priceNote = ` · Cupón ${dc.code}: $${subtotal} → $${finalPrice}`;
         // Incrementa el uso del cupón.
         await client.query("UPDATE discount_codes SET uses_count = uses_count + 1 WHERE id = $1", [dc.id]).catch(() => {});
@@ -15509,12 +15526,13 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
 
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
-          classes_remaining, notes)
-         VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
+          classes_remaining, notes, amount_paid)
+         VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8) RETURNING *`,
         [user.id, plan.id, pmEnum, start.toISOString().split("T")[0],
         end.toISOString().split("T")[0],
         plan.class_limit === 0 ? null : plan.class_limit,
-        (notes || `Alta manual por admin`) + priceNote]
+        (notes || `Alta manual por admin`) + priceNote,
+        amountPaid]
       );
       membership = camelRow(memRes.rows[0]);
     }
