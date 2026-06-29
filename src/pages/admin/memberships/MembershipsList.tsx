@@ -315,9 +315,15 @@ const MembershipsList = () => {
                 <Select onValueChange={(v) => form.setValue("planId", v)}>
                   <SelectTrigger><SelectValue placeholder="Seleccionar plan" /></SelectTrigger>
                   <SelectContent>
-                    {(Array.isArray(plansData?.data) ? plansData.data : []).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))}
+                    {(Array.isArray(plansData?.data) ? plansData.data : []).map((p) => {
+                      const lim = p.classLimit ?? p.class_limit;
+                      const credito = typeof lim === "number" && lim < 9999
+                        ? ` · ${lim} clase${lim === 1 ? "" : "s"}` : "";
+                      const precio = Number(p.price) > 0 ? ` · $${Number(p.price).toLocaleString("es-MX")}` : "";
+                      return (
+                        <SelectItem key={p.id} value={p.id}>{p.name}{credito}{precio}</SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>

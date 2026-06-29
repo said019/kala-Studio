@@ -57,7 +57,7 @@ interface Client extends EditFormData {
   role: string;
 }
 
-interface Plan { id: string; name: string; price: number; category: string; }
+interface Plan { id: string; name: string; price: number; category: string; classLimit?: number | null; }
 
 // ── Payment method selector ────────────────────────────────────────────────────
 const PAYMENT_METHODS = [
@@ -458,6 +458,9 @@ const ClientsList = () => {
                         {plans.map((p) => (
                           <SelectItem key={p.id} value={p.id} className="text-white">
                             {p.name}
+                            {typeof p.classLimit === "number" && p.classLimit < 9999 && (
+                              <span className="ml-2 text-fuchsia-300/70">· {p.classLimit} clase{p.classLimit === 1 ? "" : "s"}</span>
+                            )}
                             {p.price > 0 && (
                               <span className="ml-2 text-white/40">${p.price.toLocaleString("es-MX")}</span>
                             )}

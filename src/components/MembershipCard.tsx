@@ -268,7 +268,7 @@ function DotGrid({
   category: PlanCategory;
   pal: Pal;
 }) {
-  const used = classLimit - classesRemaining;
+  const used = Math.max(0, classLimit - classesRemaining);
 
   const getImg = (i: number) => {
     if (category === "pilates") return imgPilates;
@@ -378,18 +378,27 @@ export function MembershipCard({ membership }: MembershipCardProps) {
   const category = detectCategory(planName);
   const pal = PALETTE[category];
 
+  // Blindaje: si por un plan mal asignado el límite del plan resulta MENOR que los
+  // créditos disponibles, tomamos el mayor de ambos como denominador. Así la tarjeta
+  // nunca muestra números rotos (usadas negativas, % > 100, puntos faltantes).
+  const effectiveLimit =
+    classLimit !== null && classesRemaining !== null
+      ? Math.max(classLimit, classesRemaining)
+      : classLimit;
   const used =
-    classLimit !== null && classesRemaining !== null ? classLimit - classesRemaining : 0;
+    effectiveLimit !== null && classesRemaining !== null
+      ? Math.max(0, effectiveLimit - classesRemaining)
+      : 0;
   const daysRemaining = endDate
     ? Math.max(differenceInCalendarDays(safeParse(endDate), new Date()), 0)
     : null;
   const percentage =
-    classLimit && classesRemaining !== null
-      ? Math.round((classesRemaining / classLimit) * 100)
+    effectiveLimit && classesRemaining !== null
+      ? Math.min(100, Math.max(0, Math.round((classesRemaining / effectiveLimit) * 100)))
       : 100;
 
-  const showDots = !isUnlimited && classLimit !== null && classLimit <= 12;
-  const showArc = !isUnlimited && classLimit !== null && classLimit > 12;
+  const showDots = !isUnlimited && effectiveLimit !== null && effectiveLimit <= 12;
+  const showArc = !isUnlimited && effectiveLimit !== null && effectiveLimit > 12;
   const isLow = daysRemaining !== null && daysRemaining <= 5;
 
   // Pre-compute formatted expiration
@@ -551,7 +560,7 @@ export function MembershipCard({ membership }: MembershipCardProps) {
 
                   {/* Dot grid */}
                   <DotGrid
-                    classLimit={classLimit}
+                    classLimit={effectiveLimit}
                     classesRemaining={classesRemaining}
                     category={category}
                     pal={pal}
@@ -559,7 +568,7 @@ export function MembershipCard({ membership }: MembershipCardProps) {
 
                   {/* Subtle usage label */}
                   <span className="text-[10px] text-white/20">
-                    {used} de {classLimit} usadas
+                    {used} de {effectiveLimit} usadas
                   </span>
                 </div>
               ) : showArc ? (
@@ -607,7 +616,7 @@ export function MembershipCard({ membership }: MembershipCardProps) {
                         />
                       </div>
                       <span className="text-[9px] text-white/18 mt-1 block">
-                        {used} de {classLimit} usadas
+                        {used} de {effectiveLimit} usadas
                       </span>
                     </div>
                   </div>
