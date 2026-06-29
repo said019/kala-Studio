@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Film, Pencil } from "lucide-react";
+import { KALA_RING_COLORS, RingsTriple, type KalaRing } from "@/components/kala/RingsTriple";
 
 // Formatea fecha de nacimiento sin que el timezone corra un día: toma solo
 // la parte YYYY-MM-DD y la muestra en es-MX (ej. "19 abr 2000").
@@ -196,6 +197,38 @@ const ClientDetail = () => {
   const u = user?.data ?? user;
   const ringData = rings?.data ?? rings ?? {};
   const currentRing = ringData.current ?? null;
+  // Datos para el anillo animado (mismo componente que ve la clienta en su pase).
+  const ringPct = (p: number, g: number) =>
+    Number(g) > 0 ? Math.min(100, Math.max(0, Math.round((Number(p) / Number(g)) * 100))) : 0;
+  const ringMetrics: KalaRing[] = [
+    {
+      key: "constancia",
+      label: "Constancia",
+      value: `${currentRing?.constancia_progress ?? 0}/${currentRing?.constancia_goal ?? 1}`,
+      goalLabel: "clases asistidas",
+      progress: ringPct(currentRing?.constancia_progress ?? 0, currentRing?.constancia_goal ?? 1),
+      ...KALA_RING_COLORS.constancia,
+    },
+    {
+      key: "esfuerzo",
+      label: "Esfuerzo",
+      value: `${currentRing?.esfuerzo_progress ?? 0}/${currentRing?.esfuerzo_goal ?? 1}`,
+      goalLabel: "retos o intensas",
+      progress: ringPct(currentRing?.esfuerzo_progress ?? 0, currentRing?.esfuerzo_goal ?? 1),
+      ...KALA_RING_COLORS.esfuerzo,
+    },
+    {
+      key: "conexion",
+      label: "Conexión",
+      value: `${currentRing?.conexion_progress ?? 0}/${currentRing?.conexion_goal ?? 10}`,
+      goalLabel: "puntos de comunidad",
+      progress: ringPct(currentRing?.conexion_progress ?? 0, currentRing?.conexion_goal ?? 10),
+      ...KALA_RING_COLORS.conexion,
+    },
+  ];
+  const ringsClosed = Number(
+    currentRing?.rings_closed ?? ringMetrics.filter((r) => r.progress >= 100).length,
+  );
   const communityEvents = Array.isArray(ringData.communityEvents) ? ringData.communityEvents : [];
 
   return (
@@ -462,6 +495,24 @@ const ClientDetail = () => {
             </TabsContent>
 
             <TabsContent value="rings" className="mt-4 space-y-6">
+              {/* Anillo animado (igual al que ve la clienta en su pase) */}
+              <div className="flex flex-col items-center gap-3 py-2">
+                <RingsTriple
+                  rings={ringMetrics}
+                  centerLabel="esta semana"
+                  centerValue={`${ringsClosed}/3`}
+                  centerSub={ringsClosed >= 3 ? "¡Tres anillos cerrados!" : "anillos cerrados"}
+                />
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs">
+                  {ringMetrics.map((r) => (
+                    <span key={r.key} className="inline-flex items-center gap-1.5 font-medium">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: r.color }} />
+                      {r.label} {r.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="rounded-2xl border border-border bg-secondary p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Cerrados</p>
