@@ -715,7 +715,6 @@ const SettingsPage = () => (
         <Tabs defaultValue="general">
           <TabsList className="flex-wrap h-auto gap-1 mb-6">
             <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="daily-message">Mensaje del día</TabsTrigger>
             <TabsTrigger value="payments">Pagos</TabsTrigger>
             <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
             <TabsTrigger value="policies">Políticas</TabsTrigger>
@@ -739,19 +738,6 @@ const SettingsPage = () => (
                 ]}
               />
               <VenueMediaSettings />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="daily-message">
-            <div className="space-y-3 max-w-md">
-              <p className="text-sm text-muted-foreground">
-                Este mensaje se muestra a todas las clientas en el inicio de la app.
-                Cámbialo cuando quieras — reemplaza el aviso que mandabas por WhatsApp.
-              </p>
-              <SettingsSection
-                settingKey="daily_message"
-                fields={[{ key: "text", label: "Mensaje de hoy", multiline: true }]}
-              />
             </div>
           </TabsContent>
 

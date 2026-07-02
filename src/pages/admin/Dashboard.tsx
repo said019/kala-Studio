@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
@@ -7,8 +7,10 @@ import AdminLayout from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus, Film, Camera } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { CalendarDays, Users, DollarSign, AlertCircle, Cake, TrendingUp, UserMinus, Film, Camera, Sparkles } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, AreaChart, Area } from "recharts";
 import CheckinScanner from "@/components/admin/CheckinScanner";
 
@@ -45,6 +47,60 @@ interface Stats {
   recentMemberships: { id: string; userName: string; planName: string; status: string; createdAt: string; isExpired?: boolean }[];
   pendingOrders: { id: string; userName: string; totalAmount?: number; total_amount?: number; amount?: number; status: string }[];
 }
+
+// Editor rápido del mensaje del día, directo en el dashboard del admin.
+// Reusa el setting genérico 'daily_message' (mismo que lee la app de la clienta).
+const DailyMessageEditor = () => {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const { data } = useQuery({
+    queryKey: ["settings", "daily_message"],
+    queryFn: async () => (await api.get("/settings/daily_message")).data,
+    staleTime: Infinity,
+  });
+  const [text, setText] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    const raw = data?.data?.text;
+    if (typeof raw === "string" && !loaded) { setText(raw); setLoaded(true); }
+  }, [data, loaded]);
+
+  const save = useMutation({
+    mutationFn: () => api.put("/settings/daily_message", { value: { text: text.trim() } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "daily_message"] });
+      qc.invalidateQueries({ queryKey: ["daily-message"] });
+      toast({ title: "✅ Mensaje del día guardado" });
+    },
+    onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
+  });
+
+  return (
+    <Card className="mb-6 border-l-4 border-l-[#76214D]">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Sparkles size={15} className="text-[#76214D]" />
+          Mensaje del día
+          <span className="text-xs text-muted-foreground font-normal">· lo ven las clientas al abrir la app</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-3">
+        <Textarea
+          rows={2}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Escribe el mensaje o consejo de hoy…"
+        />
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
+            {save.isPending ? "Guardando…" : "Guardar mensaje"}
+          </Button>
+          <span className="text-xs text-muted-foreground">{text.length} caracteres</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -146,6 +202,9 @@ const Dashboard = () => {
             </Button>
           </div>
           <CheckinScanner open={scanOpen} onOpenChange={setScanOpen} />
+
+          {/* Mensaje del día — editable aquí mismo */}
+          <DailyMessageEditor />
 
           {/* Metric cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" data-stagger>
