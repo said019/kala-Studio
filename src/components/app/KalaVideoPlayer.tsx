@@ -253,7 +253,10 @@ export const KalaVideoPlayer = ({
     <div
       ref={wrapRef}
       className={
-        "relative rounded-3xl overflow-hidden select-none group/player outline-none " +
+        "relative overflow-hidden select-none group/player outline-none " +
+        // En pantalla completa el contenedor llena la pantalla y centramos el
+        // video; fuera de FS conserva las esquinas redondeadas.
+        (isFs ? "flex h-full w-full items-center justify-center rounded-none " : "rounded-3xl ") +
         (className ?? "")
       }
       style={{ backgroundColor: KALA.ink }}
@@ -294,7 +297,12 @@ export const KalaVideoPlayer = ({
           setVolume(e.currentTarget.volume);
         }}
         onError={onError}
-        className="block w-full max-h-[78vh] object-contain bg-transparent cursor-pointer"
+        className={
+          (isFs
+            ? "h-full w-full object-contain"
+            : "block w-full max-h-[78vh] object-contain") +
+          " bg-transparent cursor-pointer"
+        }
       />
 
       {/* Overlay de buffering centrado */}
