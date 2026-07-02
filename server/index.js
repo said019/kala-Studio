@@ -1550,8 +1550,8 @@ async function ensureSchema() {
           LEFT JOIN plans p ON p.id = m.plan_id
          WHERE m.user_id = NEW.user_id
            AND m.status = 'active'
-           AND (m.start_date IS NULL OR m.start_date <= CURRENT_DATE)
-           AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+           AND (m.start_date IS NULL OR m.start_date <= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
+           AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
          ORDER BY m.end_date DESC NULLS LAST
          LIMIT 1;
 
@@ -1630,8 +1630,8 @@ async function ensureSchema() {
           LEFT JOIN plans p ON p.id = m.plan_id
          WHERE m.user_id = NEW.user_id
            AND m.status = 'active'
-           AND (m.start_date IS NULL OR m.start_date <= CURRENT_DATE)
-           AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+           AND (m.start_date IS NULL OR m.start_date <= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
+           AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
          ORDER BY m.end_date DESC NULLS LAST
          LIMIT 1;
 
@@ -2385,7 +2385,7 @@ async function selectMembershipForClass({ userId, classCategory, client = null }
        LEFT JOIN plans p ON p.id = m.plan_id
       WHERE m.user_id = $1
         AND m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
         -- Los planes online son solo videos: nunca sirven para reservar clases.
         AND COALESCE(p.class_category, 'all') <> 'online'
         -- NOTA: los packs de visita (is_visit_pack) SÍ son elegibles aquí.
@@ -3449,7 +3449,7 @@ app.get("/api/memberships/mine/all", authMiddleware, async (req, res) => {
        LEFT JOIN plans p ON m.plan_id = p.id
        WHERE m.user_id = $1
          AND m.status IN ('active','pending_activation','pending_payment')
-         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+         AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
        ORDER BY
          CASE m.status WHEN 'active' THEN 1 WHEN 'pending_activation' THEN 2 ELSE 3 END,
          (COALESCE(p.class_category,'all') = 'online') ASC,  -- presencial primero, online después
@@ -3703,7 +3703,7 @@ app.get("/api/bookings/weekly-status", authMiddleware, async (req, res) => {
          JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1
           AND m.status = 'active'
-          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+          AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
           AND p.weekly_class_limit IS NOT NULL`,
       [req.userId, ref],
     );
@@ -3809,7 +3809,7 @@ async function promoteFromWaitlist(classId) {
         const mRes = await client.query(
           `SELECT id, classes_remaining FROM memberships
             WHERE id = $1 AND status = 'active'
-              AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+              AND (end_date IS NULL OR end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
             FOR UPDATE`,
           [b.membership_id]
         );
@@ -3930,7 +3930,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       const onlineOnly = await client.query(
         `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
           WHERE m.user_id = $1 AND m.status = 'active'
-            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
             AND COALESCE(p.class_category,'all') = 'online' LIMIT 1`,
         [req.userId]
       );
@@ -4712,7 +4712,7 @@ app.get("/api/wallet/pass", authMiddleware, async (req, res) => {
       LEFT JOIN plans p ON p.id = m.plan_id
           WHERE m.user_id = $1
             AND m.status = 'active'
-            AND m.end_date >= CURRENT_DATE
+            AND m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date
        ORDER BY m.end_date DESC
           LIMIT 1`,
         [req.userId]
@@ -5241,7 +5241,7 @@ app.get("/api/me/video-access", authMiddleware, async (req, res) => {
       `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1 AND m.status = 'active'
           AND p.includes_video_library = true
-          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+          AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date) LIMIT 1`,
       [req.userId]
     );
     if (fullLib.rows.length) return res.json({ data: { state: "unlocked" } });
@@ -6521,7 +6521,7 @@ async function getWalletSnapshotForUser(userId, { eventId = null } = {}) {
               p.class_category, p.is_non_transferable, p.is_non_repeatable, p.repeat_key
        FROM memberships m
        LEFT JOIN plans p ON m.plan_id = p.id
-       WHERE m.user_id = $1 AND m.status = 'active' AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+       WHERE m.user_id = $1 AND m.status = 'active' AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
        ORDER BY m.end_date DESC NULLS LAST
        LIMIT 1`,
       [userId],
@@ -8923,7 +8923,7 @@ app.get("/api/admin/users/:userId/video-access", adminMiddleware, async (req, re
       `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1 AND m.status = 'active'
           AND p.includes_video_library = true
-          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+          AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date) LIMIT 1`,
       [req.params.userId]
     );
     const grant = await pool.query(
@@ -9036,7 +9036,7 @@ app.get("/api/admin/video-access/pending", adminMiddleware, async (_req, res) =>
       SELECT u.id, u.display_name, u.email, u.phone, p.name AS plan_name, m.end_date
         FROM users u
         JOIN memberships m ON m.user_id = u.id AND m.status = 'active'
-                            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+                            AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
         JOIN plans p ON p.id = m.plan_id AND p.includes_video_library = true
         LEFT JOIN video_access_grants g ON g.user_id = u.id AND g.revoked_at IS NULL
        WHERE g.id IS NULL
@@ -9121,11 +9121,11 @@ app.get("/api/videos", authMiddleware, async (req, res) => {
                     JOIN memberships m ON m.plan_id = vp.plan_id
                    WHERE vp.video_id = v.id AND m.user_id = $1
                      AND m.status = 'active'
-                     AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)) AS via_plan,
+                     AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)) AS via_plan,
           EXISTS (SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
                    WHERE m.user_id = $1 AND m.status = 'active'
                      AND p.includes_video_library = true
-                     AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)) AS via_fulllib,
+                     AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)) AS via_fulllib,
           EXISTS (SELECT 1 FROM video_purchases vpur
                    WHERE vpur.video_id = v.id AND vpur.user_id = $1
                      AND vpur.has_access = true)                            AS via_purchase,
@@ -10029,7 +10029,7 @@ async function computeVideoAccessState(userId, videoId) {
     `SELECT 1 FROM video_plans vp
        JOIN memberships m ON m.plan_id = vp.plan_id
       WHERE vp.video_id = $1 AND m.user_id = $2 AND m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date) LIMIT 1`,
     [videoId, userId]
   );
   if (planGranular.rows.length) return { state: "unlocked" };
@@ -10038,7 +10038,7 @@ async function computeVideoAccessState(userId, videoId) {
     `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
       WHERE m.user_id = $1 AND m.status = 'active'
         AND p.includes_video_library = true
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE) LIMIT 1`,
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date) LIMIT 1`,
     [userId]
   );
   if (fullLib.rows.length) return { state: "unlocked" };
@@ -10446,7 +10446,7 @@ app.get("/api/admin/guest-profiles", adminMiddleware, async (req, res) => {
                   LEFT JOIN plans p ON p.id = m.plan_id
                  WHERE u.guest_profile_id = gp.id
                    AND m.status = 'active'
-                   AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+                   AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
                    AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
                  ORDER BY m.created_at DESC
                  LIMIT 1
@@ -10610,7 +10610,7 @@ app.get("/api/admin/guest-profiles/search", adminMiddleware, async (req, res) =>
            FROM memberships m
            LEFT JOIN plans p ON p.id = m.plan_id
           WHERE m.user_id = $1 AND m.status = 'active'
-            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
             AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
           ORDER BY m.created_at DESC LIMIT 1`,
         [userId]
@@ -10740,7 +10740,7 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
     memRow = (await dbClient.query(
       `SELECT id, classes_remaining FROM memberships
         WHERE user_id = $1 AND status = 'active'
-          AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+          AND (end_date IS NULL OR end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
           AND (classes_remaining IS NULL OR classes_remaining > 0)
         ORDER BY created_at DESC LIMIT 1
         FOR UPDATE`,
@@ -10753,7 +10753,7 @@ app.post("/api/admin/classes/:id/walkin-visit", adminMiddleware, async (req, res
            JOIN plans p ON p.id = m.plan_id
           WHERE m.user_id = $1 AND m.status = 'active'
             AND p.is_visit_pack = true
-            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
             AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
           ORDER BY m.created_at DESC LIMIT 1
           FOR UPDATE`,
@@ -10951,7 +10951,7 @@ app.post("/api/bookings/with-guest", authMiddleware, async (req, res) => {
         WHERE m.user_id = $1
           AND m.status = 'active'
           AND p.is_visit_pack = true
-          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+          AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
           AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
         ORDER BY m.created_at DESC
         LIMIT 1
@@ -11600,7 +11600,7 @@ const CAMPAIGN_SEGMENTS = {
         JOIN memberships m ON m.user_id = u.id
        WHERE u.is_active = true
          AND m.status = 'active'
-         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+         AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
        GROUP BY u.id`,
   },
   dormant_14d: {
@@ -11657,7 +11657,7 @@ const CAMPAIGN_SEGMENTS = {
              JOIN plans p ON p.id = m.plan_id
             WHERE m.user_id = u.id
               AND m.status = 'active'
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+              AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
               AND COALESCE(p.is_visit_pack, false) = false
               AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
          )
@@ -11682,7 +11682,7 @@ const CAMPAIGN_SEGMENTS = {
          AND NOT EXISTS (
            SELECT 1 FROM memberships m2
             WHERE m2.user_id = u.id AND m2.status = 'active'
-              AND (m2.end_date IS NULL OR m2.end_date >= CURRENT_DATE)
+              AND (m2.end_date IS NULL OR m2.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
          )
        ORDER BY u.id, m.end_date DESC`,
   },
@@ -12041,7 +12041,7 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
          ),
          still_active AS (
            SELECT DISTINCT user_id FROM memberships
-            WHERE status = 'active' AND (end_date IS NULL OR end_date >= CURRENT_DATE)
+            WHERE status = 'active' AND (end_date IS NULL OR end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
          ),
          active_30d_ago AS (
            SELECT DISTINCT user_id FROM memberships
@@ -14829,7 +14829,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       const onlineOnly = await client.query(
         `SELECT 1 FROM memberships m JOIN plans p ON p.id = m.plan_id
           WHERE m.user_id = $1 AND m.status = 'active'
-            AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+            AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
             AND COALESCE(p.class_category,'all') = 'online' LIMIT 1`,
         [userId]
       );
@@ -15006,7 +15006,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
              JOIN plans p ON p.id = m.plan_id
             WHERE m.user_id = $1 AND m.status = 'active'
               AND p.is_visit_pack = true
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+              AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
               AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)
             ORDER BY m.created_at DESC LIMIT 1
             FOR UPDATE`,
@@ -17206,7 +17206,7 @@ app.post("/api/events/:id/register", authMiddleware, async (req, res) => {
     }
     if (Number(ev.member_discount) > 0) {
       const memRes = await pool.query(
-        `SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' AND end_date >= CURRENT_DATE LIMIT 1`,
+        `SELECT id FROM memberships WHERE user_id = $1 AND status = 'active' AND end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date LIMIT 1`,
         [userId]
       );
       if (memRes.rows.length) {
@@ -17664,7 +17664,7 @@ async function runWeeklyReminderCron() {
       FROM memberships m
       JOIN users u ON m.user_id = u.id
       WHERE m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
     `);
     console.log(`[Cron] Weekly reminder — ${res.rows.length} members`);
     for (const row of res.rows) {
@@ -17696,7 +17696,7 @@ async function runRenewalReminderCron() {
       JOIN users u ON m.user_id = u.id
       LEFT JOIN plans p ON m.plan_id = p.id
       WHERE m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
         AND (
           m.classes_remaining = 1
           OR (m.end_date IS NOT NULL AND m.end_date <= CURRENT_DATE + INTERVAL '7 days')
@@ -17756,7 +17756,7 @@ async function runWeekResetCron() {
       SELECT DISTINCT m.user_id
       FROM memberships m
       WHERE m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        AND (m.end_date IS NULL OR m.end_date >= (NOW() AT TIME ZONE 'America/Mexico_City')::date)
     `);
     console.log(`[Cron] Week reset — ${res.rows.length} members`);
     for (const row of res.rows) {
