@@ -586,19 +586,66 @@ const LoyaltyMilestones = () => {
   );
 };
 
+// ── Resumen visual para la dueña: qué tan activo está el programa ──────
+const LoyaltySummary = () => {
+  const { data: milestonesData } = useQuery<{ data: Milestone[] }>({
+    queryKey: ["loyalty-milestones"],
+    queryFn: async () => (await api.get("/admin/loyalty-milestones")).data,
+  });
+  const { data: rewardsData } = useQuery<{ data: Reward[] }>({
+    queryKey: ["loyalty-rewards"],
+    queryFn: async () => (await api.get("/loyalty/rewards")).data,
+  });
+  const { data: awardsData } = useQuery<{ data: AwardLog[] }>({
+    queryKey: ["loyalty-milestone-awards"],
+    queryFn: async () => (await api.get("/admin/loyalty-milestones/awards?limit=50")).data,
+  });
+
+  const milestones = Array.isArray(milestonesData?.data) ? milestonesData.data : [];
+  const rewards = Array.isArray(rewardsData?.data) ? rewardsData.data : [];
+  const awards = Array.isArray(awardsData?.data) ? awardsData.data : [];
+
+  const activeMilestones = milestones.filter((m) => m.is_active).length;
+  const activeRewards = rewards.filter((r) => r.is_active).length;
+  const now = new Date();
+  const awardedThisMonth = awards.filter((a) => {
+    const d = new Date(a.awarded_at);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+
+  const cards = [
+    { label: "Metas activas", value: activeMilestones, hint: "premios que se otorgan solos" },
+    { label: "Recompensas en catálogo", value: activeRewards, hint: "canjeables con puntos" },
+    { label: "Premiadas este mes", value: awardedThisMonth, hint: "alumnas que alcanzaron una meta" },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      {cards.map((c) => (
+        <div key={c.label} className="rounded-2xl border p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{c.label}</p>
+          <p className="mt-2 text-3xl font-bold">{c.value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{c.hint}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const LoyaltyPage = () => (
   <AuthGuard>
     <AdminLayout>
       <div className="admin-page max-w-5xl">
         <h1 className="text-2xl font-bold mb-6">Programa de Lealtad</h1>
-        <Tabs defaultValue="rewards">
+        <LoyaltySummary />
+        <Tabs defaultValue="milestones">
           <TabsList>
-            <TabsTrigger value="rewards">Recompensas</TabsTrigger>
-            <TabsTrigger value="milestones"><Trophy size={14} className="mr-1" />Milestones</TabsTrigger>
+            <TabsTrigger value="milestones"><Trophy size={14} className="mr-1" />Premios por metas</TabsTrigger>
+            <TabsTrigger value="rewards">Catálogo de recompensas</TabsTrigger>
             <TabsTrigger value="config"><Settings size={14} className="mr-1" />Configuración</TabsTrigger>
           </TabsList>
-          <TabsContent value="rewards" className="mt-4"><LoyaltyRewards /></TabsContent>
           <TabsContent value="milestones" className="mt-4"><LoyaltyMilestones /></TabsContent>
+          <TabsContent value="rewards" className="mt-4"><LoyaltyRewards /></TabsContent>
           <TabsContent value="config" className="mt-4"><LoyaltyConfig /></TabsContent>
         </Tabs>
       </div>

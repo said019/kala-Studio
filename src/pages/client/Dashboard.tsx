@@ -23,6 +23,7 @@ import {
   SkeletonRow,
   KALA,
 } from "@/components/app/AppShell";
+import { DailyMessageCard } from "@/components/app/DailyMessageCard";
 import {
   CalendarDays,
   Play,
@@ -170,6 +171,8 @@ const Dashboard = () => {
           titleAccent="Kala."
           subtitle={rings.message}
         />
+
+        <DailyMessageCard />
 
         {/* ── Next class — primary action ── */}
         <div className="mt-2">

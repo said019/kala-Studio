@@ -8,7 +8,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, ShoppingBag,
-  ShoppingCart, Tag, Gift, Video, BarChart2, MessageCircle, GraduationCap, Bell,
+  Tag, Gift, Video, BarChart2, MessageCircle, GraduationCap, Bell,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, Ticket, X,
   UserPlus, ClipboardCheck,
 } from "lucide-react";
@@ -34,13 +34,12 @@ const NAV_GROUPS = [
     items: [
       { path: "/admin/plans", label: "Planes", icon: Package },
       { path: "/admin/memberships", label: "Membresías", icon: CreditCard },
+      { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
       { path: "/admin/classes", label: "Clases", icon: CalendarDays },
       { path: "/admin/staff", label: "Instructoras", icon: GraduationCap },
       { path: "/admin/orders", label: "Órdenes", icon: ShoppingBag },
-      { path: "/admin/pos", label: "POS", icon: ShoppingCart },
       { path: "/admin/visitas", label: "Visitas", icon: UserPlus },
       { path: "/admin/discount-codes", label: "Descuentos", icon: Tag },
-      { path: "/admin/loyalty", label: "Lealtad", icon: Gift },
       { path: "/admin/whatsapp-templates", label: "Templates WA", icon: MessageCircle },
       { path: "/admin/videos", label: "Videos", icon: Video },
       { path: "/admin/events", label: "Eventos", icon: Ticket },

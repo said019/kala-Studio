@@ -431,10 +431,10 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                       <button
                         onClick={() => noShowMutation.mutate(entry.bookingId)}
                         disabled={noShowMutation.isPending}
-                        title="No asistió"
-                        className="w-8 h-8 rounded-lg bg-[#f87171]/8 border border-[#f87171]/20 text-[#f87171]/70 hover:bg-[#f87171]/15 flex items-center justify-center transition-all disabled:opacity-40"
+                        className="h-8 px-2.5 rounded-lg bg-[#f87171]/8 border border-[#f87171]/20 text-[#f87171]/80 hover:bg-[#f87171]/15 inline-flex items-center gap-1.5 text-xs font-medium transition-all disabled:opacity-40"
                       >
-                        <UserX size={14} />
+                        <UserX size={13} />
+                        No asistió
                       </button>
                     )}
                     {canCancel && (
@@ -447,10 +447,10 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                           cancelMutation.mutate({ id: entry.bookingId, reason: reason || undefined });
                         }}
                         disabled={cancelMutation.isPending}
-                        title="Cancelar reserva (devuelve crédito)"
-                        className="w-8 h-8 rounded-lg bg-[#E9745F]/8 border border-[#E9745F]/25 text-[#E9745F]/80 hover:bg-[#E9745F]/15 flex items-center justify-center transition-all disabled:opacity-40"
+                        className="h-8 px-2.5 rounded-lg bg-[#E9745F]/8 border border-[#E9745F]/25 text-[#E9745F] hover:bg-[#E9745F]/15 inline-flex items-center gap-1.5 text-xs font-medium transition-all disabled:opacity-40"
                       >
-                        <XCircle size={14} />
+                        <XCircle size={13} />
+                        Cancelar
                       </button>
                     )}
                   </div>

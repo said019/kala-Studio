@@ -141,12 +141,29 @@ export const KalaVideoPlayer = ({
     if (hideTimeoutRef.current) window.clearTimeout(hideTimeoutRef.current);
   }, []);
 
-  /* ── Fullscreen sync ── */
+  /* ── Fullscreen sync ──
+     Desktop/Android: Fullscreen API estándar sobre el div contenedor (wrapRef).
+     iOS Safari: NO soporta requestFullscreen() en elementos que no sean <video>,
+     solo video.webkitEnterFullscreen(). Por eso también escuchamos los eventos
+     webkit que dispara el propio <video>. */
   useEffect(() => {
     const onFs = () => setIsFs(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onFs);
-    return () => document.removeEventListener("fullscreenchange", onFs);
-  }, []);
+
+    const v = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    }) | null;
+    const onWebkitBegin = () => setIsFs(true);
+    const onWebkitEnd = () => setIsFs(false);
+    v?.addEventListener("webkitbeginfullscreen", onWebkitBegin);
+    v?.addEventListener("webkitendfullscreen", onWebkitEnd);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      v?.removeEventListener("webkitbeginfullscreen", onWebkitBegin);
+      v?.removeEventListener("webkitendfullscreen", onWebkitEnd);
+    };
+  }, [videoRef]);
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -164,6 +181,17 @@ export const KalaVideoPlayer = ({
 
   const toggleFullscreen = async () => {
     const el = wrapRef.current;
+    const video = videoRef.current as (HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    }) | null;
+
+    // iOS Safari: el <div> contenedor nunca soporta requestFullscreen. Si el
+    // <video> expone la API nativa de iOS, úsala directamente sobre el video.
+    if (!el?.requestFullscreen && video?.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen();
+      return;
+    }
+
     if (!el) return;
     if (document.fullscreenElement) await document.exitFullscreen();
     else await el.requestFullscreen?.();

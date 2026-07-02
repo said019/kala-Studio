@@ -358,11 +358,17 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
   },
 };
 
+const DEFAULT_DAILY_MESSAGE = {
+  text: "Hoy es un buen día para moverte. Te esperamos en el estudio ✨",
+  updated_at: null,
+};
+
 const DEFAULT_SETTINGS_BY_KEY = {
   general_settings: DEFAULT_GENERAL_SETTINGS,
   policies_settings: DEFAULT_POLICIES_SETTINGS,
   notification_settings: DEFAULT_NOTIFICATION_SETTINGS,
   notification_templates: DEFAULT_NOTIFICATION_TEMPLATES,
+  daily_message: DEFAULT_DAILY_MESSAGE,
 };
 
 function isPlainObject(value) {
@@ -12520,6 +12526,18 @@ app.get("/api/public/settings/:key", async (req, res) => {
       return res.status(403).json({ message: "Configuración no pública" });
     }
     const value = await getSettingValueWithDefaults(key);
+    return res.json({ data: value });
+  } catch (err) {
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/daily-message — lectura pública (autenticada, no admin) del mensaje
+// del día para el inicio de la app de la clienta. El admin lo edita vía
+// PUT /api/settings/daily_message (endpoint genérico solo-admin, abajo).
+app.get("/api/daily-message", authMiddleware, async (req, res) => {
+  try {
+    const value = await getSettingValueWithDefaults("daily_message");
     return res.json({ data: value });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
