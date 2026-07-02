@@ -5346,9 +5346,19 @@ app.get("/api/admin/rings/users/:id", adminMiddleware, async (req, res) => {
         LIMIT 20`,
       [userId],
     );
+    // 'current' calculado EXACTAMENTE igual que en la app de la clienta
+    // (/api/me/rings): semana actual (MX) + fallback derivado de membresía/puntos.
+    // Antes se devolvía el row más reciente de ring_states (podía ser de otra
+    // semana y sin el fallback), por eso el admin veía anillos distintos a la alumna.
+    const snapshot = await getWalletSnapshotForUser(userId).catch(() => null);
+    const current = await getKalaWeeklyRingStateForUser(
+      userId,
+      snapshot?.membership || null,
+      snapshot?.points || 0,
+    );
     return res.json({
       data: {
-        current: historyRes.rows[0] || null,
+        current,
         history: historyRes.rows,
         communityEvents: eventsRes.rows,
       },

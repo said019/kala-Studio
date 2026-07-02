@@ -28,6 +28,16 @@ const fmtBirthdate = (value?: string | null) => {
   return d.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
 };
 
+// Método de pago en español (la BD guarda el enum cash/transfer/card/online).
+const PAYMENT_METHOD_ES: Record<string, string> = {
+  cash: "Efectivo", efectivo: "Efectivo",
+  transfer: "Transferencia", transferencia: "Transferencia", spei: "Transferencia",
+  card: "Tarjeta", tarjeta: "Tarjeta",
+  online: "En línea",
+};
+const pmLabel = (v?: string | null) =>
+  v ? (PAYMENT_METHOD_ES[String(v).toLowerCase()] ?? v) : "—";
+
 const ClientDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -197,32 +207,37 @@ const ClientDetail = () => {
   const u = user?.data ?? user;
   const ringData = rings?.data ?? rings ?? {};
   const currentRing = ringData.current ?? null;
-  // Datos para el anillo animado (mismo componente que ve la clienta en su pase).
+  // El endpoint admin ahora devuelve el MISMO shape anidado que ve la clienta
+  // (constancia/esfuerzo/conexion como {progress, goal}), calculado para la
+  // semana actual con el fallback por membresía. Así el admin ve lo mismo que la alumna.
+  const cst = currentRing?.constancia ?? {};
+  const esf = currentRing?.esfuerzo ?? {};
+  const cnx = currentRing?.conexion ?? {};
   const ringPct = (p: number, g: number) =>
     Number(g) > 0 ? Math.min(100, Math.max(0, Math.round((Number(p) / Number(g)) * 100))) : 0;
   const ringMetrics: KalaRing[] = [
     {
       key: "constancia",
       label: "Constancia",
-      value: `${currentRing?.constancia_progress ?? 0}/${currentRing?.constancia_goal ?? 1}`,
+      value: `${cst.progress ?? 0}/${cst.goal ?? 1}`,
       goalLabel: "clases asistidas",
-      progress: ringPct(currentRing?.constancia_progress ?? 0, currentRing?.constancia_goal ?? 1),
+      progress: ringPct(cst.progress ?? 0, cst.goal ?? 1),
       ...KALA_RING_COLORS.constancia,
     },
     {
       key: "esfuerzo",
       label: "Esfuerzo",
-      value: `${currentRing?.esfuerzo_progress ?? 0}/${currentRing?.esfuerzo_goal ?? 1}`,
+      value: `${esf.progress ?? 0}/${esf.goal ?? 1}`,
       goalLabel: "retos o intensas",
-      progress: ringPct(currentRing?.esfuerzo_progress ?? 0, currentRing?.esfuerzo_goal ?? 1),
+      progress: ringPct(esf.progress ?? 0, esf.goal ?? 1),
       ...KALA_RING_COLORS.esfuerzo,
     },
     {
       key: "conexion",
       label: "Conexión",
-      value: `${currentRing?.conexion_progress ?? 0}/${currentRing?.conexion_goal ?? 10}`,
+      value: `${cnx.progress ?? 0}/${cnx.goal ?? 10}`,
       goalLabel: "puntos de comunidad",
-      progress: ringPct(currentRing?.conexion_progress ?? 0, currentRing?.conexion_goal ?? 10),
+      progress: ringPct(cnx.progress ?? 0, cnx.goal ?? 10),
       ...KALA_RING_COLORS.conexion,
     },
   ];
@@ -426,15 +441,40 @@ const ClientDetail = () => {
 
             <TabsContent value="payments" className="mt-4">
               <Table>
-                <TableHeader><TableRow><TableHead>Monto</TableHead><TableHead>Método</TableHead><TableHead>Fecha</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow>
+                  <TableHead>Monto</TableHead>
+                  <TableHead>Concepto</TableHead>
+                  <TableHead>Método</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Fecha</TableHead>
+                </TableRow></TableHeader>
                 <TableBody>
-                  {(Array.isArray(payments?.data) ? payments.data : []).map((p: any) => (
-                    <TableRow key={p.id}>
-                      <TableCell>${p.total_amount ?? p.amount}</TableCell>
-                      <TableCell>{p.method}</TableCell>
-                      <TableCell>{p.createdAt ? new Date(p.createdAt).toLocaleDateString("es-MX") : "—"}</TableCell>
+                  {(Array.isArray(payments?.data) ? payments.data : []).map((p: any) => {
+                    const fecha = p.created_at ?? p.createdAt;
+                    const estado = p.status === "active" ? "Activa"
+                      : p.status === "approved" ? "Aprobada"
+                      : p.status ?? "—";
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-medium">
+                          ${Number(p.total_amount ?? p.amount ?? 0).toLocaleString("es-MX", { minimumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell>{p.plan_name ?? p.planName ?? "—"}</TableCell>
+                        <TableCell>{pmLabel(p.method)}</TableCell>
+                        <TableCell><Badge variant="outline" className="text-xs">{estado}</Badge></TableCell>
+                        <TableCell>
+                          {fecha ? new Date(fecha).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {(!payments?.data || payments.data.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                        Sin pagos registrados.
+                      </TableCell>
                     </TableRow>
-                  ))}
+                  )}
                 </TableBody>
               </Table>
             </TabsContent>
@@ -520,15 +560,15 @@ const ClientDetail = () => {
                 </div>
                 <div className="rounded-2xl border border-[#76214D]/25 bg-[#76214D]/10 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#76214D]">Constancia</p>
-                  <p className="mt-2 text-2xl font-bold">{currentRing?.constancia_progress ?? 0}/{currentRing?.constancia_goal ?? 1}</p>
+                  <p className="mt-2 text-2xl font-bold">{cst.progress ?? 0}/{cst.goal ?? 1}</p>
                 </div>
                 <div className="rounded-2xl border border-[#778455]/25 bg-[#778455]/10 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#778455]">Esfuerzo</p>
-                  <p className="mt-2 text-2xl font-bold">{currentRing?.esfuerzo_progress ?? 0}/{currentRing?.esfuerzo_goal ?? 1}</p>
+                  <p className="mt-2 text-2xl font-bold">{esf.progress ?? 0}/{esf.goal ?? 1}</p>
                 </div>
                 <div className="rounded-2xl border border-[#F58A24]/25 bg-[#F58A24]/10 p-4">
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#F58A24]">Conexión</p>
-                  <p className="mt-2 text-2xl font-bold">{currentRing?.conexion_progress ?? 0}/{currentRing?.conexion_goal ?? 10}</p>
+                  <p className="mt-2 text-2xl font-bold">{cnx.progress ?? 0}/{cnx.goal ?? 10}</p>
                 </div>
               </div>
 
